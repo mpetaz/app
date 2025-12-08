@@ -258,8 +258,26 @@
                 <p class="text-gray-400 text-sm">Track record completo delle performance</p>
             </div>
 
+            <!-- Tab Switch -->
+            <div class="flex gap-2 mb-4">
+                <button id="history-tab-pronostici"
+                    class="flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg">
+                    🎯 Pronostici
+                </button>
+                <button id="history-tab-trading"
+                    class="flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600">
+                    📈 Trading
+                </button>
+            </div>
+
+            <!-- Pronostici History (default visible) -->
             <div id="history-list" class="space-y-3">
                 <!-- Populated dynamically with date cards -->
+            </div>
+
+            <!-- Trading History (hidden by default) -->
+            <div id="trading-history-list" class="space-y-3 hidden">
+                <!-- Populated dynamically with trading date cards -->
             </div>
         </div>
 
@@ -1969,6 +1987,188 @@
                 best_05_ht: '⚡'
             };
             return icons[stratId] || '🎯';
+        }
+
+        // ==================== HISTORY TABS ====================
+        let currentHistoryTab = 'pronostici';
+
+        // Tab switching
+        document.getElementById('history-tab-pronostici').addEventListener('click', () => {
+            currentHistoryTab = 'pronostici';
+            document.getElementById('history-tab-pronostici').className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg';
+            document.getElementById('history-tab-trading').className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600';
+            document.getElementById('history-list').classList.remove('hidden');
+            document.getElementById('trading-history-list').classList.add('hidden');
+        });
+
+        document.getElementById('history-tab-trading').addEventListener('click', () => {
+            currentHistoryTab = 'trading';
+            document.getElementById('history-tab-trading').className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg';
+            document.getElementById('history-tab-pronostici').className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600';
+            document.getElementById('history-list').classList.add('hidden');
+            document.getElementById('trading-history-list').classList.remove('hidden');
+            loadTradingHistory();
+        });
+
+        // ==================== TRADING HISTORY ====================
+        async function loadTradingHistory() {
+            const container = document.getElementById('trading-history-list');
+            container.innerHTML = '<div class="text-center text-gray-400 py-8">Caricamento storico trading...</div>';
+
+            try {
+                const today = new Date();
+                const dates = [];
+
+                // Last 7 days
+                for (let i = 0; i <= 7; i++) {
+                    const date = new Date(today);
+                    date.setDate(date.getDate() - i);
+                    dates.push(date.toISOString().split('T')[0]);
+                }
+
+                const dateData = [];
+                for (const date of dates) {
+                    try {
+                        const docRef = doc(db, "daily_trading_picks", date);
+                        const docSnap = await getDoc(docRef);
+
+                        if (docSnap.exists()) {
+                            const data = docSnap.data();
+                            const picks = data.picks || [];
+
+                            // Count outcomes
+                            let vinte = 0, cashout = 0, stoploss = 0, pending = 0;
+                            picks.forEach(p => {
+                                if (p.esitoColor === 'green') vinte++;
+                                else if (p.esitoColor === 'yellow') cashout++;
+                                else if (p.esitoColor === 'red') stoploss++;
+                                else pending++;
+                            });
+
+                            dateData.push({
+                                date,
+                                picks,
+                                vinte,
+                                cashout,
+                                stoploss,
+                                pending,
+                                total: picks.length,
+                                hasData: true
+                            });
+                        } else {
+                            dateData.push({ date, hasData: false });
+                        }
+                    } catch (e) {
+                        console.error(`[Trading History] Error loading ${date}:`, e);
+                        dateData.push({ date, hasData: false });
+                    }
+                }
+
+                if (dateData.filter(d => d.hasData).length === 0) {
+                    container.innerHTML = '<div class="text-center text-gray-400 py-8">Nessuno storico trading disponibile</div>';
+                    return;
+                }
+
+                container.innerHTML = dateData.map(d => createTradingHistoryCard(d)).join('');
+
+                // Add click listeners for expand
+                dateData.forEach(data => {
+                    if (data.hasData && data.picks && data.picks.length > 0) {
+                        const card = container.querySelector(`[data-trading-date="${data.date}"]`);
+                        if (card) {
+                            card.addEventListener('click', () => toggleTradingDetails(data.date, data.picks, card));
+                        }
+                    }
+                });
+
+            } catch (e) {
+                console.error('[Trading History] Error:', e);
+                container.innerHTML = '<div class="text-center text-red-400 py-8">Errore caricamento storico trading</div>';
+            }
+        }
+
+        function createTradingHistoryCard(data) {
+            const { date, vinte, cashout, stoploss, pending, total, hasData } = data;
+
+            const dateObj = new Date(date + 'T12:00:00');
+            const dayName = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'][dateObj.getDay()];
+            const dayNum = dateObj.getDate();
+            const monthName = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'][dateObj.getMonth()];
+
+            const today = new Date().toISOString().split('T')[0];
+            const isToday = date === today;
+
+            if (!hasData || total === 0) {
+                return `
+                    <div class="bg-gray-800/50 rounded-xl p-4 opacity-50">
+                        <div class="flex items-center justify-between">
+                            <div class="text-sm text-gray-500">${dayName}, ${dayNum} ${monthName}${isToday ? ' (Oggi)' : ''}</div>
+                            <div class="text-sm text-gray-500">Nessun dato</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Build emoji badges string
+            let badges = '';
+            badges += '🟢'.repeat(vinte);
+            badges += '🟡'.repeat(cashout);
+            badges += '🔴'.repeat(stoploss);
+            if (pending > 0) badges += `⏳${pending}`;
+
+            return `
+                <div data-trading-date="${date}" class="bg-gradient-to-r from-orange-900/50 to-red-900/50 rounded-xl p-4 cursor-pointer hover:scale-[1.02] transition-transform border border-orange-500/30">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <div class="text-lg font-bold">${dayName}, ${dayNum} ${monthName}${isToday ? ' <span class="text-orange-400">(Oggi)</span>' : ''}</div>
+                            <div class="text-xs text-gray-400 mt-1">${total} trading picks</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-2xl">${badges || '⏳'}</div>
+                            <div class="text-xs text-gray-400">${vinte}V ${cashout}C ${stoploss}S</div>
+                        </div>
+                    </div>
+                    <div id="trading-details-${date}" class="hidden mt-4 pt-4 border-t border-white/20">
+                        <!-- Populated on click -->
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleTradingDetails(date, picks, card) {
+            const detailsContainer = card.querySelector(`#trading-details-${date}`);
+
+            if (detailsContainer.classList.contains('hidden')) {
+                // Show details
+                detailsContainer.innerHTML = picks.map(pick => {
+                    const bgColor = pick.esitoColor === 'green' ? 'bg-green-600/30' :
+                        pick.esitoColor === 'yellow' ? 'bg-yellow-600/30' :
+                            pick.esitoColor === 'red' ? 'bg-red-600/30' : 'bg-gray-600/30';
+                    const emoji = pick.esitoColor === 'green' ? '🟢' :
+                        pick.esitoColor === 'yellow' ? '🟡' :
+                            pick.esitoColor === 'red' ? '🔴' : '⏳';
+
+                    return `
+                        <div class="${bgColor} rounded-lg p-3 mb-2">
+                            <div class="flex items-center justify-between mb-1">
+                                <div class="font-bold text-sm">${pick.partita}</div>
+                                <div class="text-xl">${emoji}</div>
+                            </div>
+                            <div class="flex items-center justify-between text-xs text-gray-300">
+                                <div>${pick.lega || ''}</div>
+                                <div><span class="text-purple-300">${pick.strategy}</span></div>
+                            </div>
+                            <div class="flex items-center justify-between text-xs mt-1">
+                                <div class="text-gray-400">Entry: ${pick.tradingInstruction?.entryRange?.join(' - ') || '-'}</div>
+                                <div class="font-bold">${pick.risultato || 'In attesa'}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                detailsContainer.classList.remove('hidden');
+            } else {
+                detailsContainer.classList.add('hidden');
+            }
         }
     </script>
 </body>
