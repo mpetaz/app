@@ -2036,6 +2036,25 @@
     let isOpen = false;
     let chatHistory = [];
     let hasWelcomed = false;
+    let eugenioPromptCache = null; // Cache loaded prompt from Firebase
+
+    // Load Eugenio Prompt from Firebase (called once on app load)
+    async function loadEugenioPrompt() {
+        try {
+            const promptDoc = await getDoc(doc(db, "system_prompts", "eugenio"));
+            if (promptDoc.exists()) {
+                eugenioPromptCache = promptDoc.data();
+                console.log('[Eugenio] ✅ Prompt loaded from Firebase');
+            } else {
+                console.log('[Eugenio] ⚠️ No custom prompt in Firebase, using default');
+            }
+        } catch (e) {
+            console.error('[Eugenio] ❌ Error loading prompt:', e);
+        }
+    }
+
+    // Call on page load
+    loadEugenioPrompt();
 
     // Helper: Get User Name
     function getUserName() {
@@ -2217,6 +2236,16 @@ Se l'utente propone una NUOVA strategia (es. "Voglio una strategia sugli 0-0"), 
 Se l'utente dice SÌ (o "prepara mail"):
 Usa il comando: \`[[CMD:EMAIL|Oggetto|Corpo]]\`
 Esempio: \`[[CMD:EMAIL|Proposta Strategia 0-0|Ciao Team, vorrei proporre una strategia basata sui pareggi 0-0...]]\`
+
+${eugenioPromptCache ? `
+**=== CONOSCENZE AGGIUNTIVE (DA FIREBASE) ===**
+
+${eugenioPromptCache.tradingKnowledge || ''}
+
+${eugenioPromptCache.customInstructions || ''}
+
+${eugenioPromptCache.additionalContext || ''}
+` : ''}
 `;
     }
 
