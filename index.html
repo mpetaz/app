@@ -172,7 +172,7 @@
         <div class="bg-gradient-to-r from-purple-700 to-blue-700 shadow-lg sticky top-0 z-40">
             <div class="container mx-auto px-4 py-4 flex items-center justify-between">
                 <div class="flex items-center gap-3">
-                    <img src="logo.png" alt="TipsterAI" class="h-10 w-10 rounded-lg">
+                    <img src="logo.png" alt="TipsterAI" class="h-12 w-12 rounded-xl object-contain">
                     <div>
                         <h1 class="text-2xl font-black">TipsterAI</h1>
                         <p id="user-nickname-header" class="text-xs text-purple-200"></p>
@@ -2141,26 +2141,26 @@
             if (detailsContainer.classList.contains('hidden')) {
                 // Show details
                 detailsContainer.innerHTML = picks.map(pick => {
-                    const bgColor = pick.esitoColor === 'green' ? 'bg-green-600/30' :
-                        pick.esitoColor === 'yellow' ? 'bg-yellow-600/30' :
-                            pick.esitoColor === 'red' ? 'bg-red-600/30' : 'bg-gray-600/30';
+                    const bgColor = pick.esitoColor === 'green' ? 'bg-green-700/80 border-green-500' :
+                        pick.esitoColor === 'yellow' ? 'bg-yellow-700/80 border-yellow-500' :
+                            pick.esitoColor === 'red' ? 'bg-red-700/80 border-red-500' : 'bg-gray-700/80 border-gray-500';
                     const emoji = pick.esitoColor === 'green' ? '🟢' :
                         pick.esitoColor === 'yellow' ? '🟡' :
                             pick.esitoColor === 'red' ? '🔴' : '⏳';
 
                     return `
-                        <div class="${bgColor} rounded-lg p-3 mb-2">
-                            <div class="flex items-center justify-between mb-1">
-                                <div class="font-bold text-sm">${pick.partita}</div>
-                                <div class="text-xl">${emoji}</div>
+                        <div class="${bgColor} border-l-4 rounded-lg p-4 mb-3">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="font-bold text-base text-white">${pick.partita}</div>
+                                <div class="text-2xl">${emoji}</div>
                             </div>
-                            <div class="flex items-center justify-between text-xs text-gray-300">
+                            <div class="flex items-center justify-between text-sm text-white/90">
                                 <div>${pick.lega || ''}</div>
-                                <div><span class="text-purple-300">${pick.strategy}</span></div>
+                                <div><span class="text-orange-300 font-semibold">${pick.strategy}</span></div>
                             </div>
-                            <div class="flex items-center justify-between text-xs mt-1">
-                                <div class="text-gray-400">Entry: ${pick.tradingInstruction?.entryRange?.join(' - ') || '-'}</div>
-                                <div class="font-bold">${pick.risultato || 'In attesa'}</div>
+                            <div class="flex items-center justify-between text-sm mt-2">
+                                <div class="text-white/80">Entry: ${pick.tradingInstruction?.entryRange?.join(' - ') || '-'}</div>
+                                <div class="font-bold text-white text-lg">${pick.risultato || 'In attesa'}</div>
                             </div>
                         </div>
                     `;
