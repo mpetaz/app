@@ -440,6 +440,7 @@
         // Expose Firebase helpers to window for AI functions
         window.db = db;
         window.setDoc = setDoc;
+        window.getDoc = getDoc;
         window.doc = doc;
         window.currentUser = null; // Will be updated by auth listener
 
@@ -2041,10 +2042,12 @@
     // Load Eugenio Prompt from Firebase (called once on app load)
     async function loadEugenioPrompt() {
         try {
-            const promptDoc = await getDoc(doc(db, "system_prompts", "eugenio"));
+            // Use window.* because we're in a separate script block from the module
+            const promptDoc = await window.getDoc(window.doc(window.db, "system_prompts", "eugenio"));
             if (promptDoc.exists()) {
                 eugenioPromptCache = promptDoc.data();
                 console.log('[Eugenio] ✅ Prompt loaded from Firebase');
+                console.log('[Eugenio] Trading knowledge preview:', (eugenioPromptCache.tradingKnowledge || '').substring(0, 80) + '...');
             } else {
                 console.log('[Eugenio] ⚠️ No custom prompt in Firebase, using default');
             }
