@@ -2136,6 +2136,14 @@
         // Get Global Stats safely
         const stats = window.globalStats || { total: 0, wins: 0, losses: 0, winrate: 0 };
 
+        // DEBUG: Log Firebase knowledge status BEFORE building prompt
+        if (eugenioPromptCache) {
+            console.log('[Eugenio] ✅ Firebase knowledge WILL BE INJECTED!');
+            console.log('[Eugenio] Trading knowledge preview:', (eugenioPromptCache.tradingKnowledge || '').substring(0, 100) + '...');
+        } else {
+            console.log('[Eugenio] ⚠️ No Firebase knowledge cached yet');
+        }
+
         return `
 Sei **euGENIO 🧞‍♂️**, l'assistente speciale di Tipster-AI.
 Parla al plurale o in terza persona come se fossi il team di esperti (es. "Noi di TipsterAI", "Gli esperti di TipsterAI", "La magia di TipsterAI").
@@ -2447,6 +2455,12 @@ ${eugenioPromptCache.additionalContext || ''}
         try {
             // Initialize History if empty
             if (chatHistory.length === 0) {
+                // Ensure Firebase prompt is loaded before building system prompt
+                if (!eugenioPromptCache) {
+                    console.log('[Eugenio] ⏳ Waiting for Firebase prompt to load...');
+                    await loadEugenioPrompt();
+                }
+
                 const currentSystemPrompt = buildSystemPrompt();
                 chatHistory.push({
                     role: "user",
