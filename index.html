@@ -907,6 +907,7 @@
         function formatToday() {
             return new Date().toISOString().split('T')[0];
         }
+        window.formatToday = formatToday;
 
         // Render Strategies
         function renderStrategies() {
@@ -2804,7 +2805,9 @@ ${eugenioPromptCache.additionalContext || ''}
     });
 
     // ==================== TRADING SPORTIVO ====================
-    let tradingSelectedDate = formatToday();
+    let tradingSelectedDate = (typeof window.formatToday === 'function')
+        ? window.formatToday()
+        : new Date().toISOString().split('T')[0];
 
     async function loadTradingPicks(date = null) {
         const dateToLoad = date || tradingSelectedDate;
