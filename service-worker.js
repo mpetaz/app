@@ -1,7 +1,8 @@
 // TipsterAI Service Worker v1.0
 const CACHE_NAME = 'tipsterai-v1';
 const STATIC_ASSETS = [
-    '/client_v2.html',
+    '/',
+    '/index.html',
     '/logo.png',
     '/logo quadrato.png',
     '/favicon.png',
@@ -73,7 +74,7 @@ self.addEventListener('fetch', event => {
                     }
                     // If HTML request fails, show offline page
                     if (event.request.headers.get('accept').includes('text/html')) {
-                        return caches.match('/client_v2.html');
+                        return caches.match('/index.html');
                     }
                 });
             })
