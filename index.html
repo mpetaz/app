@@ -455,6 +455,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
         import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-functions.js";
 
         // Firebase Config
         const firebaseConfig = window.firebaseConfig;
@@ -477,6 +478,10 @@
         window.getDoc = getDoc;
         window.doc = doc;
         window.currentUser = null; // Will be updated by auth listener
+
+        // Initialize Firebase Functions for secure API calls
+        const functions = getFunctions(app);
+        window.chatWithGemini = httpsCallable(functions, 'chat');
 
         // State
         let currentUser = null;
@@ -2233,9 +2238,8 @@
 
 <!-- AI Chatbot Logic -->
 <script>
-    // CONFIGURATION
-    // API Key imported from secrets.js
-    const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    // EUGENIO AI CHATBOT
+    // Uses Firebase Cloud Function for secure Gemini API calls
 
     // UI Elements
     const widget = document.getElementById('ai-chat-widget');
@@ -2722,25 +2726,19 @@ ${eugenioPromptCache.additionalContext || ''}
                 parts: [{ text: text }]
             });
 
-            // Call Gemini API (REST) with FULL HISTORY
-            const response = await fetch(`${API_URL}?key=${window.GEMINI_API_KEY}`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    contents: chatHistory
-                })
+            // Call Gemini via Firebase Cloud Function (secure - API key on server)
+            const result = await window.chatWithGemini({
+                contents: chatHistory,
+                generationConfig: {
+                    temperature: 1,
+                    maxOutputTokens: 2048
+                }
             });
 
-            const data = await response.json();
+            const data = result.data;
 
-            if (!response.ok) {
-                // Handle specific error for leaked key
-                if (data.error && data.error.message && data.error.message.includes("API key not valid")) {
-                    throw new Error("API Key non valida o revocata da Google.");
-                }
-                throw new Error(data.error?.message || "Errore API");
+            if (!data.candidates || !data.candidates[0]) {
+                throw new Error("Risposta vuota dall'AI");
             }
 
             const markdownText = data.candidates[0].content.parts[0].text;
