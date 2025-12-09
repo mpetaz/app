@@ -2257,6 +2257,29 @@
 
     // Load Eugenio Prompt from Firebase (called once on app load)
     async function loadEugenioPrompt() {
+        // Wait for Firebase to be ready (window.doc defined by module script)
+        if (!window.doc || !window.getDoc || !window.db) {
+            console.log('[Eugenio] ⏳ Waiting for Firebase...');
+            await new Promise(resolve => {
+                const checkInterval = setInterval(() => {
+                    if (window.doc && window.getDoc && window.db) {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+                // Timeout after 5 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    resolve();
+                }, 5000);
+            });
+        }
+
+        if (!window.doc || !window.getDoc || !window.db) {
+            console.log('[Eugenio] ⚠️ Firebase not ready, skipping prompt load');
+            return;
+        }
+
         try {
             // Use window.* because we're in a separate script block from the module
             const promptDoc = await window.getDoc(window.doc(window.db, "system_prompts", "eugenio"));
@@ -2272,8 +2295,8 @@
         }
     }
 
-    // Call on page load
-    loadEugenioPrompt();
+    // Call on page load (with delay to ensure Firebase module is loaded)
+    setTimeout(() => loadEugenioPrompt(), 500);
 
     // Helper: Get User Name
     function getUserName() {
