@@ -1,5 +1,5 @@
-// TipsterAI Service Worker v1.0
-const CACHE_NAME = 'tipsterai-v1';
+// TipsterAI Service Worker v2.0 - Updated 2024-12-10
+const CACHE_NAME = 'tipsterai-v2';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -7,9 +7,7 @@ const STATIC_ASSETS = [
     '/icon-192.png',
     '/icon-512.png',
     '/favicon.png',
-    '/manifest.webmanifest',
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css',
-    'https://cdn.tailwindcss.com'
+    '/manifest.webmanifest'
 ];
 
 // Install - cache static assets
