@@ -624,6 +624,11 @@
                 // Load warning stats for Standard strategies
                 await loadWarningStats();
 
+                // Load euGENIO custom prompt from Firebase (AFTER auth!)
+                if (typeof loadEugenioPrompt === 'function') {
+                    loadEugenioPrompt();
+                }
+
                 document.getElementById('loading-overlay').classList.add('hidden');
                 document.getElementById('login-container').classList.add('hidden'); // Fix: Hide login screen
                 document.getElementById('app-container').classList.remove('hidden');
@@ -2384,8 +2389,8 @@
         }
     }
 
-    // Call on page load (with delay to ensure Firebase module is loaded)
-    setTimeout(() => loadEugenioPrompt(), 500);
+    // NOTE: loadEugenioPrompt is now called from onAuthStateChanged (after login)
+    // This avoids Firebase permission errors
 
     // Helper: Get User Name
     function getUserName() {
