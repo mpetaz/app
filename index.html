@@ -1191,6 +1191,7 @@
 
                 const location = isHome ? 'casa' : 'trasferta';
                 const tipDisplay = tip || match.tip;
+                const tipNorm = tipDisplay.toLowerCase().trim();
 
                 // Determine what the stats represent based on tip type
                 let explanation = '';
@@ -1201,8 +1202,33 @@
                     // Under tip
                     explanation = `Nelle ultime <strong>${stats.total}</strong> partite, ha avuto esito <strong>${tipDisplay}</strong> in <strong>${stats.count}</strong> casi`;
                 } else {
-                    // 1X2 / DC
-                    explanation = `Nelle ultime <strong>${stats.total}</strong> partite ${location}, esito favorevole in <strong>${stats.count}</strong> casi`;
+                    // 1X2 / DC - Personalized text per tip
+                    let outcomeText = '';
+
+                    if (tipNorm === '1') {
+                        // Casa vince
+                        outcomeText = isHome ? 'ha vinto' : 'ha perso';
+                    } else if (tipNorm === 'x') {
+                        // Pareggio
+                        outcomeText = 'ha pareggiato';
+                    } else if (tipNorm === '2') {
+                        // Trasferta vince
+                        outcomeText = isHome ? 'ha perso' : 'ha vinto';
+                    } else if (tipNorm === '1x') {
+                        // Casa non perde
+                        outcomeText = isHome ? 'non ha perso' : 'non ha vinto';
+                    } else if (tipNorm === 'x2') {
+                        // Trasferta non perde
+                        outcomeText = isHome ? 'non ha vinto' : 'non ha perso';
+                    } else if (tipNorm === '12') {
+                        // No pareggio
+                        outcomeText = 'non ha pareggiato';
+                    } else {
+                        // Fallback generico
+                        outcomeText = 'esito favorevole';
+                    }
+
+                    explanation = `Nelle ultime <strong>${stats.total}</strong> partite ${location}, <strong>${outcomeText}</strong> in <strong>${stats.count}</strong> casi`;
                 }
 
                 return explanation;
@@ -2432,6 +2458,22 @@ ${strategiesText}
 3. **Mie Partite** ⭐: L'utente può salvare le partite preferite (stella ⭐).
 4. **Badge Rossi**: Indicano le "Partite Calde" o le opportunità attive per quella strategia. Più alto è il numero, più occasioni ci sono!
 5. **Filtri**: Si possono ordinare le partite per Ranking 📊 (migliori prima) o Orario 🕐.
+6. **Trading Sportivo** 🎯: Sezione dedicata con le 6 migliori picks per trading su exchange (Betfair, Betflag).
+   - 3 Over 2.5 selezionate con algoritmo Poisson
+   - 3 Under 3.5 selezionate per sicurezza
+   - Ogni pick ha: Entry Range, Stop-Loss, Target
+   - Navigazione per data con storico
+
+**STATISTICHE SQUADRE (NUOVO!):**
+Ogni card partita mostra statistiche Casa/Trasferta con testi PERSONALIZZATI per tip:
+- **Tip 1 (vince casa)**: Casa "ha vinto", Trasferta "ha perso"
+- **Tip X (pareggio)**: Entrambe "ha pareggiato"
+- **Tip 2 (vince trasferta)**: Casa "ha perso", Trasferta "ha vinto"
+- **Tip 1X (casa non perde)**: Casa "non ha perso", Trasferta "non ha vinto"
+- **Tip X2 (trasf non perde)**: Casa "non ha vinto", Trasferta "non ha perso"
+- **Tip +1.5/+2.5 (Over)**: "ha avuto esito +1.5 in X casi"
+- **Tip -2.5/-3.5 (Under)**: "ha avuto esito -2.5 in X casi"
+Questo aiuta l'utente a capire ESATTAMENTE cosa significano i numeri!
 
 **SISTEMA WARNING (⚠️) - IMPORTANTE!**
 Alcune partite nelle **strategie STANDARD** mostrano un badge rosso ⚠️. Questo è il nostro sistema di QUALITY CONTROL:
@@ -2939,17 +2981,48 @@ ${eugenioPromptCache.additionalContext || ''}
 </script>
 </body>
 
-<!-- PWA Service Worker Registration -->
+<!-- PWA Service Worker Registration with Auto-Update -->
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('/service-worker.js')
                 .then(registration => {
                     console.log('[PWA] ✅ Service Worker registered:', registration.scope);
+
+                    // Check for updates every time page visible
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.visibilityState === 'visible') {
+                            registration.update();
+                        }
+                    });
+
+                    // Check for updates periodically (every 5 min)
+                    setInterval(() => registration.update(), 5 * 60 * 1000);
+
+                    // Listen for updates
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        console.log('[PWA] 🔄 New Service Worker found, installing...');
+
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                console.log('[PWA] ✨ New version ready! Reloading...');
+                                window.location.reload();
+                            }
+                        });
+                    });
                 })
                 .catch(error => {
                     console.log('[PWA] ❌ Service Worker registration failed:', error);
                 });
+
+            // Listen for messages from SW
+            navigator.serviceWorker.addEventListener('message', event => {
+                if (event.data?.type === 'SW_UPDATED') {
+                    console.log('[PWA] 🆕 SW updated to version:', event.data.version);
+                    window.location.reload();
+                }
+            });
         });
     }
 </script>
