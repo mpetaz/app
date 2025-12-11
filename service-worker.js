@@ -1,6 +1,6 @@
-// TipsterAI Service Worker v3.3 - Chrome Extension Fix
+// TipsterAI Service Worker v3.4 - euGENIO Auth Fix
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.3.0';
+const VERSION = '3.4.0';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
