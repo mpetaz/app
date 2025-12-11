@@ -1,6 +1,6 @@
-// TipsterAI Service Worker v3.2 - Refined Card Design
+// TipsterAI Service Worker v3.3 - Chrome Extension Fix
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.2.0';
+const VERSION = '3.3.0';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
@@ -98,11 +98,15 @@ self.addEventListener('fetch', event => {
     event.respondWith(
         fetch(event.request)
             .then(response => {
-                // Cache solo risposte valide
-                if (response.status === 200 && url.protocol.startsWith('http')) {
+                // Cache solo risposte valide E solo URL http/https (no chrome-extension!)
+                const requestUrl = event.request.url;
+                if (response.status === 200 && requestUrl.startsWith('http')) {
                     const responseClone = response.clone();
                     caches.open(CACHE_NAME).then(cache => {
                         cache.put(event.request, responseClone);
+                    }).catch(err => {
+                        // Ignora errori di cache (es. quota superata)
+                        console.log('[SW] Cache put error (ignored):', err.message);
                     });
                 }
                 return response;
