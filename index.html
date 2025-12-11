@@ -2889,19 +2889,19 @@ ${eugenioPromptCache.additionalContext || ''}
             console.error("AI Error Details:", error);
             removeLoading();
 
-            // User-friendly error message (hide technical details)
-            let userMessage = '⚠️ <strong>Errore Tecnico:</strong> Al momento non riesco a rispondere. ';
+            // User-friendly error message (in character as euGENIO)
+            let userMessage = '🥹 In questo momento sono molto occupato e sono da solo... ';
 
             // Check for specific known errors
             if (error.message && error.message.includes('blocked')) {
-                userMessage += 'Il servizio AI è temporaneamente non disponibile.';
+                userMessage += 'Il mio cervellone AI è temporaneamente in pausa!';
             } else if (error.message && error.message.includes('API key')) {
-                userMessage += 'Problema di configurazione del servizio.';
+                userMessage += 'Ho un problemino tecnico da risolvere.';
             } else {
-                userMessage += 'Riprova tra qualche minuto.';
+                userMessage += 'Riprova tra qualche minuto!';
             }
 
-            userMessage += '<br><br>Se il problema persiste, contatta il supporto.';
+            userMessage += '<br><br>Se non dovessi più rispondere, contatta i miei capi sperando mi diano un aiuto 😜... a più tardi!';
 
             appendMessage(userMessage, 'ai');
         }
