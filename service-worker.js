@@ -1,6 +1,6 @@
-// TipsterAI Service Worker v3.1 - Auto Update + New Card Design
+// TipsterAI Service Worker v3.2 - Refined Card Design
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.1.0';
+const VERSION = '3.2.0';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
