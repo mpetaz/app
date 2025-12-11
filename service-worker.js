@@ -1,8 +1,11 @@
-// TipsterAI Service Worker v2.0 - Updated 2024-12-10
-const CACHE_NAME = 'tipsterai-v2';
+// TipsterAI Service Worker v3.0 - Auto Update
+// IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
+const VERSION = '3.0.0';
+const CACHE_NAME = `tipsterai-v${VERSION}`;
+
+// Solo assets statici che cambiano raramente
+// NON includere index.html - deve essere sempre fresh dalla rete!
 const STATIC_ASSETS = [
-    '/',
-    '/index.html',
     '/logo.png',
     '/icon-192.png',
     '/icon-512.png',
@@ -10,23 +13,26 @@ const STATIC_ASSETS = [
     '/manifest.webmanifest'
 ];
 
-// Install - cache static assets
+// Install - cache solo assets statici (NO HTML!)
 self.addEventListener('install', event => {
-    console.log('[SW] Installing...');
+    console.log(`[SW] Installing v${VERSION}...`);
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => {
                 console.log('[SW] Caching static assets');
                 return cache.addAll(STATIC_ASSETS);
             })
-            .then(() => self.skipWaiting())
+            .then(() => {
+                console.log('[SW] Skip waiting - taking over immediately');
+                return self.skipWaiting();
+            })
             .catch(err => console.log('[SW] Cache failed:', err))
     );
 });
 
-// Activate - clean old caches
+// Activate - pulisci TUTTE le vecchie cache e prendi controllo
 self.addEventListener('activate', event => {
-    console.log('[SW] Activating...');
+    console.log(`[SW] Activating v${VERSION}...`);
     event.waitUntil(
         caches.keys().then(cacheNames => {
             return Promise.all(
@@ -37,27 +43,63 @@ self.addEventListener('activate', event => {
                         return caches.delete(name);
                     })
             );
-        }).then(() => self.clients.claim())
+        }).then(() => {
+            console.log('[SW] Claiming all clients');
+            return self.clients.claim();
+        }).then(() => {
+            // Notifica tutti i client che c'è un nuovo SW
+            return self.clients.matchAll().then(clients => {
+                clients.forEach(client => {
+                    client.postMessage({ type: 'SW_UPDATED', version: VERSION });
+                });
+            });
+        })
     );
 });
 
-// Fetch - Network first, fallback to cache
+// Fetch - NETWORK FIRST per HTML, cache solo per assets
 self.addEventListener('fetch', event => {
     // Skip non-GET requests
     if (event.request.method !== 'GET') return;
 
-    // Skip Firebase/API requests (always need network)
-    if (event.request.url.includes('firebaseio.com') ||
-        event.request.url.includes('googleapis.com') ||
-        event.request.url.includes('gstatic.com/firebasejs')) {
+    const url = new URL(event.request.url);
+
+    // Skip Firebase/API requests - sempre dalla rete
+    if (url.hostname.includes('firebaseio.com') ||
+        url.hostname.includes('googleapis.com') ||
+        url.hostname.includes('gstatic.com') ||
+        url.hostname.includes('cloudfunctions.net')) {
         return;
     }
 
+    // Skip chrome-extension e altri schemi non-http
+    if (!url.protocol.startsWith('http')) {
+        return;
+    }
+
+    // Per HTML: SEMPRE dalla rete, NO cache
+    if (event.request.headers.get('accept')?.includes('text/html') ||
+        url.pathname === '/' ||
+        url.pathname.endsWith('.html')) {
+        event.respondWith(
+            fetch(event.request)
+                .then(response => {
+                    return response;
+                })
+                .catch(() => {
+                    // Solo offline: mostra versione cached se esiste
+                    return caches.match('/index.html');
+                })
+        );
+        return;
+    }
+
+    // Per altri assets: Network first con cache fallback
     event.respondWith(
         fetch(event.request)
             .then(response => {
-                // Clone and cache successful responses
-                if (response.status === 200) {
+                // Cache solo risposte valide
+                if (response.status === 200 && url.protocol.startsWith('http')) {
                     const responseClone = response.clone();
                     caches.open(CACHE_NAME).then(cache => {
                         cache.put(event.request, responseClone);
@@ -66,23 +108,19 @@ self.addEventListener('fetch', event => {
                 return response;
             })
             .catch(() => {
-                // Network failed, try cache
-                return caches.match(event.request).then(cachedResponse => {
-                    if (cachedResponse) {
-                        return cachedResponse;
-                    }
-                    // If HTML request fails, show offline page
-                    if (event.request.headers.get('accept').includes('text/html')) {
-                        return caches.match('/index.html');
-                    }
-                });
+                return caches.match(event.request);
             })
     );
 });
 
-// Handle messages (for future use - e.g., skip waiting)
+// Handle messages
 self.addEventListener('message', event => {
     if (event.data === 'skipWaiting') {
         self.skipWaiting();
     }
+    if (event.data === 'getVersion') {
+        event.source.postMessage({ type: 'VERSION', version: VERSION });
+    }
 });
+
+console.log(`[SW] Service Worker v${VERSION} loaded`);
