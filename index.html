@@ -79,12 +79,36 @@
         }
 
         .match-card {
-            background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 1px solid #e2e8f0;
             transition: all 0.3s ease;
+            color: #1e293b;
         }
 
         .match-card:active {
             transform: translateY(2px);
+        }
+
+        .ranking-badge {
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 800;
+            font-size: 14px;
+            color: white;
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .ranking-badge.high {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        .ranking-badge.medium {
+            background: linear-gradient(135deg, #eab308, #ca8a04);
+        }
+
+        .ranking-badge.low {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
         }
 
         .score-badge {
@@ -1177,10 +1201,10 @@
 
             // HT Info section (when available and significant)
             const htHTML = match.info_ht && match.info_ht.trim() !== '' ? `
-                <div class="mt-3 bg-purple-500/20 border border-purple-400/30 rounded-lg p-3">
-                    <div class="text-xs font-bold text-purple-200 mb-1">📊 Primo Tempo (0.5 PT)</div>
-                    <div class="text-sm text-purple-100">
-                        Probabilità: <span class="font-black">${match.info_ht}</span>
+                <div class="mt-3 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <div class="text-xs font-bold text-purple-700 mb-1">📊 PRIMO TEMPO (0.5 PT)</div>
+                    <div class="text-sm text-purple-800">
+                        Probabilità gol: <span class="font-black text-purple-600">${match.info_ht}</span>
                     </div>
                 </div>
             ` : '';
@@ -1234,52 +1258,82 @@
                 return explanation;
             };
 
+            // Helper: Get stats warning for insufficient data
+            const getStatsWarning = (stats) => {
+                if (!stats || stats.total < 5) {
+                    return `<div class="text-orange-600 text-xs mt-1">⚠️ Dati insufficienti (${stats?.total || 0} partite nel database)</div>`;
+                }
+                return '';
+            };
+
             const statsHTML = match.teamStats && match.teamStats.home && match.teamStats.away ? `
-                <div class="mt-4 pt-4 border-t border-white/20">
-                    <div class="text-xs font-bold mb-3 opacity-80">📊 Statistiche Squadre:</div>
-                    <div class="space-y-3 text-xs">
-                        <div class="bg-white/10 p-3 rounded-lg">
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <div class="text-sm font-bold text-gray-700 mb-3">📊 STATISTICHE SQUADRE</div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-green-50 border border-green-200 p-3 rounded-lg">
                             <div class="flex items-center justify-between mb-2">
-                                <div class="font-semibold text-sm">🏠 Casa</div>
-                                <div class="text-${match.teamStats.home.color === 'green' ? 'green' : 'yellow'}-400 font-black text-lg">
+                                <div class="font-bold text-gray-800">🏠 CASA</div>
+                                <div class="text-${match.teamStats.home.percentage >= 60 ? 'green' : (match.teamStats.home.percentage >= 40 ? 'yellow' : 'red')}-600 font-black text-xl">
                                     ${match.teamStats.home.percentage}%
                                 </div>
                             </div>
-                            <div class="text-gray-300 text-xs leading-relaxed">
+                            <div class="text-gray-600 text-xs leading-relaxed">
                                 ${getStatsExplanation(match.teamStats.home, true, match.tip)}
                             </div>
+                            ${getStatsWarning(match.teamStats.home)}
                         </div>
-                        <div class="bg-white/10 p-3 rounded-lg">
+                        <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg">
                             <div class="flex items-center justify-between mb-2">
-                                <div class="font-semibold text-sm">✈️ Trasferta</div>
-                                <div class="text-${match.teamStats.away.color === 'green' ? 'green' : 'yellow'}-400 font-black text-lg">
+                                <div class="font-bold text-gray-800">✈️ TRASFERTA</div>
+                                <div class="text-${match.teamStats.away.percentage >= 60 ? 'green' : (match.teamStats.away.percentage >= 40 ? 'yellow' : 'red')}-600 font-black text-xl">
                                     ${match.teamStats.away.percentage}%
                                 </div>
                             </div>
-                            <div class="text-gray-300 text-xs leading-relaxed">
+                            <div class="text-gray-600 text-xs leading-relaxed">
                                 ${getStatsExplanation(match.teamStats.away, false, match.tip)}
                             </div>
+                            ${getStatsWarning(match.teamStats.away)}
                         </div>
                     </div>
                 </div>
             ` : '';
 
+            // Determine ranking color based on score
+            const getRankingColor = (score) => {
+                if (score >= 70) return 'high';
+                if (score >= 50) return 'medium';
+                return 'low';
+            };
+
             card.innerHTML = `
+                <!-- Header: Position, Time, Ranking, Star -->
                 <div class="flex items-center justify-between mb-3">
-                    <span class="text-3xl font-black text-purple-300">#${index + 1}</span>
-                    <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-2xl" data-match-id="${matchId}">
-                        <i class="fa-${isFlagged ? 'solid' : 'regular'} fa-star"></i>
-                    </button>
-                    <span class="score-badge text-white px-4 py-2 rounded-full text-xl font-black">${match.score}</span>
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl font-black text-purple-600">#${index + 1}</span>
+                        ${match.ora ? `<span class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-bold text-lg">⏰ ${match.ora}</span>` : ''}
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="ranking-badge ${getRankingColor(match.score)}">
+                            <div class="text-[10px] opacity-90">RANKING</div>
+                            <div class="text-lg">${match.score}</div>
+                        </div>
+                        <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-2xl text-gray-400" data-match-id="${matchId}">
+                            <i class="fa-${isFlagged ? 'solid' : 'regular'} fa-star"></i>
+                        </button>
+                    </div>
                 </div>
                 
-                ${showTimeInCard && match.ora ? `<div class="text-sm text-yellow-300 mb-2">🕐 ${match.ora}</div>` : ''}
+                <!-- Teams -->
+                <div class="text-2xl font-bold text-gray-900 mb-2">${match.partita}</div>
                 
-                <div class="text-2xl font-bold mb-2">${match.partita}</div>
-                <div class="text-sm opacity-80 mb-3">${match.lega}</div>
+                <!-- League Badge -->
+                <div class="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold mb-4">
+                    🏆 ${match.lega}
+                </div>
                 
                 ${warningHTML}
                 
+                <!-- Result (if available) -->
                 ${match.risultato && match.esito ? `
                     <div class="mb-4 p-4 rounded-xl ${match.esito === 'Vinto' ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-red-500 to-red-600'}">
                         <div class="flex items-center justify-between gap-4 text-white">
@@ -1296,22 +1350,22 @@
                     </div>
                 ` : ''}
                 
-                <div class="bg-white/10 rounded-lg p-3 mb-3">
+                <!-- Tip & Quota Box -->
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-3">
                     <div class="flex items-center justify-between">
                         <div>
-                            <div class="text-xs text-gray-300 mb-1">Tip Principale</div>
-                            <div class="text-xl font-black text-blue-300">${match.tip} <span class="text-white">@${match.quota}</span></div>
+                            <div class="text-xs font-bold text-gray-500 mb-1">TIP SUGGERITA</div>
+                            <div class="text-2xl font-black text-green-600">${match.tip}</div>
                         </div>
                         <div class="text-right">
-                            <div class="text-xs text-gray-300 mb-1">Probabilità</div>
-                            <div class="text-lg font-bold text-white">${match.probabilita}%</div>
+                            <div class="text-xs font-bold text-gray-500 mb-1">QUOTA BOOKMAKERS</div>
+                            <div class="text-2xl font-black text-purple-600">${match.quota}</div>
                         </div>
                     </div>
                 </div>
                 
                 ${!match.risultato ? indicationHTML : ''}
                 ${!match.risultato ? htHTML : ''}
-                ${!match.risultato ? betfairHTML : ''}
                 ${!match.risultato ? statsHTML : ''}
             `;
 
@@ -2885,46 +2939,70 @@ ${eugenioPromptCache.additionalContext || ''}
 
         picks.forEach((pick, index) => {
             const card = document.createElement('div');
-            card.className = 'bg-gray-800 rounded-lg p-2 border border-purple-500 shadow-md';
+            card.className = 'bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200 shadow-sm mb-4';
 
             // Strategy badge color
-            const strategyColor = pick.strategy === 'BACK_OVER_25' ? 'bg-purple-600' : 'bg-blue-600';
-            const strategyLabel = pick.strategy === 'BACK_OVER_25' ? 'BACK O2.5' : 'LAY Draw';
+            const isOver = pick.strategy === 'BACK_OVER_25';
+            const strategyColor = isOver ? 'bg-green-500' : 'bg-blue-500';
+            const strategyLabel = isOver ? '🔥 OVER 2.5' : '🛡️ UNDER 3.5';
+
+            // Confidence color
+            const getConfidenceColor = (conf) => {
+                if (conf >= 60) return 'text-green-600';
+                if (conf >= 45) return 'text-yellow-600';
+                return 'text-red-600';
+            };
 
             card.innerHTML = `
-                <div class="flex justify-between items-center gap-2 mb-1">
-                    <div class="flex-1 min-w-0">
-                        <div class="text-[10px] text-gray-400 truncate">${pick.lega || ''}</div>
-                        <div class="text-sm font-bold text-white leading-tight">${pick.partita || ''}</div>
+                <!-- Header: Time + Strategy + Confidence -->
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-3">
+                        ${pick.ora ? `<span class="bg-gray-200 text-gray-700 px-3 py-1 rounded-full font-bold">⏰ ${pick.ora}</span>` : ''}
+                        <span class="px-3 py-1 rounded-full ${strategyColor} text-white font-bold text-sm">${strategyLabel}</span>
                     </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <span class="px-1.5 py-0.5 rounded ${strategyColor} text-[10px] font-bold text-white">${strategyLabel}</span>
-                        <span class="text-lg font-bold text-purple-400">${pick.confidence || pick.score || '-'}</span>
+                    <div class="ranking-badge ${(pick.confidence || pick.score) >= 60 ? 'high' : ((pick.confidence || pick.score) >= 45 ? 'medium' : 'low')}">
+                        <div class="text-[10px] opacity-90">RANKING</div>
+                        <div class="text-lg">${pick.confidence || pick.score || '-'}</div>
+                    </div>
+                </div>
+                
+                <!-- Teams -->
+                <div class="text-xl font-bold text-gray-900 mb-1">${pick.partita || ''}</div>
+                
+                <!-- League -->
+                <div class="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold mb-3">
+                    🏆 ${pick.lega || ''}
+                </div>
+
+                <!-- Trading Info Box -->
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                    <div class="text-xs font-bold text-gray-500 mb-2">📊 TRADING INSTRUCTIONS</div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <div class="text-xs text-gray-500">AZIONE</div>
+                            <div class="font-bold text-gray-900">${pick.tradingInstruction?.action || pick.tip || '-'}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">ENTRY RANGE</div>
+                            <div class="font-bold text-green-600">${pick.tradingInstruction?.entryRange ? pick.tradingInstruction.entryRange.join(' - ') : (pick.quota || '-')}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">TARGET</div>
+                            <div class="font-bold text-purple-600">${pick.tradingInstruction?.exitTarget || '1° gol'}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-gray-500">TIMING</div>
+                            <div class="font-bold text-orange-600">${pick.tradingInstruction?.timing || 'Pre-match'}</div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="bg-blue-900/40 p-2 rounded border border-blue-500/50 mb-1">
-                    <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
-                        <div class="flex justify-between">
-                            <span class="text-gray-400">Azione:</span>
-                            <span class="font-semibold text-white">${pick.tradingInstruction?.action || pick.tip || '-'}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-400">Entry:</span>
-                            <span class="font-semibold text-green-400">${pick.tradingInstruction?.entryRange ? pick.tradingInstruction.entryRange.join('-') : (pick.quota || '-')}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-400">Exit:</span>
-                            <span class="font-semibold text-orange-400">${pick.tradingInstruction?.exitTarget || '1° gol'}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-400">When:</span>
-                            <span class="font-semibold text-purple-400">${pick.tradingInstruction?.timing || 'Pre-match'}</span>
-                        </div>
+                <!-- Reasoning -->
+                ${pick.reasoning ? `
+                    <div class="bg-gray-100 rounded-lg p-2 text-xs text-gray-600">
+                        💡 ${pick.reasoning}
                     </div>
-                </div>
-
-                <div class="text-[10px] text-blue-300 leading-tight">${pick.reasoning || ''}</div>
+                ` : ''}
             `;
 
             container.appendChild(card);
