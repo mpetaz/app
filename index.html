@@ -586,6 +586,7 @@
         let currentUserProfile = null; // Store user profile data
         let globalStats = { total: 0, wins: 0, losses: 0, winrate: 0 }; // Global stats for AI
         let warningStats = null; // Warning stats for volatile leagues/tips
+        let tradingFavorites = []; // Trading picks favorited for Telegram notifications
 
         // Strategy categories
         const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'best_05_ht', 'cups'];
@@ -1833,9 +1834,63 @@
 
         // ==================== TRADING SPORTIVO SYSTEM ====================
 
+        // Load Trading Favorites from Firestore
+        async function loadTradingFavorites() {
+            if (!currentUser) return;
+            try {
+                const favDoc = await getDoc(doc(db, "user_favorites", currentUser.uid));
+                if (favDoc.exists()) {
+                    tradingFavorites = favDoc.data().tradingPicks || [];
+                    console.log('[Trading] Favorites loaded:', tradingFavorites.length);
+                }
+            } catch (e) {
+                console.error('[Trading] Error loading favorites:', e);
+            }
+        }
+
+        // Save Trading Favorite
+        async function toggleTradingFavorite(pickId) {
+            if (!currentUser) {
+                alert('Devi essere loggato per salvare preferiti');
+                return;
+            }
+
+            const index = tradingFavorites.indexOf(pickId);
+            if (index > -1) {
+                tradingFavorites.splice(index, 1); // Remove
+            } else {
+                tradingFavorites.push(pickId); // Add
+            }
+
+            try {
+                await setDoc(doc(db, "user_favorites", currentUser.uid), {
+                    tradingPicks: tradingFavorites
+                }, { merge: true });
+
+                console.log('[Trading] Favorite toggled:', pickId, 'Now:', tradingFavorites.length);
+
+                // Update UI
+                const btn = document.querySelector(`.trading-favorite-btn[data-trading-id="${pickId}"]`);
+                if (btn) {
+                    if (tradingFavorites.includes(pickId)) {
+                        btn.classList.remove('text-white/50');
+                        btn.classList.add('text-yellow-300');
+                    } else {
+                        btn.classList.remove('text-yellow-300');
+                        btn.classList.add('text-white/50');
+                    }
+                }
+            } catch (e) {
+                console.error('[Trading] Error saving favorite:', e);
+            }
+        }
+
         // Load Trading Picks from Firestore
         async function loadTradingPicks() {
             try {
+                // First load favorites
+                await loadTradingFavorites();
+
                 const today = formatToday();
                 const tradingDoc = await getDoc(doc(db, "daily_trading_picks", today));
 
@@ -1849,6 +1904,15 @@
                         container.innerHTML = picks.map(pick => renderTradingCard(pick)).join('');
                         container.classList.remove('hidden');
                         emptyState.classList.add('hidden');
+
+                        // Setup event listeners for favorite buttons
+                        container.querySelectorAll('.trading-favorite-btn').forEach(btn => {
+                            btn.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                const pickId = btn.dataset.tradingId;
+                                toggleTradingFavorite(pickId);
+                            });
+                        });
                     } else {
                         container.classList.add('hidden');
                         emptyState.classList.remove('hidden');
@@ -1864,21 +1928,35 @@
             }
         }
 
-        // Render Trading Card (v2.0 - compact mobile)
+        // Render Trading Card (v2.0 - compact mobile with favorites)
         function renderTradingCard(pick) {
             const strategyColor = pick.strategy === 'BACK_OVER_25' ? 'from-purple-600 to-blue-600' : 'from-orange-500 to-red-500';
             const strategyLabel = pick.strategy === 'BACK_OVER_25' ? 'BACK O2.5' : 'LAY Draw';
             const icon = pick.strategy === 'BACK_OVER_25' ? '📊' : '🎯';
 
+            // Generate unique ID for this pick
+            const pickId = `trading_${pick.partita?.replace(/\s/g, '_') || Date.now()}`;
+
+            // Check if already favorited
+            const isFavorite = tradingFavorites.includes(pickId);
+
             return `
-                <div class="stat-card rounded-xl overflow-hidden mb-3">
+                <div class="stat-card rounded-xl overflow-hidden mb-3" data-trading-id="${pickId}">
                     <div class="bg-gradient-to-r ${strategyColor} text-white p-3">
                         <div class="flex items-center justify-between mb-1">
                             <div class="flex items-center gap-2">
                                 <span class="text-lg">${icon}</span>
                                 <span class="font-bold text-sm">${strategyLabel}</span>
                             </div>
-                            <div class="text-[10px] bg-white/20 px-2 py-0.5 rounded-full">${pick.lega || ''}</div>
+                            <div class="flex items-center gap-2">
+                                <div class="text-[10px] bg-white/20 px-2 py-0.5 rounded-full">${pick.lega || ''}</div>
+                                <button class="trading-favorite-btn ${isFavorite ? 'text-yellow-300' : 'text-white/50'} hover:text-yellow-300 transition" 
+                                        data-trading-id="${pickId}"
+                                        data-pick='${JSON.stringify(pick).replace(/'/g, "&#39;")}'
+                                        title="Aggiungi ai preferiti per notifiche Telegram">
+                                    <i class="fa-solid fa-star text-lg"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="text-xs opacity-90">${pick.ora || ''} • ${pick.partita || ''}</div>
                     </div>
