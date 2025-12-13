@@ -1869,15 +1869,27 @@
 
                 console.log('[Trading] Favorite toggled:', pickId, 'Now:', tradingFavorites.length);
 
-                // Update UI
+                // Update UI - star color
                 const btn = document.querySelector(`.trading-favorite-btn[data-trading-id="${pickId}"]`);
-                if (btn) {
-                    if (tradingFavorites.includes(pickId)) {
+                const card = document.querySelector(`.stat-card[data-trading-id="${pickId}"]`);
+
+                if (tradingFavorites.includes(pickId)) {
+                    // Add favorite styling
+                    if (btn) {
                         btn.classList.remove('text-white/50');
                         btn.classList.add('text-yellow-300');
-                    } else {
+                    }
+                    if (card) {
+                        card.classList.add('ring-2', 'ring-yellow-400', 'shadow-lg', 'shadow-yellow-400/30');
+                    }
+                } else {
+                    // Remove favorite styling
+                    if (btn) {
                         btn.classList.remove('text-yellow-300');
                         btn.classList.add('text-white/50');
+                    }
+                    if (card) {
+                        card.classList.remove('ring-2', 'ring-yellow-400', 'shadow-lg', 'shadow-yellow-400/30');
                     }
                 }
             } catch (e) {
@@ -1940,8 +1952,11 @@
             // Check if already favorited
             const isFavorite = tradingFavorites.includes(pickId);
 
+            // Favorite styling: golden ring and glow effect
+            const favoriteCardClass = isFavorite ? 'ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30' : '';
+
             return `
-                <div class="stat-card rounded-xl overflow-hidden mb-3" data-trading-id="${pickId}">
+                <div class="stat-card rounded-xl overflow-hidden mb-3 ${favoriteCardClass}" data-trading-id="${pickId}">
                     <div class="bg-gradient-to-r ${strategyColor} text-white p-3">
                         <div class="flex items-center justify-between mb-1">
                             <div class="flex items-center gap-2">
