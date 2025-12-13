@@ -393,6 +393,75 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Telegram Notifications Card -->
+            <div class="stat-card rounded-xl p-6 mt-4">
+                <h3 class="font-bold mb-3 text-lg text-gray-800 flex items-center gap-2">
+                    <i class="fa-brands fa-telegram text-blue-500"></i> Notifiche Telegram
+                </h3>
+
+                <!-- Not Linked State -->
+                <div id="telegram-not-linked" class="space-y-3">
+                    <p class="text-sm text-gray-600">Collega Telegram per ricevere notifiche live sui tuoi preferiti!
+                    </p>
+                    <div class="flex items-center gap-2">
+                        <button id="generate-telegram-code-btn"
+                            class="bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-600 transition flex items-center gap-2">
+                            <i class="fa-solid fa-link"></i> Genera Codice
+                        </button>
+                    </div>
+
+                    <!-- Code Display (hidden initially) -->
+                    <div id="telegram-code-display"
+                        class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mt-3">
+                        <p class="text-sm text-gray-700 mb-2">Il tuo codice di collegamento:</p>
+                        <div class="flex items-center gap-2">
+                            <span id="telegram-link-code"
+                                class="text-2xl font-mono font-bold text-blue-600 tracking-wider"></span>
+                            <button id="copy-telegram-code" class="text-blue-500 hover:text-blue-700">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">
+                            1. Apri <a href="https://t.me/TipsterAI_Live_Bot" target="_blank"
+                                class="text-blue-500 underline">@TipsterAI_Live_Bot</a> su Telegram<br>
+                            2. Invia: <code
+                                class="bg-gray-200 px-1 rounded">/start <span class="telegram-code-copy">CODICE</span></code>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Linked State -->
+                <div id="telegram-linked" class="hidden space-y-3">
+                    <div class="flex items-center gap-2 text-green-600">
+                        <i class="fa-solid fa-check-circle"></i>
+                        <span class="font-semibold">Collegato!</span>
+                        <span id="telegram-username" class="text-gray-500 text-sm"></span>
+                    </div>
+
+                    <!-- Notification Preferences -->
+                    <div class="space-y-2 mt-4">
+                        <p class="text-sm font-semibold text-gray-700">Notifiche attive:</p>
+                        <label class="flex items-center gap-2 text-sm text-gray-600">
+                            <input type="checkbox" id="notify-kickoff" checked class="rounded text-blue-500">
+                            ⚽ Inizio partita
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-600">
+                            <input type="checkbox" id="notify-goal" checked class="rounded text-blue-500">
+                            🥅 Goal segnato
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-600">
+                            <input type="checkbox" id="notify-result" checked class="rounded text-blue-500">
+                            🏁 Fine partita
+                        </label>
+                    </div>
+
+                    <button id="unlink-telegram-btn"
+                        class="text-red-500 text-sm hover:underline mt-2 flex items-center gap-1">
+                        <i class="fa-solid fa-unlink"></i> Scollega Telegram
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Trading Sportivo Page -->
@@ -1656,7 +1725,79 @@
                 const formatted = date.toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
                 document.getElementById('account-created').textContent = formatted;
             }
+
+            // Telegram Status
+            const telegramLinked = currentUserProfile.telegramLinked || false;
+            const telegramUsername = currentUserProfile.telegramUsername || '';
+
+            if (telegramLinked) {
+                document.getElementById('telegram-not-linked').classList.add('hidden');
+                document.getElementById('telegram-linked').classList.remove('hidden');
+                document.getElementById('telegram-username').textContent = telegramUsername ? `@${telegramUsername}` : '';
+            } else {
+                document.getElementById('telegram-not-linked').classList.remove('hidden');
+                document.getElementById('telegram-linked').classList.add('hidden');
+            }
         }
+
+        // ==================== TELEGRAM INTEGRATION ====================
+
+        // Generate Telegram Link Code
+        document.getElementById('generate-telegram-code-btn')?.addEventListener('click', async () => {
+            const btn = document.getElementById('generate-telegram-code-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando...';
+
+            try {
+                // Call Cloud Function to generate code
+                const generateCode = httpsCallable(functions, 'generateTelegramLinkCode');
+                const result = await generateCode();
+                const code = result.data.code;
+
+                // Display code
+                document.getElementById('telegram-link-code').textContent = code;
+                document.querySelectorAll('.telegram-code-copy').forEach(el => el.textContent = code);
+                document.getElementById('telegram-code-display').classList.remove('hidden');
+
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Codice Generato';
+
+                console.log('[Telegram] Link code generated:', code);
+            } catch (error) {
+                console.error('[Telegram] Error generating code:', error);
+                alert('Errore nella generazione del codice. Riprova.');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-link"></i> Genera Codice';
+            }
+        });
+
+        // Copy Telegram Code
+        document.getElementById('copy-telegram-code')?.addEventListener('click', () => {
+            const code = document.getElementById('telegram-link-code').textContent;
+            const command = `/start ${code}`;
+            navigator.clipboard.writeText(command).then(() => {
+                alert('✅ Comando copiato! Incollalo nel bot Telegram.');
+            });
+        });
+
+        // Unlink Telegram
+        document.getElementById('unlink-telegram-btn')?.addEventListener('click', async () => {
+            if (!confirm('Vuoi scollegare Telegram? Non riceverai più notifiche live.')) return;
+
+            try {
+                await setDoc(doc(db, "users", currentUser.uid), {
+                    telegramLinked: false,
+                    telegramUnlinkedAt: new Date().toISOString()
+                }, { merge: true });
+
+                currentUserProfile.telegramLinked = false;
+                populateAccountPage();
+
+                alert('✅ Telegram scollegato. Puoi ricollegarlo quando vuoi.');
+            } catch (error) {
+                console.error('[Telegram] Error unlinking:', error);
+                alert('Errore durante lo scollegamento.');
+            }
+        });
 
         // Edit Nickname Form
         document.getElementById('edit-nickname-form').addEventListener('submit', async (e) => {
