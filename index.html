@@ -1533,8 +1533,16 @@
                 btn.innerHTML = '<i class="fa-solid fa-star"></i>';
             }
 
+            // CRITICAL: Check if user is logged in
+            if (!currentUser || !currentUser.uid) {
+                alert('❌ ERRORE: currentUser non definito! UID=' + (currentUser ? currentUser.uid : 'NULL'));
+                console.error('[toggleFlag] currentUser is null/undefined:', currentUser);
+                return;
+            }
+
             // Save to Firebase
             try {
+                alert(`🔵 Tentativo salvataggio per user: ${currentUser.uid.substring(0, 8)}...`); // DEBUG
                 await setDoc(doc(db, "users", currentUser.uid, "data", "selected_matches"), {
                     matches: window.selectedMatches,
                     updated: Date.now()
@@ -2949,8 +2957,17 @@ ${eugenioPromptCache.additionalContext || ''}
 
             addedCount = matchesToAdd.length;
 
+            // CRITICAL: Check if user is logged in
+            if (!currentUser || !currentUser.uid) {
+                alert('❌ euGENIO ERRORE: currentUser non definito! UID=' + (currentUser ? currentUser.uid : 'NULL'));
+                console.error('[euGENIO] currentUser is null/undefined:', currentUser);
+                appendMessage(`⚠️ Errore: Sessione utente non valida. Riprova a fare login.`, 'ai');
+                return;
+            }
+
             // Save to Firebase
             try {
+                alert(`🔵 euGENIO: Salvataggio per user ${currentUser.uid.substring(0, 8)}...`); // DEBUG
                 await setDoc(doc(db, "users", currentUser.uid, "data", "selected_matches"), {
                     matches: window.selectedMatches,
                     updated: Date.now()
