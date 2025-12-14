@@ -1493,7 +1493,6 @@
             // Flag button logic - iOS requires touchend, desktop uses click
             const flagBtn = card.querySelector('.flag-btn');
             const handleFlag = (e) => {
-                alert('🟢 Touch detected!'); // DEBUG: Remove after testing
                 e.stopPropagation();
                 e.preventDefault(); // Prevent iOS from also firing click
                 toggleFlag(matchId, match, stratId, flagBtn);
@@ -1514,7 +1513,7 @@
 
         // Toggle Flag
         async function toggleFlag(matchId, match, stratId, btn) {
-            alert('🟡 toggleFlag chiamato!'); // DEBUG: Remove after testing
+            console.log('[toggleFlag] START for:', matchId);
             const index = window.selectedMatches.findIndex(sm => sm.id === matchId);
 
             if (index >= 0) {
@@ -1522,35 +1521,37 @@
                 window.selectedMatches.splice(index, 1);
                 btn.classList.remove('flagged');
                 btn.innerHTML = '<i class="fa-regular fa-star"></i>';
+                console.log('[toggleFlag] Removed from favorites');
             } else {
-                // Add
+                // Add - IMMEDIATE visual feedback
                 window.selectedMatches.push({
                     id: matchId,
-                    strategy: strategiesData[stratId].name, // Save to state
+                    strategy: strategiesData[stratId].name,
                     ...match
                 });
                 btn.classList.add('flagged');
                 btn.innerHTML = '<i class="fa-solid fa-star"></i>';
+                console.log('[toggleFlag] Added to favorites');
             }
 
-            // CRITICAL: Check if user is logged in
-            if (!currentUser || !currentUser.uid) {
-                alert('❌ ERRORE: currentUser non definito! UID=' + (currentUser ? currentUser.uid : 'NULL'));
-                console.error('[toggleFlag] currentUser is null/undefined:', currentUser);
+            // CRITICAL: Use window.currentUser (global scope)
+            if (!window.currentUser || !window.currentUser.uid) {
+                console.error('[toggleFlag] ❌ window.currentUser is null/undefined:', window.currentUser);
+                alert('⚠️ Sessione scaduta. Ricarica la pagina.');
                 return;
             }
 
             // Save to Firebase
             try {
-                alert(`🔵 Tentativo salvataggio per user: ${currentUser.uid.substring(0, 8)}...`); // DEBUG
-                await setDoc(doc(db, "users", currentUser.uid, "data", "selected_matches"), {
+                console.log('[toggleFlag] Saving to Firebase for user:', window.currentUser.uid.substring(0, 8));
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
                     matches: window.selectedMatches,
                     updated: Date.now()
                 });
-                alert('✅ Salvato su Firebase!'); // DEBUG: Remove after testing
+                console.log('[toggleFlag] ✅ Saved successfully');
             } catch (e) {
-                console.error('Error saving selection:', e);
-                alert('❌ ERRORE Firebase: ' + e.message); // DEBUG: Shows error
+                console.error('[toggleFlag] ❌ Firebase error:', e);
+                alert('❌ Errore salvataggio: ' + e.message);
             }
 
             // Update My Matches count
@@ -2950,29 +2951,28 @@ ${eugenioPromptCache.additionalContext || ''}
         });
 
         if (matchesToAdd.length > 0) {
-            alert(`🤖 euGENIO: Trovate ${matchesToAdd.length} partite`); // DEBUG
+            console.log('[euGENIO] Found', matchesToAdd.length, 'matches to add');
             // Update global array
             if (!window.selectedMatches) window.selectedMatches = [];
             window.selectedMatches.push(...matchesToAdd);
 
             addedCount = matchesToAdd.length;
 
-            // CRITICAL: Check if user is logged in
-            if (!currentUser || !currentUser.uid) {
-                alert('❌ euGENIO ERRORE: currentUser non definito! UID=' + (currentUser ? currentUser.uid : 'NULL'));
-                console.error('[euGENIO] currentUser is null/undefined:', currentUser);
-                appendMessage(`⚠️ Errore: Sessione utente non valida. Riprova a fare login.`, 'ai');
+            // CRITICAL: Use window.currentUser (global scope)
+            if (!window.currentUser || !window.currentUser.uid) {
+                console.error('[euGENIO] ❌ window.currentUser is null/undefined:', window.currentUser);
+                appendMessage(`⚠️ Errore: Sessione utente scaduta. Ricarica la pagina.`, 'ai');
                 return;
             }
 
             // Save to Firebase
             try {
-                alert(`🔵 euGENIO: Salvataggio per user ${currentUser.uid.substring(0, 8)}...`); // DEBUG
-                await setDoc(doc(db, "users", currentUser.uid, "data", "selected_matches"), {
+                console.log('[euGENIO] Saving', addedCount, 'matches for user:', window.currentUser.uid.substring(0, 8));
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
                     matches: window.selectedMatches,
                     updated: Date.now()
                 });
-                alert(`✅ euGENIO: Salvate ${addedCount} su Firebase!`); // DEBUG
+                console.log('[euGENIO] ✅ Saved successfully');
 
                 // Update UI badge (if exposed)
                 if (window.updateMyMatchesCount) {
@@ -2986,8 +2986,7 @@ ${eugenioPromptCache.additionalContext || ''}
                 appendMessage(`✅ <strong>Azione completata:</strong> Ho aggiunto ${addedCount} partite per "${query}" ai tuoi preferiti!`, 'ai');
 
             } catch (e) {
-                console.error("Error saving matches via AI:", e);
-                alert(`❌ euGENIO ERRORE: ${e.message}`); // DEBUG
+                console.error("[euGENIO] ❌ Firebase error:", e);
                 appendMessage(`⚠️ Errore durante il salvataggio: ${e.message}`, 'ai');
             }
         } else {
