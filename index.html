@@ -203,6 +203,14 @@
                     Accedi
                 </button>
             </form>
+
+            <!-- Forgot Password Link (only visible during login) -->
+            <div id="forgot-password-link" class="text-center mt-4">
+                <a href="#" onclick="resetPassword(); return false;"
+                    class="text-sm text-purple-600 hover:text-purple-800 font-semibold">
+                    Password dimenticata?
+                </a>
+            </div>
         </div>
     </div>
 
@@ -547,7 +555,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
         import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-functions.js";
 
         // Firebase Config
@@ -618,6 +626,8 @@
             // Hide name field for login
             document.getElementById('name-field').classList.add('hidden');
             document.getElementById('user-name').removeAttribute('required');
+            // Show forgot password link
+            document.getElementById('forgot-password-link').classList.remove('hidden');
         });
         document.getElementById('toggle-register').addEventListener('click', () => {
             isRegisterMode = true;
@@ -630,7 +640,23 @@
             // Show name field for registration
             document.getElementById('name-field').classList.remove('hidden');
             document.getElementById('user-name').setAttribute('required', '');
+            // Hide forgot password link
+            document.getElementById('forgot-password-link').classList.add('hidden');
         });
+
+        // Password Reset Function
+        async function resetPassword() {
+            const email = prompt('Inserisci la tua email per recuperare la password:');
+            if (!email) return;
+
+            try {
+                await sendPasswordResetEmail(auth, email);
+                alert('✅ Email inviata! Controlla la tua casella di posta (anche spam) per reimpostare la password.');
+            } catch (error) {
+                console.error('[Auth] Password reset error:', error);
+                alert('⚠️ Errore: ' + (error.message || 'Email non valida o non registrata'));
+            }
+        }
 
         // Clean up old matches (> 24h)
         async function cleanupOldMatches(userId) {
