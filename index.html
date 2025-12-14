@@ -644,8 +644,8 @@
             document.getElementById('forgot-password-link').classList.add('hidden');
         });
 
-        // Password Reset Function
-        async function resetPassword() {
+        // Password Reset Function (exposed to global scope for onclick)
+        window.resetPassword = async function () {
             const email = prompt('Inserisci la tua email per recuperare la password:');
             if (!email) return;
 
@@ -656,7 +656,7 @@
                 console.error('[Auth] Password reset error:', error);
                 alert('⚠️ Errore: ' + (error.message || 'Email non valida o non registrata'));
             }
-        }
+        };
 
         // Clean up old matches (> 24h)
         async function cleanupOldMatches(userId) {
