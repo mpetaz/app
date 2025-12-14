@@ -1,6 +1,6 @@
-// TipsterAI Service Worker v3.5.1 - Fix Deployment Path
+// TipsterAI Service Worker v3.5.2 - Force Cache Root
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.5.1';
+const VERSION = '3.5.2';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
@@ -10,7 +10,9 @@ const STATIC_ASSETS = [
     '/icon-192.png',
     '/icon-512.png',
     '/favicon.png',
-    '/manifest.webmanifest'
+    '/manifest.webmanifest',
+    '/',
+    '/index.html'
 ];
 
 // Install - cache solo assets statici (NO HTML!)
