@@ -117,6 +117,8 @@
         }
 
         .flag-btn {
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
             transition: all 0.2s ease;
         }
 
@@ -1438,7 +1440,7 @@
                             <div class="text-[10px] opacity-90">RANKING</div>
                             <div class="text-lg">${match.score}</div>
                         </div>
-                        <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-2xl text-gray-400" data-match-id="${matchId}">
+                        <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-2xl text-gray-400" data-match-id="${matchId}" ontouchstart="">
                             <i class="fa-${isFlagged ? 'solid' : 'regular'} fa-star"></i>
                         </button>
                     </div>
