@@ -1490,11 +1490,22 @@
                 ${!match.risultato ? statsHTML : ''}
             `;
 
-            // Flag button logic
+            // Flag button logic - iOS requires touchend, desktop uses click
             const flagBtn = card.querySelector('.flag-btn');
-            flagBtn.addEventListener('click', (e) => {
+            const handleFlag = (e) => {
                 e.stopPropagation();
+                e.preventDefault(); // Prevent iOS from also firing click
                 toggleFlag(matchId, match, stratId, flagBtn);
+            };
+
+            // Add both touch and click for universal compatibility
+            flagBtn.addEventListener('touchend', handleFlag, { passive: false });
+            flagBtn.addEventListener('click', (e) => {
+                // Only fire if touchend didn't already handle it
+                if (e.detail !== 0) { // detail is 0 for programmatic clicks from touch
+                    e.stopPropagation();
+                    toggleFlag(matchId, match, stratId, flagBtn);
+                }
             });
 
             return card;
