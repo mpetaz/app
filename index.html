@@ -3330,7 +3330,30 @@ ${eugenioPromptCache.additionalContext || ''}
 <!-- PWA Service Worker Registration with Auto-Update -->
 <script>
     if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
+            // FORCE CLEANUP: Unregister ALL old service workers and clear cache
+            try {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    console.log('[PWA] 🧹 Unregistering old SW...');
+                    await registration.unregister();
+                }
+
+                // Clear all caches
+                const cacheNames = await caches.keys();
+                for (let cacheName of cacheNames) {
+                    if (cacheName.startsWith('tipsterai-')) {
+                        console.log('[PWA] 🗑️ Deleting old cache:', cacheName);
+                        await caches.delete(cacheName);
+                    }
+                }
+
+                console.log('[PWA] ✅ Cleanup complete, registering fresh SW...');
+            } catch (e) {
+                console.log('[PWA] ⚠️ Cleanup error (ignored):', e);
+            }
+
+            // Now register the new SW
             navigator.serviceWorker.register('/service-worker.js')
                 .then(registration => {
                     console.log('[PWA] ✅ Service Worker registered:', registration.scope);
