@@ -160,15 +160,22 @@
     </div>
     <script>
         // Remove loader when page is fully loaded
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const loader = document.getElementById('pwa-loader');
-                if (loader) {
-                    loader.style.opacity = '0';
-                    setTimeout(() => loader.style.display = 'none', 500);
-                }
-            }, 500); // Small delay to ensure smooth transition
-        });
+        // Remove loader logic with safety net
+        const hideLoader = () => {
+            const loader = document.getElementById('pwa-loader');
+            if (loader && loader.style.display !== 'none') {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 500);
+            }
+        };
+
+        if (document.readyState === 'complete') {
+            hideLoader();
+        } else {
+            window.addEventListener('load', hideLoader);
+        }
+        // Force remove after 4 seconds max (safety net)
+        setTimeout(hideLoader, 4000);
     </script>
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
