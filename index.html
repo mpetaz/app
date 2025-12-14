@@ -2917,7 +2917,7 @@ ${eugenioPromptCache.additionalContext || ''}
 `;
     }
 
-    // ACTION: Add Matches by Query (League or Team)
+    // ACTION: Add Matches by Query (League or Team or Strategy Name)
     async function addMatches(query) {
         if (!window.strategiesData) return;
 
@@ -2927,10 +2927,17 @@ ${eugenioPromptCache.additionalContext || ''}
 
         // Search in all strategies
         Object.values(window.strategiesData).forEach(strat => {
+            // Check if query matches STRATEGY NAME (e.g., "Magia AI")
+            const isStrategyMatch = strat.name.toLowerCase().includes(target);
+
             if (strat.matches) {
                 strat.matches.forEach(m => {
-                    // Search in League OR Match Title (Home/Away)
-                    if (m.lega.toLowerCase().includes(target) || m.partita.toLowerCase().includes(target)) {
+                    // Match if: Strategy name matches OR League matches OR Team name matches
+                    const matchesQuery = isStrategyMatch ||
+                        m.lega.toLowerCase().includes(target) ||
+                        m.partita.toLowerCase().includes(target);
+
+                    if (matchesQuery) {
                         // Check if not already selected (use window.selectedMatches)
                         const currentMatches = window.selectedMatches || [];
                         const matchId = `${m.data}_${m.partita}`;
@@ -3179,14 +3186,22 @@ ${eugenioPromptCache.additionalContext || ''}
 
             // COMMAND PARSING
             // COMMAND PARSING
-            // 1. ADD_MATCHES (Loop to handle multiple commands)
+            // 1. ADD_MATCHES (Loop to handle multiple commands, but dedupe same query)
             const cmdMatchesRegex = /\[\[CMD:ADD_MATCHES\|(.*?)\]\]/;
             let matchMatches;
+            const processedQueries = new Set(); // Track processed queries to avoid duplicates
             while ((matchMatches = htmlText.match(cmdMatchesRegex)) !== null) {
                 const query = matchMatches[1];
-                console.log("AI Command detected: ADD_MATCHES", query);
-                htmlText = htmlText.replace(matchMatches[0], '');
-                await addMatches(query);
+                htmlText = htmlText.replace(matchMatches[0], ''); // Remove command from text
+
+                // Only process if not already processed in this response
+                if (!processedQueries.has(query)) {
+                    console.log("AI Command detected: ADD_MATCHES", query);
+                    processedQueries.add(query);
+                    await addMatches(query);
+                } else {
+                    console.warn("AI Command DUPLICATE (skipping):", query);
+                }
             }
 
             // 2. EMAIL (Loop to handle multiple commands)
