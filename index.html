@@ -1493,6 +1493,7 @@
             // Flag button logic - iOS requires touchend, desktop uses click
             const flagBtn = card.querySelector('.flag-btn');
             const handleFlag = (e) => {
+                alert('🟢 Touch detected!'); // DEBUG: Remove after testing
                 e.stopPropagation();
                 e.preventDefault(); // Prevent iOS from also firing click
                 toggleFlag(matchId, match, stratId, flagBtn);
@@ -1513,6 +1514,7 @@
 
         // Toggle Flag
         async function toggleFlag(matchId, match, stratId, btn) {
+            alert('🟡 toggleFlag chiamato!'); // DEBUG: Remove after testing
             const index = window.selectedMatches.findIndex(sm => sm.id === matchId);
 
             if (index >= 0) {
@@ -1537,8 +1539,10 @@
                     matches: window.selectedMatches,
                     updated: Date.now()
                 });
+                alert('✅ Salvato su Firebase!'); // DEBUG: Remove after testing
             } catch (e) {
                 console.error('Error saving selection:', e);
+                alert('❌ ERRORE Firebase: ' + e.message); // DEBUG: Shows error
             }
 
             // Update My Matches count
@@ -2938,6 +2942,7 @@ ${eugenioPromptCache.additionalContext || ''}
         });
 
         if (matchesToAdd.length > 0) {
+            alert(`🤖 euGENIO: Trovate ${matchesToAdd.length} partite`); // DEBUG
             // Update global array
             if (!window.selectedMatches) window.selectedMatches = [];
             window.selectedMatches.push(...matchesToAdd);
@@ -2950,6 +2955,7 @@ ${eugenioPromptCache.additionalContext || ''}
                     matches: window.selectedMatches,
                     updated: Date.now()
                 });
+                alert(`✅ euGENIO: Salvate ${addedCount} su Firebase!`); // DEBUG
 
                 // Update UI badge (if exposed)
                 if (window.updateMyMatchesCount) {
@@ -2964,6 +2970,7 @@ ${eugenioPromptCache.additionalContext || ''}
 
             } catch (e) {
                 console.error("Error saving matches via AI:", e);
+                alert(`❌ euGENIO ERRORE: ${e.message}`); // DEBUG
                 appendMessage(`⚠️ Errore durante il salvataggio: ${e.message}`, 'ai');
             }
         } else {
