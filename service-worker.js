@@ -1,6 +1,6 @@
-// TipsterAI Service Worker v3.4 - euGENIO Auth Fix
+// TipsterAI Service Worker v3.5.1 - Fix Deployment Path
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.4.0';
+const VERSION = '3.5.1';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
@@ -84,11 +84,22 @@ self.addEventListener('fetch', event => {
         event.respondWith(
             fetch(event.request)
                 .then(response => {
+                    // NETWORK FIRST: Se ok, clona e aggiorna cache per la prossima volta (FIX per PWA)
+                    if (response.status === 200) {
+                        const responseClone = response.clone();
+                        caches.open(CACHE_NAME).then(cache => {
+                            cache.put(event.request, responseClone);
+                        }).catch(err => console.log('[SW] Cache update error:', err));
+                    }
                     return response;
                 })
                 .catch(() => {
-                    // Solo offline: mostra versione cached se esiste
-                    return caches.match('/index.html');
+                    // OFFLINE: Mostra versione in cache
+                    return caches.match(event.request)
+                        .then(response => {
+                            // Fallback a root se la pagina specifica non c'è
+                            return response || caches.match('/') || caches.match('/index.html');
+                        });
                 })
         );
         return;
