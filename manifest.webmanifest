@@ -2,7 +2,7 @@
     "name": "TipsterAI - Pronostici Intelligenti",
     "short_name": "TipsterAI",
     "description": "Pronostici sportivi basati su intelligenza artificiale",
-    "start_url": "/",
+    "start_url": "/index.html",
     "display": "standalone",
     "background_color": "#1a1a2e",
     "theme_color": "#7c3aed",
