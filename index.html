@@ -1874,13 +1874,13 @@
                 const card = document.querySelector(`.stat-card[data-trading-id="${pickId}"]`);
 
                 if (tradingFavorites.includes(pickId)) {
-                    // Add favorite styling
+                    // Add favorite styling (more visible amber border)
                     if (btn) {
                         btn.classList.remove('text-white/50');
                         btn.classList.add('text-yellow-300');
                     }
                     if (card) {
-                        card.classList.add('ring-2', 'ring-yellow-400', 'shadow-lg', 'shadow-yellow-400/30');
+                        card.classList.add('ring-4', 'ring-amber-500', 'shadow-xl', 'shadow-amber-500/50');
                     }
                 } else {
                     // Remove favorite styling
@@ -1889,7 +1889,7 @@
                         btn.classList.add('text-white/50');
                     }
                     if (card) {
-                        card.classList.remove('ring-2', 'ring-yellow-400', 'shadow-lg', 'shadow-yellow-400/30');
+                        card.classList.remove('ring-4', 'ring-amber-500', 'shadow-xl', 'shadow-amber-500/50');
                     }
                 }
             } catch (e) {
@@ -1952,8 +1952,8 @@
             // Check if already favorited
             const isFavorite = tradingFavorites.includes(pickId);
 
-            // Favorite styling: golden ring and glow effect
-            const favoriteCardClass = isFavorite ? 'ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30' : '';
+            // Favorite styling: thicker amber ring and stronger glow effect (more visible)
+            const favoriteCardClass = isFavorite ? 'ring-4 ring-amber-500 shadow-xl shadow-amber-500/50' : '';
 
             return `
                 <div class="stat-card rounded-xl overflow-hidden mb-3 ${favoriteCardClass}" data-trading-id="${pickId}">
