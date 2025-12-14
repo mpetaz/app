@@ -705,6 +705,20 @@
             }
         }
 
+        // Safety timeout: force loading overlay removal after 3 seconds
+        // This prevents Chrome from getting stuck if onAuthStateChanged hangs
+        setTimeout(() => {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay && !overlay.classList.contains('hidden')) {
+                console.warn('[Auth] Forcing overlay removal due to timeout');
+                overlay.classList.add('hidden');
+                // If no app is visible, show login
+                if (document.getElementById('app-container').classList.contains('hidden')) {
+                    document.getElementById('login-container').classList.remove('hidden');
+                }
+            }
+        }, 3000);
+
         // Auth Check
         onAuthStateChanged(auth, async (user) => {
             if (user) {
@@ -3340,29 +3354,7 @@ ${eugenioPromptCache.additionalContext || ''}
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', async () => {
-            // FORCE CLEANUP: Unregister ALL old service workers and clear cache
-            try {
-                const registrations = await navigator.serviceWorker.getRegistrations();
-                for (let registration of registrations) {
-                    console.log('[PWA] 🧹 Unregistering old SW...');
-                    await registration.unregister();
-                }
-
-                // Clear all caches
-                const cacheNames = await caches.keys();
-                for (let cacheName of cacheNames) {
-                    if (cacheName.startsWith('tipsterai-')) {
-                        console.log('[PWA] 🗑️ Deleting old cache:', cacheName);
-                        await caches.delete(cacheName);
-                    }
-                }
-
-                console.log('[PWA] ✅ Cleanup complete, registering fresh SW...');
-            } catch (e) {
-                console.log('[PWA] ⚠️ Cleanup error (ignored):', e);
-            }
-
-            // Now register the new SW
+            // Register the service worker normally
             navigator.serviceWorker.register('/service-worker.js')
                 .then(registration => {
                     console.log('[PWA] ✅ Service Worker registered:', registration.scope);
@@ -3384,8 +3376,9 @@ ${eugenioPromptCache.additionalContext || ''}
 
                         newWorker.addEventListener('statechange', () => {
                             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                console.log('[PWA] ✨ New version ready! Reloading...');
-                                window.location.reload();
+                                console.log('[PWA] ✨ New version available! Refresh page to update.');
+                                // Don't auto-reload - let user manually refresh to avoid loops
+                                // window.location.reload();
                             }
                         });
                     });
