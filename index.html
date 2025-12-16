@@ -550,10 +550,13 @@
             appId: "1:166289799388:web:d8b31f2c24eb1d75f11c19"
         };
 
-        // Split key to avoid GitHub "Leaked Key" auto-revocation
-        const PART_A = "AIzaSyADskGhRN1E5UqXon";
-        const PART_B = "Y11qL05e-gA4fFkYs";
-        window.GEMINI_API_KEY = PART_A + PART_B;
+        // Use the SAME key as Firebase (The one you just configured!)
+        // This ensures it works with your new restrictions.
+        window.GEMINI_API_KEY = window.firebaseConfig.apiKey;
+
+        // Old Legacy Keys (Disabled)
+        // const PART_A = "AIzaSyADskGhRN1E5UqXon";
+        // const PART_B = "Y11qL05e-gA4fFkYs";
     </script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
