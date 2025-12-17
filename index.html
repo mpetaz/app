@@ -918,6 +918,7 @@
                         updateMyMatchesCount();
                     } else {
                         console.log('[Client] No selected matches found');
+                        window.selectedMatches = []; // Initialize as empty array
                     }
 
                     // Load AI Knowledge Base (only first time)
