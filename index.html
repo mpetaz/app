@@ -1383,7 +1383,7 @@
 
                 return `
                     <div class="mt-2 bg-purple-50 border border-purple-200 rounded-lg p-2">
-                        <div class="text-[11px] font-bold text-purple-700 flex justify-between items-center">
+                        <div class="text-[13px] font-bold text-purple-700 flex justify-between items-center">
                             <span>⚽ Gol nel Primo Tempo (0.5 HT)</span>
                             ${htQuota ? `<span class="bg-purple-100 px-2 py-0.5 rounded text-purple-900 font-black">@${htQuota}</span>` : ''}
                         </div>
@@ -1461,24 +1461,24 @@
 
                 return `
                     <div class="mt-2 pt-2 border-t border-gray-100">
-                        <div class="text-[10px] font-bold text-gray-400 mb-2 tracking-widest text-center uppercase">📊 Analisi Statistica</div>
+                        <div class="text-[12px] font-bold text-gray-400 mb-2 tracking-widest text-center uppercase">📊 Analisi Statistica</div>
                         <div class="space-y-2">
                             <div class="${homeColor.bg} border ${homeColor.border} p-2 rounded-lg">
                                 <div class="flex items-center gap-2 mb-1">
-                                    <span class="text-sm">🏠</span>
-                                    <span class="text-[11px] font-black ${homeColor.label}">CASA</span>
+                                    <span class="text-base">🏠</span>
+                                    <span class="text-[13px] font-black ${homeColor.label}">CASA</span>
                                 </div>
-                                <div class="text-[11px] text-gray-700 leading-tight">
+                                <div class="text-[13px] text-gray-700 leading-tight">
                                     ${getStatsExplanation(match.teamStats.home, true, match.tip)}
                                 </div>
                                 ${getStatsWarning(match.teamStats.home)}
                             </div>
                             <div class="${awayColor.bg} border ${awayColor.border} p-2 rounded-lg">
                                 <div class="flex items-center gap-2 mb-1">
-                                    <span class="text-sm">🛫</span>
-                                    <span class="text-[11px] font-black ${awayColor.label}">TRASFERTA</span>
+                                    <span class="text-base">🛫</span>
+                                    <span class="text-[13px] font-black ${awayColor.label}">TRASFERTA</span>
                                 </div>
-                                <div class="text-[11px] text-gray-700 leading-tight">
+                                <div class="text-[13px] text-gray-700 leading-tight">
                                     ${getStatsExplanation(match.teamStats.away, false, match.tip)}
                                 </div>
                                 ${getStatsWarning(match.teamStats.away)}
@@ -1499,26 +1499,26 @@
                 <!-- Super Compact Header: Star - Time - Tip - Odd - Ranking -->
                 <div class="flex items-center justify-between gap-2 mb-2">
                     <div class="flex items-center gap-2">
-                        <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-lg text-gray-400" data-match-id="${matchId}">
+                        <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-xl text-gray-400" data-match-id="${matchId}">
                             <i class="fa-${isFlagged ? 'solid' : 'regular'} fa-star"></i>
                         </button>
-                        ${match.ora ? `<span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-lg font-bold text-[11px]">⏰ ${match.ora}</span>` : ''}
+                        ${match.ora ? `<span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-lg font-bold text-[13px]">⏰ ${match.ora}</span>` : ''}
                     </div>
                     
                     <div class="flex-1 flex items-center justify-center gap-4">
                         <div class="flex items-baseline gap-1">
-                            <span class="text-[10px] text-gray-400 font-bold">TIP</span>
-                            <span class="text-sm font-black text-green-600">${match.tip}</span>
+                            <span class="text-[12px] text-gray-400 font-bold">TIP</span>
+                            <span class="text-base font-black text-green-600">${match.tip}</span>
                         </div>
                          <div class="flex items-baseline gap-1 border-r border-gray-200 pr-4">
-                            <span class="text-[10px] text-gray-400 font-bold">ODD</span>
-                            <span class="text-sm font-black text-purple-600">${match.quota}</span>
+                            <span class="text-[12px] text-gray-400 font-bold">ODD</span>
+                            <span class="text-base font-black text-purple-600">${match.quota}</span>
                         </div>
                     </div>
 
-                    <div class="ranking-badge ${getRankingColor(match.score)} !px-2 !py-0.5 !min-w-[45px] !rounded-lg">
-                        <div class="text-[8px] opacity-90 leading-none">RANK</div>
-                        <div class="text-sm font-black">${match.score}</div>
+                    <div class="ranking-badge ${getRankingColor(match.score)} !px-2 !py-1 !min-w-[50px] !rounded-lg">
+                        <div class="text-[9px] opacity-90 leading-none">RANK</div>
+                        <div class="text-base font-black">${match.score}</div>
                     </div>
                 </div>
 
@@ -1530,12 +1530,12 @@
                 ` : ''}
 
                 <!-- League (Above) -->
-                <div class="text-[10px] text-blue-500 font-bold uppercase tracking-wider mb-0.5">
+                <div class="text-[12px] text-blue-500 font-bold uppercase tracking-wider mb-0.5">
                     🏆 ${match.lega}
                 </div>
                 
                 <!-- Teams -->
-                <div class="text-lg font-black text-gray-900 leading-tight mb-2">${match.partita}</div>
+                <div class="text-xl font-black text-gray-900 leading-tight mb-2">${match.partita}</div>
                 
                 ${warningHTML}
                 
