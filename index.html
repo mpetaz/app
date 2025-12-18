@@ -111,6 +111,28 @@
             background: linear-gradient(135deg, #ef4444, #dc2626);
         }
 
+        /* NEW: GOLD Selection UI */
+        .gold-badge {
+            background: linear-gradient(135deg, #fbbf24, #d97706);
+            color: white;
+            box-shadow: 0 2px 8px rgba(251, 191, 36, 0.5);
+            font-size: 10px;
+            font-weight: 900;
+            padding: 2px 8px;
+            border-radius: 99px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .match-card.marketing {
+            opacity: 0.7;
+            filter: grayscale(0.4);
+        }
+
+        .match-card.marketing .ranking-badge {
+            filter: grayscale(0.2);
+        }
+
         .score-badge {
             background: linear-gradient(135deg, #fbbf24, #f59e0b);
             box-shadow: 0 4px 12px rgba(251, 191, 36, 0.4);
@@ -1289,7 +1311,18 @@
             const card = document.createElement('div');
 
             // Keep card blue always, only color the result box
-            card.className = 'match-card rounded-xl p-5 shadow-lg fade-in';
+            card.className = 'match-card rounded-xl p-4 shadow-lg fade-in mb-3';
+
+            // Helper: Parse Odds
+            const parseOdds = (oddsStr) => {
+                if (!oddsStr) return 0;
+                // Handle both 1.50 and 1,50
+                return parseFloat(String(oddsStr).replace(',', '.'));
+            };
+
+            const oddsValue = parseOdds(match.quota);
+            const isGold = oddsValue >= 1.20;
+            if (!isGold) card.classList.add('marketing');
 
             // Check for warnings (ONLY for Standard strategies)
             const isStandardStrategy = STANDARD_STRATEGIES.includes(stratId);
@@ -1454,63 +1487,54 @@
             };
 
             card.innerHTML = `
-                <!-- Header: Position, Time, Ranking, Star -->
-                <div class="flex items-center justify-between mb-3">
-                    <div class="flex items-center gap-3">
-                        <span class="text-2xl font-black text-purple-600">#${index + 1}</span>
-                        ${match.ora ? `<span class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-bold text-lg">⏰ ${match.ora}</span>` : ''}
+                <!-- Header: Compact -->
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl font-black text-purple-600">#${index + 1}</span>
+                        ${match.ora ? `<span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full font-bold text-sm">⏰ ${match.ora}</span>` : ''}
+                        ${isGold ? `<div class="gold-badge animate-pulse">✨ GOLD Selection</div>` : ''}
                     </div>
-                    <div class="flex items-center gap-3">
-                        <div class="ranking-badge ${getRankingColor(match.score)}">
-                            <div class="text-[10px] opacity-90">RANKING</div>
-                            <div class="text-lg">${match.score}</div>
+                    <div class="flex items-center gap-2">
+                        <div class="ranking-badge ${getRankingColor(match.score)} !px-2 !py-0.5 !min-w-[50px]">
+                            <div class="text-[8px] opacity-90 leading-none">RANKING</div>
+                            <div class="text-sm font-black">${match.score}</div>
                         </div>
-                        <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-2xl text-gray-400" data-match-id="${matchId}" ontouchstart="">
+                        <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-xl text-gray-400" data-match-id="${matchId}">
                             <i class="fa-${isFlagged ? 'solid' : 'regular'} fa-star"></i>
                         </button>
                     </div>
                 </div>
                 
-                <!-- Teams -->
-                <div class="text-2xl font-bold text-gray-900 mb-2">${match.partita}</div>
-                
-                <!-- League Badge -->
-                <div class="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold mb-4">
-                    🏆 ${match.lega}
+                <!-- Teams & League (One line) -->
+                <div class="flex items-baseline gap-2 mb-2">
+                    <div class="text-lg font-bold text-gray-900 leading-tight">${match.partita}</div>
+                    <div class="text-[10px] text-blue-500 font-bold whitespace-nowrap">🏆 ${match.lega}</div>
                 </div>
                 
                 ${warningHTML}
                 
-                <!-- Result (if available) -->
+                <!-- Result (Compact) -->
                 ${match.risultato && match.esito ? `
-                    <div class="mb-4 p-4 rounded-xl ${match.esito === 'Vinto' ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-red-500 to-red-600'}">
-                        <div class="flex items-center justify-between gap-4 text-white">
-                            <div class="flex-1 text-center">
-                                <div class="text-xs font-bold opacity-90 mb-1">RISULTATO FINALE</div>
-                                <div class="text-4xl font-black">${match.risultato}</div>
-                            </div>
-                            <div class="flex-1 text-center">
-                                <div class="text-3xl font-black">
-                                    ${match.esito === 'Vinto' ? '✅ VINTO' : '❌ PERSO'}
-                                </div>
-                            </div>
+                    <div class="mb-2 p-2 rounded-lg ${match.esito === 'Vinto' ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-red-500 to-red-600'}">
+                        <div class="flex items-center justify-between text-white">
+                            <div class="text-xs font-bold opacity-90">FINALE: <span class="text-xl ml-1">${match.risultato}</span></div>
+                            <div class="text-sm font-black">${match.esito === 'Vinto' ? '✅ VINTO' : '❌ PERSO'}</div>
                         </div>
                     </div>
                 ` : ''}
                 
-                <!-- Tip & Quota Box -->
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-3">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <div class="text-xs font-bold text-gray-500 mb-1">TIP SUGGERITA</div>
-                            <div class="text-2xl font-black text-green-600">${match.tip}</div>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-xs font-bold text-gray-500 mb-1">QUOTA BOOKMAKERS</div>
-                            <div class="text-2xl font-black text-purple-600">${match.quota}</div>
-                        </div>
+                <!-- Tip & Quota (Compact Row) -->
+                <div class="${isGold ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'} border rounded-lg p-2 mb-2 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="text-[10px] font-bold text-gray-500">TIP:</div>
+                        <div class="text-lg font-black ${isGold ? 'text-amber-600' : 'text-green-600'}">${match.tip}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="text-[10px] font-bold text-gray-500">QUOTA:</div>
+                        <div class="text-lg font-black text-purple-600">${match.quota}</div>
+                    </div>
                 </div>
-                </div>
+
                 ${!match.risultato ? htHTML : ''}
                 ${!match.risultato ? statsHTML : ''}
             `;
