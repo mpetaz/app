@@ -1329,10 +1329,10 @@
             const oddsValue = parseOdds(match.quota);
 
             // Dynamic Gold Threshold
-            // AI strategies have boosted scores (90+), so they need a harder target (95)
+            // AI strategies have boosted scores (90+), so they need a harder target (97)
             // Magia AI and Standard strategies keep the classic target (70)
             const isAiStrategy = stratId && stratId.startsWith('ai_');
-            const goldThreshold = isAiStrategy ? 95 : 70;
+            const goldThreshold = isAiStrategy ? 97 : 70;
 
             const isGold = oddsValue >= 1.20 && match.score >= goldThreshold;
             if (!isGold && oddsValue < 1.20) card.classList.add('marketing');
