@@ -179,6 +179,40 @@
         .fade-in {
             animation: fadeIn 0.4s ease-out;
         }
+
+        /* SERIE A LIVE WIDGETS */
+        .live-stat-bar {
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .live-stat-progress {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            border-radius: 3px;
+            transition: width 1s ease-in-out;
+        }
+
+        .pressure-badge {
+            animation: pulse-border 2s infinite;
+        }
+
+        @keyframes pulse-border {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
     </style>
 </head>
 
@@ -538,6 +572,26 @@
             </div>
         </div>
 
+        <!-- Serie A Live Page -->
+        <div id="page-serie-a" class="page container mx-auto px-4 pb-24">
+            <div class="mb-6">
+                <div class="flex items-center gap-3 mb-2">
+                    <img src="https://upload.wikimedia.org/wikipedia/en/thumb/f/f7/Lega_Serie_A_logo_%282019%29.svg/1200px-Lega_Serie_A_logo_%282019%29.svg.png"
+                        alt="Serie $A" class="h-10 w-auto">
+                    <h2 class="text-2xl font-black">Serie A Live</h2>
+                </div>
+                <p class="text-sm text-purple-200">Intelligence in tempo reale per tutto il campionato</p>
+            </div>
+
+            <div id="serie-a-live-container" class="space-y-4">
+                <!-- Populated with live match widgets -->
+                <div class="text-center py-12 text-gray-300">
+                    <i class="fa-solid fa-satellite-dish text-5xl mb-4 opacity-50"></i>
+                    <p>In attesa delle partite di oggi...</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Bottom Nav -->
         <div class="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 flex justify-around py-3 z-50">
             <button data-page="strategies" class="nav-btn flex flex-col items-center text-purple-400 transition">
@@ -558,6 +612,11 @@
                 class="nav-btn flex flex-col items-center text-gray-400 hover:text-orange-400 transition">
                 <i class="fa-solid fa-chart-line text-2xl mb-1"></i>
                 <span class="text-xs font-semibold">Trading</span>
+            </button>
+            <button data-page="serie-a"
+                class="nav-btn flex flex-col items-center text-gray-400 hover:text-blue-300 transition">
+                <i class="fa-solid fa-italy text-2xl mb-1"></i>
+                <span class="text-xs font-semibold">Serie A</span>
             </button>
             <button data-page="account"
                 class="nav-btn flex flex-col items-center text-gray-400 hover:text-blue-400 transition">
@@ -963,7 +1022,12 @@
         function processStrategiesData(allStrategies) {
             console.log('[Client] Raw strategies from DB:', Object.keys(allStrategies));
 
-            const presetIds = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht'];
+            // APPROVED STRATEGIES ONLY - whitelist
+            const approvedIds = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'over_2_5_ai'];
+
+            // Banned strategy IDs to exclude
+            const bannedIds = ['favorite_ai', 'elo_rating', 'elo_master', 'test', '+2_5_ai'];
+
             strategiesData = {};
 
             for (const [stratId, stratData] of Object.entries(allStrategies)) {
@@ -972,14 +1036,34 @@
                     continue;
                 }
 
-                // Include presets always
-                if (presetIds.includes(stratId)) {
+                // Skip banned strategies
+                if (bannedIds.includes(stratId.toLowerCase())) {
+                    console.log(`[Client] Blocked banned strategy: ${stratId}`);
+                    continue;
+                }
+
+                // Skip random Firebase IDs (more than 15 alphanumeric chars)
+                if (stratId.length > 20 && /^[a-zA-Z0-9]+$/.test(stratId)) {
+                    console.log(`[Client] Blocked random ID strategy: ${stratId}`);
+                    continue;
+                }
+
+                // Include approved strategies
+                if (approvedIds.includes(stratId) || approvedIds.includes(stratId.toLowerCase())) {
                     strategiesData[stratId] = stratData;
                     continue;
                 }
 
-                // Include all custom strategies
-                strategiesData[stratId] = stratData;
+                // Include other custom strategies that have method: 'poisson' and match naming pattern
+                if (stratData.method === 'poisson' && stratId.toLowerCase().includes('over')) {
+                    strategiesData[stratId] = stratData;
+                    continue;
+                }
+
+                // Include MAGIA AI variations
+                if (stratId.toLowerCase().includes('magia')) {
+                    strategiesData[stratId] = stratData;
+                }
             }
 
             console.log('[Client] Filtered published strategies:', Object.keys(strategiesData));
@@ -1398,6 +1482,27 @@
                 `;
             })() : '';
 
+            // ELO Info section (NEW)
+            const eloHTML = (match.elo_home && match.elo_away) ? (() => {
+                const home = parseInt(match.elo_home);
+                const away = parseInt(match.elo_away);
+                const diff = home - away;
+                const diffText = diff > 0 ? `+${diff}` : `${diff}`;
+                // Highlight significant gaps (>200)
+                const isGap = Math.abs(diff) >= 200;
+                const badgeClass = isGap ? 'bg-blue-100 text-blue-900 font-black' : 'text-gray-500';
+
+                return `
+                    <div class="mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-[11px] flex justify-between items-center">
+                        <div class="text-slate-700">
+                            <span class="font-bold">♟️ ELO:</span> 
+                            H <b>${home}</b> - A <b>${away}</b>
+                        </div>
+                        <div class="${badgeClass} px-2 rounded">Gap: ${diffText}</div>
+                    </div>
+                `;
+            })() : '';
+
             // Generate explanatory text for team stats
             const getStatsExplanation = (stats, isHome, tip) => {
                 if (!stats || stats.total === 0) return '';
@@ -1557,6 +1662,7 @@
                 ` : ''}
 
                 ${!match.risultato ? htHTML : ''}
+                ${!match.risultato ? eloHTML : ''}
                 ${!match.risultato ? statsHTML : ''}
             `;
 
@@ -1807,6 +1913,16 @@
                     // Show upgrade prompt for FREE users
                     showTradingLock();
                 }
+            } else if (pageName === 'serie-a') {
+                loadSerieAMatches();
+                document.getElementById('page-serie-a').classList.add('active');
+                // Auto-refresh Serie A every 30 seconds while on page
+                window.serieARefreshInterval = setInterval(loadSerieAMatches, 30000);
+            }
+
+            // Clear interval if leaving Serie A
+            if (pageName !== 'serie-a' && window.serieARefreshInterval) {
+                clearInterval(window.serieARefreshInterval);
             }
 
             // Update nav buttons
@@ -3458,6 +3574,127 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
             loadTradingPicks(tradingSelectedDate);
         }
     });
+
+    // ==================== SERIE A LIVE ====================
+
+    async function loadSerieAMatches() {
+        const container = document.getElementById('serie-a-live-container');
+        if (!container) return;
+
+        console.log('[Serie A] Loading live matches...');
+
+        try {
+            // Fetch tracked_matches from Firestore (Live status)
+            const q = query(collection(db, "tracked_matches"), where("isSerieA", "==", true));
+            const snapshot = await getDocs(q);
+
+            if (snapshot.empty) {
+                container.innerHTML = `
+                    <div class="text-center py-12 text-gray-300">
+                        <i class="fa-solid fa-satellite-dish text-5xl mb-4 opacity-50"></i>
+                        <p>In attesa delle partite di oggi...</p>
+                        <p class="text-xs text-gray-500 mt-2">Le partite compariranno qui al kickoff</p>
+                    </div>`;
+                return;
+            }
+
+            let matchesHTML = '';
+            snapshot.forEach(doc => {
+                matchesHTML += renderSerieAMatch(doc.data());
+            });
+
+            container.innerHTML = matchesHTML;
+
+        } catch (e) {
+            console.error('[Serie A] Error loading live:', e);
+            container.innerHTML = '<div class="text-center text-red-400 py-12">Errore nel caricamento dei dati live.</div>';
+        }
+    }
+
+    function renderSerieAMatch(m) {
+        const score = m.score || "0-0";
+        const elapsed = m.elapsed || "0'";
+        const tip = m.tip || "Live Monitor";
+
+        const isHighPressure = m.pressure && m.pressure.isHigh;
+        const pressureClass = isHighPressure ? 'pressure-badge bg-red-600 text-white' : 'bg-gray-200 text-gray-700';
+
+        const stats = m.stats || { home: {}, away: {} };
+        const dAttacksH = m.pressure?.home?.["Dangerous Attacks"] || 0;
+        const dAttacksA = m.pressure?.away?.["Dangerous Attacks"] || 0;
+        const dAttTotal = (dAttacksH + dAttacksA) || 1;
+        const dAttPerc = (dAttacksH / dAttTotal) * 100;
+
+        const shotsH = m.pressure?.home?.["Shots on Goal"] || 0;
+        const shotsA = m.pressure?.away?.["Shots on Goal"] || 0;
+        const shotsTotal = (shotsH + shotsA) || 1;
+        const shotsPerc = (shotsH / shotsTotal) * 100;
+
+        return `
+            <div class="bg-white rounded-2xl p-4 shadow-xl border border-gray-100 mb-4 transition transform hover:scale-[1.01] fade-in">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-black animate-pulse">LIVE</span>
+                        <span class="text-gray-900 font-bold text-sm">${elapsed}</span>
+                    </div>
+                    <div class="px-3 py-1 rounded-full text-[10px] font-black \${pressureClass}">
+                        \${isHighPressure ? '🔥 ALTA PRESSIONE' : '⚡ MONITOR'}
+                    </div>
+                </div>
+
+                <div class="text-xl font-black text-gray-900 mb-4 text-center">
+                    \${m.matchName.split('-').join(' <span class="text-purple-600 text-2xl mx-2">VS</span> ')}
+                </div>
+
+                <div class="bg-gray-900 text-white rounded-xl p-4 mb-4 shadow-inner">
+                    <div class="text-center mb-2">
+                        <div class="text-3xl font-black tracking-widest text-purple-400">\${score}</div>
+                        <div class="text-[10px] text-gray-400 font-bold uppercase mt-1">Score in Tempo Reale</div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4 mt-4 border-t border-gray-800 pt-4">
+                        <div class="text-center">
+                            <div class="text-xs text-purple-200 mb-1">TIP CONSIGLIATA</div>
+                            <div class="font-black text-white text-sm text-[12px]">\${tip}</div>
+                        </div>
+                        <div class="text-center border-l border-gray-800">
+                            <div class="text-xs text-purple-200 mb-1">PROBABILITÀ</div>
+                            <div class="font-black text-green-400 text-sm">\${m.probabilita || '85%'}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Intelligence Widget -->
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between text-[10px] font-bold text-gray-600 uppercase mb-1">
+                            <span>Attacchi Pericolosi</span>
+                            <span>\${dAttacksH} - \${dAttacksA}</span>
+                        </div>
+                        <div class="live-stat-bar">
+                            <div class="live-stat-progress" style="width: \${dAttPerc}%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-[10px] font-bold text-gray-600 uppercase mb-1">
+                            <span>Tiri in Porta</span>
+                            <span>\${shotsH} - \${shotsA}</span>
+                        </div>
+                        <div class="live-stat-bar">
+                            <div class="live-stat-progress" style="width: \${shotsPerc}%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                \${isHighPressure ? \`
+                    <div class="mt-4 bg-red-50 text-red-700 p-2 rounded-lg text-xs font-bold flex items-center gap-2">
+                        <i class="fa-solid fa-triangle-exclamation animate-bounce"></i>
+                        Pressione in aumento in area di rigore. Gol imminente?
+                    </div>
+                \` : ''}
+            </div>
+        `;
+    }
 
 </script>
 </body>
