@@ -3588,9 +3588,10 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
 
         try {
             // Query serie_a_matches (loads pre-match, live, and finished)
-            // Query serie_a_matches (load ALL to debug visibility)
+            // Query serie_a_matches (loads pre-match, live, and finished)
             const q = query(
-                collection(db, "serie_a_matches")
+                collection(db, "serie_a_matches"),
+                where("status", "in", ["NOT_STARTED", "LIVE", "FINISHED"])
             );
             const snapshot = await getDocs(q);
 
@@ -3646,7 +3647,7 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                 <!-- Header -->
                 <div class="flex items-center justify-between mb-4">
                     <span class="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">
-                        🕐 ${timeStr} [${match.status}]
+                        🕐 ${timeStr}
                     </span>
                     <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">
                         PRE-MATCH
@@ -3709,6 +3710,40 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         `;
     }
 
+    // Helper to calculate tip result
+    function calcTipResult(tip, finalScore) {
+        if (!tip || !finalScore) return 'UNKNOWN';
+        const parts = finalScore.split('-');
+        if (parts.length !== 2) return 'UNKNOWN';
+        const h = parseInt(parts[0]);
+        const a = parseInt(parts[1]);
+        const total = h + a;
+
+        const t = tip.toUpperCase().trim();
+
+        if (t === '1') return h > a ? 'WIN' : 'LOSE';
+        if (t === 'X') return h === a ? 'WIN' : 'LOSE';
+        if (t === '2') return a > h ? 'WIN' : 'LOSE';
+        if (t === '1X') return h >= a ? 'WIN' : 'LOSE';
+        if (t === 'X2') return a >= h ? 'WIN' : 'LOSE';
+        if (t === '12') return h !== a ? 'WIN' : 'LOSE';
+        if (t.startsWith('OVER')) {
+            const val = parseFloat(t.replace('OVER', ''));
+            return total > val ? 'WIN' : 'LOSE';
+        }
+        if (t.startsWith('UNDER')) {
+            const val = parseFloat(t.replace('UNDER', ''));
+            return total < val ? 'WIN' : 'LOSE';
+        }
+        if (t === 'GOAL') return (h > 0 && a > 0) ? 'WIN' : 'LOSE';
+        if (t === 'NO GOAL') return (h === 0 || a === 0) ? 'WIN' : 'LOSE';
+
+        // Handicap handling (simple version)
+        if (t.includes('AH') || t.includes('HANDICAP')) return 'UNKNOWN'; // Too complex for now
+
+        return 'UNKNOWN';
+    }
+
     // Render LIVE / FINISHED card
     function renderLiveMatchCard(match) {
         const score = match.score || "0-0";
@@ -3723,6 +3758,27 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         const pressure = liveStats.pressure || "NORMAL";
 
         const isHighPressure = !isFinished && (pressure === "HIGH");
+
+        // Calculate Result Color for Finished matches
+        let cardClass = "";
+        let result = "UNKNOWN";
+
+        if (isFinished) {
+            result = calcTipResult(match.recommendedTip || "Over 1.5", score);
+            if (result === 'WIN') {
+                // Elegant Green
+                cardClass = "bg-gradient-to-br from-green-900 via-emerald-800 to-green-950 border-emerald-500 shadow-lg";
+            } else if (result === 'LOSE') {
+                // Elegant Red
+                cardClass = "bg-gradient-to-br from-rose-900 via-red-900 to-rose-950 border-rose-500 shadow-lg";
+            } else {
+                // Neutral Grey (status quo)
+                cardClass = "bg-gradient-to-br from-gray-900 via-slate-800 to-gray-900 border-gray-600 shadow-lg opacity-90";
+            }
+        } else {
+            // LIVE => Elegant Blue (User Request)
+            cardClass = "bg-gradient-to-br from-blue-900 via-indigo-900 to-blue-950 border-blue-500 shadow-2xl animate-pulse-slow";
+        }
 
         // Events rendering
         let eventsHTML = '';
@@ -3749,16 +3805,13 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
             `;
         }
 
-        const cardClass = isFinished
-            ? "bg-gradient-to-br from-gray-900 via-slate-800 to-gray-900 border-gray-600 shadow-lg opacity-90"
-            : "bg-gradient-to-br from-green-900 via-green-800 to-green-900 border-green-500 shadow-2xl animate-pulse-slow";
 
         const statusBadge = isFinished
             ? `<span class="bg-gray-600 text-white px-3 py-1 rounded-full text-[10px] font-bold">🏁 FINALE</span>`
-            : `<span class="bg-green-500 text-white px-3 py-1 rounded-full text-[10px] font-bold animate-pulse">🟢 LIVE</span>`;
+            : `<span class="bg-blue-500 text-white px-3 py-1 rounded-full text-[10px] font-bold animate-pulse">🔵 LIVE</span>`;
 
         return `
-            <div class="${cardClass} rounded-2xl p-5 border-2 mb-4">
+            <div class="${cardClass} rounded-2xl p-5 border-2 mb-4 relative overflow-hidden">
                 <!-- Header -->
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center gap-2">
