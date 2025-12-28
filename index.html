@@ -3735,8 +3735,17 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
             const val = parseFloat(t.replace('UNDER', ''));
             return total < val ? 'WIN' : 'LOSE';
         }
-        if (t === 'GOAL') return (h > 0 && a > 0) ? 'WIN' : 'LOSE';
         if (t === 'NO GOAL') return (h === 0 || a === 0) ? 'WIN' : 'LOSE';
+
+        // Shorthand handling (+1.5 = Over, -3.5 = Under)
+        if (t.startsWith('+')) {
+            const val = parseFloat(t.replace('+', '').replace(',', '.'));
+            return total > val ? 'WIN' : 'LOSE';
+        }
+        if (t.startsWith('-')) {
+            const val = parseFloat(t.replace('-', '').replace(',', '.'));
+            return total < val ? 'WIN' : 'LOSE';
+        }
 
         // Handicap handling (simple version)
         if (t.includes('AH') || t.includes('HANDICAP')) return 'UNKNOWN'; // Too complex for now
