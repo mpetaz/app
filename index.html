@@ -3587,10 +3587,10 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         console.log('[Serie A] Loading matches...');
 
         try {
-            // Query serie_a_matches (now loads both pre-match and live)
+            // Query serie_a_matches (loads pre-match, live, and finished)
+            // Query serie_a_matches (load ALL to debug visibility)
             const q = query(
-                collection(db, "serie_a_matches"),
-                where("status", "in", ["NOT_STARTED", "LIVE"])
+                collection(db, "serie_a_matches")
             );
             const snapshot = await getDocs(q);
 
@@ -3611,6 +3611,8 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
             matches.sort((a, b) => {
                 if (a.status === "LIVE" && b.status !== "LIVE") return -1;
                 if (a.status !== "LIVE" && b.status === "LIVE") return 1;
+                if (a.status === "FINISHED" && b.status !== "FINISHED") return 1;
+                if (a.status !== "FINISHED" && b.status === "FINISHED") return -1;
                 return new Date(a.kickoffTime) - new Date(b.kickoffTime);
             });
 
@@ -3644,7 +3646,7 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                 <!-- Header -->
                 <div class="flex items-center justify-between mb-4">
                     <span class="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">
-                        🕐 ${timeStr}
+                        🕐 ${timeStr} [${match.status}]
                     </span>
                     <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">
                         PRE-MATCH
@@ -3707,10 +3709,12 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         `;
     }
 
-    // Render LIVE card
+    // Render LIVE / FINISHED card
     function renderLiveMatchCard(match) {
         const score = match.score || "0-0";
         const elapsed = match.elapsed || "0'";
+        const scoreHT = match.scoreHT ? `(HT: ${match.scoreHT})` : "";
+        const isFinished = match.status === "FINISHED";
 
         const liveStats = match.liveStats || {};
         const possession = liveStats.possession || "50% - 50%";
@@ -3718,35 +3722,66 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         const dangerousAttacks = liveStats.dangerousAttacks || "0 - 0";
         const pressure = liveStats.pressure || "NORMAL";
 
-        const isHighPressure = (pressure === "HIGH");
+        const isHighPressure = !isFinished && (pressure === "HIGH");
+
+        // Events rendering
+        let eventsHTML = '';
+        if (match.events && match.events.length > 0) {
+            eventsHTML = `
+                <div class="mt-4 pt-3 border-t border-white border-opacity-10 space-y-2">
+                    ${match.events.slice(-5).map(ev => {
+                let icon = 'fa-futbol';
+                let color = 'text-white';
+                if (ev.type === 'Card') {
+                    icon = 'fa-square';
+                    color = ev.detail.includes('Yellow') ? 'text-yellow-400' : 'text-red-500';
+                }
+                return `
+                            <div class="flex items-center gap-2 text-[10px] font-bold text-gray-200">
+                                <span class="opacity-50">${ev.time}</span>
+                                <i class="fa-solid ${icon} ${color} text-[8px]"></i>
+                                <span>${ev.player}</span>
+                                <span class="opacity-40 italic">(${ev.type})</span>
+                            </div>
+                        `;
+            }).join('')}
+                </div>
+            `;
+        }
+
+        const cardClass = isFinished
+            ? "bg-gradient-to-br from-gray-900 via-slate-800 to-gray-900 border-gray-600 shadow-lg opacity-90"
+            : "bg-gradient-to-br from-green-900 via-green-800 to-green-900 border-green-500 shadow-2xl animate-pulse-slow";
+
+        const statusBadge = isFinished
+            ? `<span class="bg-gray-600 text-white px-3 py-1 rounded-full text-[10px] font-bold">🏁 FINALE</span>`
+            : `<span class="bg-green-500 text-white px-3 py-1 rounded-full text-[10px] font-bold animate-pulse">🟢 LIVE</span>`;
 
         return `
-            <div class="bg-gradient-to-br from-green-900 via-green-800 to-green-900 rounded-2xl p-5 shadow-2xl border-2 border-green-500 mb-4 animate-pulse-slow">
+            <div class="${cardClass} rounded-2xl p-5 border-2 mb-4">
                 <!-- Header -->
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center gap-2">
-                        <span class="bg-green-500 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse">
-                            🟢 LIVE
-                        </span>
-                        <span class="text-white font-bold">${elapsed}</span>
+                        ${statusBadge}
+                        ${!isFinished ? `<span class="text-white font-bold text-sm">${elapsed}</span>` : ''}
                     </div>
                     ${isHighPressure ? `
-                        <span class="bg-yellow-400 text-green-900 px-3 py-1 rounded-full text-xs font-black">
+                        <span class="bg-yellow-400 text-green-900 px-3 py-1 rounded-full text-[10px] font-black">
                             🔥 ALTA PRESSIONE
                         </span>
                     ` : ''}
                 </div>
                 
-                <!-- Match Title with Logo -->
+                <!-- Match Title -->
                 <div class="text-center mb-4">
                     <h3 class="text-xl font-black text-white">${match.matchName}</h3>
-                    <p class="text-xs text-green-200 mt-1">🏆 ${match.lega}</p>
+                    <p class="text-xs text-green-200 mt-1">🏆 Serie A</p>
                 </div>
                 
                 <!-- Score Box -->
                 <div class="bg-black bg-opacity-40 rounded-xl p-4 mb-4 text-center">
                     <p class="text-4xl font-black text-white mb-1">${score}</p>
-                    <p class="text-xs text-green-200">Score in tempo reale</p>
+                    <p class="text-xs text-green-200 font-bold">${scoreHT}</p>
                 </div>
                 
                 <!-- Recommended Tip -->
@@ -3754,13 +3789,16 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                     <p class="text-xs opacity-90">💡 Tip Consigliata</p>
                     <p class="text-lg font-bold">${match.recommendedTip}</p>
                 </div>
+
+                <!-- Events -->
+                ${eventsHTML}
                 
-                <!-- Live Stats -->
-                <div class="bg-black bg-opacity-30 rounded-xl p-4 space-y-3">
-                    <p class="text-xs font-bold text-green-200 uppercase mb-3">📊 Statistiche Live</p>
+                <!-- Stats -->
+                <div class="bg-black bg-opacity-30 rounded-xl p-4 mt-4 space-y-3">
+                    <p class="text-xs font-bold text-green-200 uppercase mb-3 text-center">📊 Statistiche Live</p>
                     
                     <div>
-              <div class="flex justify-between text-xs font-bold text-white mb-1">
+                        <div class="flex justify-between text-xs font-bold text-white mb-1">
                             <span>Possesso Palla</span>
                             <span>${possession}</span>
                         </div>
@@ -3769,17 +3807,14 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                         </div>
                     </div>
                     
-                    <div>
-                        <div class="flex justify-between text-xs font-bold text-white mb-1">
-                            <span>Tiri in Porta</span>
-                            <span>${shotsOnGoal}</span>
+                    <div class="flex justify-around pt-2">
+                        <div class="text-center">
+                            <p class="text-[9px] text-gray-400 uppercase">Tiri in Porta</p>
+                            <p class="text-white font-bold text-xs">${shotsOnGoal}</p>
                         </div>
-                    </div>
-                    
-                    <div>
-                        <div class="flex justify-between text-xs font-bold text-white mb-1">
-                            <span>Attacchi Pericolosi</span>
-                            <span>${dangerousAttacks}</span>
+                        <div class="text-center">
+                            <p class="text-[9px] text-gray-400 uppercase">Attacchi Pericolosi</p>
+                            <p class="text-white font-bold text-xs">${dangerousAttacks}</p>
                         </div>
                     </div>
                 </div>
