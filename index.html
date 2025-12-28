@@ -3585,119 +3585,222 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         const container = document.getElementById('serie-a-live-container');
         if (!container) return;
 
-        console.log('[Serie A] Loading live matches...');
+        console.log('[Serie A] Loading matches...');
 
         try {
-            // Fetch tracked_matches from Firestore (Live status)
-            const q = query(collection(db, "tracked_matches"), where("isSerieA", "==", true));
+            // Query serie_a_matches (now loads both pre-match and live)
+            const q = query(
+                collection(db, "serie_a_matches"),
+                where("status", "in", ["NOT_STARTED", "LIVE"])
+            );
             const snapshot = await getDocs(q);
 
             if (snapshot.empty) {
                 container.innerHTML = `
                     <div class="text-center py-12 text-gray-300">
-                        <i class="fa-solid fa-satellite-dish text-5xl mb-4 opacity-50"></i>
-                        <p>In attesa delle partite di oggi...</p>
-                        <p class="text-xs text-gray-500 mt-2">Le partite compariranno qui al kickoff</p>
+                        <i class="fa-solid fa-calendar-xmark text-5xl mb-4 opacity-50"></i>
+                        <p class="font-bold text-lg">Nessuna partita di Serie A oggi</p>
+                        <p class="text-xs text-gray-500 mt-2">Le partite verranno caricate la mattina</p>
                     </div>`;
                 return;
             }
 
+            // Sort: Live first, then by kickoffTime
+            const matches = [];
+            snapshot.forEach(doc => matches.push(doc.data()));
+
+            matches.sort((a, b) => {
+                if (a.status === "LIVE" && b.status !== "LIVE") return -1;
+                if (a.status !== "LIVE" && b.status === "LIVE") return 1;
+                return new Date(a.kickoffTime) - new Date(b.kickoffTime);
+            });
+
             let matchesHTML = '';
-            snapshot.forEach(doc => {
-                matchesHTML += renderSerieAMatch(doc.data());
+            matches.forEach(match => {
+                if (match.status === "NOT_STARTED") {
+                    matchesHTML += renderPreMatchCard(match);
+                } else {
+                    matchesHTML += renderLiveMatchCard(match);
+                }
             });
 
             container.innerHTML = matchesHTML;
 
         } catch (e) {
-            console.error('[Serie A] Error loading live:', e);
-            container.innerHTML = '<div class="text-center text-red-400 py-12">Errore nel caricamento dei dati live.</div>';
+            console.error('[Serie A] Error loading matches:', e);
+            container.innerHTML = '<div class="text-center text-red-400 py-12">Errore nel caricamento.</div>';
         }
     }
 
-    function renderSerieAMatch(m) {
-        const score = m.score || "0-0";
-        const elapsed = m.elapsed || "0'";
-        const tip = m.tip || "Live Monitor";
+    // Render PRE-MATCH card
+    function renderPreMatchCard(match) {
+        const kickoffDate = new Date(match.kickoffTime);
+        const timeStr = kickoffDate.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
-        const isHighPressure = m.pressure && m.pressure.isHigh;
-        const pressureClass = isHighPressure ? 'pressure-badge bg-red-600 text-white' : 'bg-gray-200 text-gray-700';
-
-        const stats = m.stats || { home: {}, away: {} };
-        const dAttacksH = m.pressure?.home?.["Dangerous Attacks"] || 0;
-        const dAttacksA = m.pressure?.away?.["Dangerous Attacks"] || 0;
-        const dAttTotal = (dAttacksH + dAttacksA) || 1;
-        const dAttPerc = (dAttacksH / dAttTotal) * 100;
-
-        const shotsH = m.pressure?.home?.["Shots on Goal"] || 0;
-        const shotsA = m.pressure?.away?.["Shots on Goal"] || 0;
-        const shotsTotal = (shotsH + shotsA) || 1;
-        const shotsPerc = (shotsH / shotsTotal) * 100;
+        const homeForm = match.homeTeam?.form || "-----";
+        const awayForm = match.awayTeam?.form || "-----";
 
         return `
-            <div class="bg-white rounded-2xl p-4 shadow-xl border border-gray-100 mb-4 transition transform hover:scale-[1.01] fade-in">
-                <div class="flex items-center justify-between mb-3">
-                    <div class="flex items-center gap-2">
-                        <span class="bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-black animate-pulse">LIVE</span>
-                        <span class="text-gray-900 font-bold text-sm">${elapsed}</span>
-                    </div>
-                    <div class="px-3 py-1 rounded-full text-[10px] font-black \${pressureClass}">
-                        \${isHighPressure ? '🔥 ALTA PRESSIONE' : '⚡ MONITOR'}
-                    </div>
+            <div class="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-5 shadow-lg border-2 border-blue-200 mb-4">
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-4">
+                    <span class="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">
+                        🕐 ${timeStr}
+                    </span>
+                    <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">
+                        PRE-MATCH
+                    </span>
                 </div>
-
-                <div class="text-xl font-black text-gray-900 mb-4 text-center">
-                    \${m.matchName.split('-').join(' <span class="text-purple-600 text-2xl mx-2">VS</span> ')}
+                
+                <!-- Match Title -->
+                <div class="text-center mb-5">
+                    <h3 class="text-xl font-black text-gray-900">${match.matchName}</h3>
+                    <p class="text-xs text-gray-500 mt-1">🏆 ${match.lega}</p>
                 </div>
-
-                <div class="bg-gray-900 text-white rounded-xl p-4 mb-4 shadow-inner">
-                    <div class="text-center mb-2">
-                        <div class="text-3xl font-black tracking-widest text-purple-400">\${score}</div>
-                        <div class="text-[10px] text-gray-400 font-bold uppercase mt-1">Score in Tempo Reale</div>
+                
+                <!-- Teams Grid -->
+                <div class="grid grid-cols-2 gap-4 mb-5">
+                    <!-- Home Team -->
+                    <div class="bg-white rounded-xl p-3 border border-gray-200 text-center">
+                        <img src="${match.homeTeam.logo}" class="w-14 h-14 mx-auto mb-2" alt="${match.homeTeam.name}">
+                        <p class="font-bold text-sm text-gray-900">${match.homeTeam.name}</p>
+                        <p class="text-xs text-gray-500 mt-1">Forma: ${formatForm(homeForm)}</p>
+                        <div class="grid grid-cols-2 gap-1 mt-2 text-xs">
+                            <div>
+                                <span class="text-gray-400">Gol</span>
+                                <p class="font-bold text-green-600">${match.homeTeam.goalsScored}</p>
+                            </div>
+                            <div>
+                                <span class="text-gray-400">Subiti</span>
+                                <p class="font-bold text-red-600">${match.homeTeam.goalsConceded}</p>
+                            </div>
+                        </div>
                     </div>
                     
-                    <div class="grid grid-cols-2 gap-4 mt-4 border-t border-gray-800 pt-4">
-                        <div class="text-center">
-                            <div class="text-xs text-purple-200 mb-1">TIP CONSIGLIATA</div>
-                            <div class="font-black text-white text-sm text-[12px]">\${tip}</div>
-                        </div>
-                        <div class="text-center border-l border-gray-800">
-                            <div class="text-xs text-purple-200 mb-1">PROBABILITÀ</div>
-                            <div class="font-black text-green-400 text-sm">\${m.probabilita || '85%'}</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Live Intelligence Widget -->
-                <div class="space-y-4">
-                    <div>
-                        <div class="flex justify-between text-[10px] font-bold text-gray-600 uppercase mb-1">
-                            <span>Attacchi Pericolosi</span>
-                            <span>\${dAttacksH} - \${dAttacksA}</span>
-                        </div>
-                        <div class="live-stat-bar">
-                            <div class="live-stat-progress" style="width: \${dAttPerc}%"></div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="flex justify-between text-[10px] font-bold text-gray-600 uppercase mb-1">
-                            <span>Tiri in Porta</span>
-                            <span>\${shotsH} - \${shotsA}</span>
-                        </div>
-                        <div class="live-stat-bar">
-                            <div class="live-stat-progress" style="width: \${shotsPerc}%"></div>
+                    <!-- Away Team -->
+                    <div class="bg-white rounded-xl p-3 border border-gray-200 text-center">
+                        <img src="${match.awayTeam.logo}" class="w-14 h-14 mx-auto mb-2" alt="${match.awayTeam.name}">
+                        <p class="font-bold text-sm text-gray-900">${match.awayTeam.name}</p>
+                        <p class="text-xs text-gray-500 mt-1">Forma: ${formatForm(awayForm)}</p>
+                        <div class="grid grid-cols-2 gap-1 mt-2 text-xs">
+                            <div>
+                                <span class="text-gray-400">Gol</span>
+                                <p class="font-bold text-green-600">${match.awayTeam.goalsScored}</p>
+                            </div>
+                            <div>
+                                <span class="text-gray-400">Subiti</span>
+                                <p class="font-bold text-red-600">${match.awayTeam.goalsConceded}</p>
+                            </div>
                         </div>
                     </div>
                 </div>
                 
-                \${isHighPressure ? \`
-                    <div class="mt-4 bg-red-50 text-red-700 p-2 rounded-lg text-xs font-bold flex items-center gap-2">
-                        <i class="fa-solid fa-triangle-exclamation animate-bounce"></i>
-                        Pressione in aumento in area di rigore. Gol imminente?
-                    </div>
-                \` : ''}
+                <!-- Recommended Tip -->
+                <div class="bg-gradient-to-r from-purple-600 to-purple-500 rounded-xl p-4 text-center text-white shadow-lg">
+                    <p class="text-xs opacity-90 mb-1">💡 TIP CONSIGLIATA</p>
+                    <p class="text-lg font-black">${match.recommendedTip}</p>
+                </div>
             </div>
         `;
+    }
+
+    // Render LIVE card
+    function renderLiveMatchCard(match) {
+        const score = match.score || "0-0";
+        const elapsed = match.elapsed || "0'";
+
+        const liveStats = match.liveStats || {};
+        const possession = liveStats.possession || "50% - 50%";
+        const shotsOnGoal = liveStats.shotsOnGoal || "0 - 0";
+        const dangerousAttacks = liveStats.dangerousAttacks || "0 - 0";
+        const pressure = liveStats.pressure || "NORMAL";
+
+        const isHighPressure = (pressure === "HIGH");
+
+        return `
+            <div class="bg-gradient-to-br from-red-900 via-red-800 to-red-900 rounded-2xl p-5 shadow-2xl border-2 border-red-500 mb-4 animate-pulse-slow">
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-2">
+                        <span class="bg-red-500 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse">
+                            🔴 LIVE
+                        </span>
+                        <span class="text-white font-bold">${elapsed}</span>
+                    </div>
+                    ${isHighPressure ? `
+                        <span class="bg-yellow-400 text-red-900 px-3 py-1 rounded-full text-xs font-black">
+                            🔥 ALTA PRESSIONE
+                        </span>
+                    ` : ''}
+                </div>
+                
+                <!-- Match Title -->
+                <div class="text-center mb-4">
+                    <h3 class="text-xl font-black text-white">${match.matchName}</h3>
+                    <p class="text-xs text-red-200 mt-1">🏆 ${match.lega}</p>
+                </div>
+                
+                <!-- Score Box -->
+                <div class="bg-black bg-opacity-40 rounded-xl p-4 mb-4 text-center">
+                    <p class="text-4xl font-black text-white mb-1">${score}</p>
+                    <p class="text-xs text-red-200">Score in tempo reale</p>
+                </div>
+                
+                <!-- Recommended Tip -->
+                <div class="bg-purple-600 rounded-xl p-3 text-center text-white mb-4">
+                    <p class="text-xs opacity-90">💡 Tip Consigliata</p>
+                    <p class="text-lg font-bold">${match.recommendedTip}</p>
+                </div>
+                
+                <!-- Live Stats -->
+                <div class="bg-black bg-opacity-30 rounded-xl p-4 space-y-3">
+                    <p class="text-xs font-bold text-red-200 uppercase mb-3">📊 Statistiche Live</p>
+                    
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-white mb-1">
+                            <span>Possesso Palla</span>
+                            <span>${possession}</span>
+                        </div>
+                        <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-blue-500 to-purple-500" style="width: ${possession.split('-')[0].trim()}"></div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-white mb-1">
+                            <span>Tiri in Porta</span>
+                            <span>${shotsOnGoal}</span>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-white mb-1">
+                            <span>Attacchi Pericolosi</span>
+                            <span>${dangerousAttacks}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                ${isHighPressure ? `
+                    <div class="mt-4 bg-yellow-400 text-red-900 p-3 rounded-xl text-xs font-bold flex items-center gap-2">
+                        <i class="fa-solid fa-triangle-exclamation animate-bounce"></i>
+                        Pressione elevata! Possibile imminente occasione da gol.
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    // Helper: Format team form (WWLDW -> 🟢🟢🔴🟡🟢)
+    function formatForm(form) {
+        if (!form || form === "-----") return "-----";
+
+        return form.split('').map(char => {
+            if (char === 'W') return '🟢';
+            if (char === 'D') return '🟡';
+            if (char === 'L') return '🔴';
+            return char;
+        }).join('');
     }
 
 </script>
