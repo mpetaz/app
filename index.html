@@ -3652,8 +3652,9 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                     </span>
                 </div>
                 
-                <!-- Match Title -->
+                <!-- Match Title with Serie A Logo -->
                 <div class="text-center mb-5">
+                    <img src="https://media.api-sports.io/football/leagues/135.png" class="w-12 h-12 mx-auto mb-2" alt="Serie A" onerror="this.style.display='none'">
                     <h3 class="text-xl font-black text-gray-900">${match.matchName}</h3>
                     <p class="text-xs text-gray-500 mt-1">🏆 ${match.lega}</p>
                 </div>
@@ -3664,34 +3665,36 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                     <div class="bg-white rounded-xl p-3 border border-gray-200 text-center">
                         <img src="${match.homeTeam.logo}" class="w-14 h-14 mx-auto mb-2" alt="${match.homeTeam.name}">
                         <p class="font-bold text-sm text-gray-900">${match.homeTeam.name}</p>
-                        <p class="text-xs text-gray-500 mt-1">Forma: ${formatForm(homeForm)}</p>
-                        <div class="grid grid-cols-2 gap-1 mt-2 text-xs">
-                            <div>
-                                <span class="text-gray-400">Gol</span>
-                                <p class="font-bold text-green-600">${match.homeTeam.goalsScored}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-400">Subiti</span>
-                                <p class="font-bold text-red-600">${match.homeTeam.goalsConceded}</p>
+                        <div class="text-xs text-gray-500 mt-2 space-y-1">
+                            <div><span class="font-semibold">Casa:</span> ${formatFormLast5(homeForm, true)}</div>
+                            <div class="grid grid-cols-2 gap-1 mt-1">
+                                <div><span class="text-gray-400">Gol:</span> <span class="font-bold text-green-600">${match.homeTeam.goalsScored}</span></div>
+                                <div><span class="text-gray-400">Sub:</span> <span class="font-bold text-red-600">${match.homeTeam.goalsConceded}</span></div>
                             </div>
                         </div>
+                        ${match.homeTeam.injuries ? `
+                            <div class="mt-2 text-xs bg-red-50 rounded p-1">
+                                <p class="text-red-700">⚠️ ${match.homeTeam.injuries} assente/i</p>
+                            </div>
+                        ` : ''}
                     </div>
                     
                     <!-- Away Team -->
                     <div class="bg-white rounded-xl p-3 border border-gray-200 text-center">
                         <img src="${match.awayTeam.logo}" class="w-14 h-14 mx-auto mb-2" alt="${match.awayTeam.name}">
                         <p class="font-bold text-sm text-gray-900">${match.awayTeam.name}</p>
-                        <p class="text-xs text-gray-500 mt-1">Forma: ${formatForm(awayForm)}</p>
-                        <div class="grid grid-cols-2 gap-1 mt-2 text-xs">
-                            <div>
-                                <span class="text-gray-400">Gol</span>
-                                <p class="font-bold text-green-600">${match.awayTeam.goalsScored}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-400">Subiti</span>
-                                <p class="font-bold text-red-600">${match.awayTeam.goalsConceded}</p>
+                        <div class="text-xs text-gray-500 mt-2 space-y-1">
+                            <div><span class="font-semibold">Trasferta:</span> ${formatFormLast5(awayForm, false)}</div>
+                            <div class="grid grid-cols-2 gap-1 mt-1">
+                                <div><span class="text-gray-400">Gol:</span> <span class="font-bold text-green-600">${match.awayTeam.goalsScored}</span></div>
+                                <div><span class="text-gray-400">Sub:</span> <span class="font-bold text-red-600">${match.awayTeam.goalsConceded}</span></div>
                             </div>
                         </div>
+                        ${match.awayTeam.injuries ? `
+                            <div class="mt-2 text-xs bg-red-50 rounded p-1">
+                                <p class="text-red-700">⚠️ ${match.awayTeam.injuries} assente/i</p>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
                 
@@ -3718,32 +3721,33 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         const isHighPressure = (pressure === "HIGH");
 
         return `
-            <div class="bg-gradient-to-br from-red-900 via-red-800 to-red-900 rounded-2xl p-5 shadow-2xl border-2 border-red-500 mb-4 animate-pulse-slow">
+            <div class="bg-gradient-to-br from-green-900 via-green-800 to-green-900 rounded-2xl p-5 shadow-2xl border-2 border-green-500 mb-4 animate-pulse-slow">
                 <!-- Header -->
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center gap-2">
-                        <span class="bg-red-500 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse">
-                            🔴 LIVE
+                        <span class="bg-green-500 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse">
+                            🟢 LIVE
                         </span>
                         <span class="text-white font-bold">${elapsed}</span>
                     </div>
                     ${isHighPressure ? `
-                        <span class="bg-yellow-400 text-red-900 px-3 py-1 rounded-full text-xs font-black">
+                        <span class="bg-yellow-400 text-green-900 px-3 py-1 rounded-full text-xs font-black">
                             🔥 ALTA PRESSIONE
                         </span>
                     ` : ''}
                 </div>
                 
-                <!-- Match Title -->
+                <!-- Match Title with Logo -->
                 <div class="text-center mb-4">
+                    <img src="https://media.api-sports.io/football/leagues/135.png" class="w-10 h-10 mx-auto mb-2" alt="Serie A" onerror="this.style.display='none'">
                     <h3 class="text-xl font-black text-white">${match.matchName}</h3>
-                    <p class="text-xs text-red-200 mt-1">🏆 ${match.lega}</p>
+                    <p class="text-xs text-green-200 mt-1">🏆 ${match.lega}</p>
                 </div>
                 
                 <!-- Score Box -->
                 <div class="bg-black bg-opacity-40 rounded-xl p-4 mb-4 text-center">
                     <p class="text-4xl font-black text-white mb-1">${score}</p>
-                    <p class="text-xs text-red-200">Score in tempo reale</p>
+                    <p class="text-xs text-green-200">Score in tempo reale</p>
                 </div>
                 
                 <!-- Recommended Tip -->
@@ -3754,15 +3758,15 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                 
                 <!-- Live Stats -->
                 <div class="bg-black bg-opacity-30 rounded-xl p-4 space-y-3">
-                    <p class="text-xs font-bold text-red-200 uppercase mb-3">📊 Statistiche Live</p>
+                    <p class="text-xs font-bold text-green-200 uppercase mb-3">📊 Statistiche Live</p>
                     
                     <div>
-                        <div class="flex justify-between text-xs font-bold text-white mb-1">
+              <div class="flex justify-between text-xs font-bold text-white mb-1">
                             <span>Possesso Palla</span>
                             <span>${possession}</span>
                         </div>
                         <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
-                            <div class="h-full bg-gradient-to-r from-blue-500 to-purple-500" style="width: ${possession.split('-')[0].trim()}"></div>
+                            <div class="h-full bg-gradient-to-r from-green-500 to-emerald-500" style="width: ${possession.split('-')[0].trim()}"></div>
                         </div>
                     </div>
                     
@@ -3782,13 +3786,28 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                 </div>
                 
                 ${isHighPressure ? `
-                    <div class="mt-4 bg-yellow-400 text-red-900 p-3 rounded-xl text-xs font-bold flex items-center gap-2">
+                    <div class="mt-4 bg-yellow-400 text-green-900 p-3 rounded-xl text-xs font-bold flex items-center gap-2">
                         <i class="fa-solid fa-triangle-exclamation animate-bounce"></i>
                         Pressione elevata! Possibile imminente occasione da gol.
                     </div>
                 ` : ''}
             </div>
         `;
+    }
+
+    // Helper: Format form LAST 5 matches only
+    function formatFormLast5(form, isHome) {
+        if (!form || form === "-----") return "-----";
+
+        // Take last 5 characters
+        const last5 = form.slice(-5);
+
+        return last5.split('').map(char => {
+            if (char === 'W') return '🟢';
+            if (char === 'D') return '🟡';
+            if (char === 'L') return '🔴';
+            return char;
+        }).join('');
     }
 
     // Helper: Format team form (WWLDW -> 🟢🟢🔴🟡🟢)
