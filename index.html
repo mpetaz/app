@@ -3781,6 +3781,15 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
 
         const isHighPressure = !isFinished && (pressure === "HIGH");
 
+        // Define xgDisplay (fixes ReferenceError)
+        const xg = liveStats.xg; // e.g. "1.24 - 0.88" or undefined
+        const xgDisplay = xg ? `
+            <div class="mt-2 pt-2 border-t border-gray-800 flex justify-between items-center px-1">
+                <span class="text-[10px] text-gray-400 font-bold">xG</span>
+                <span class="text-xs font-mono text-purple-400 font-bold">${xg}</span>
+            </div>
+        ` : '';
+
         // Calculate Result Color for Finished matches
         let cardClass = "";
         let result = "UNKNOWN";
