@@ -3506,7 +3506,9 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                         </div>
                         <div>
                             <div class="text-xs text-gray-500">ENTRY RANGE</div>
-                            <div class="font-bold text-green-600">${pick.tradingInstruction?.entryRange ? pick.tradingInstruction.entryRange.join(' - ') : (pick.quota || '-')}</div>
+                            <div class="font-bold text-green-600">
+                                ${pick.smartRange ? `${pick.smartRange} <span class="text-[10px] text-gray-400 block font-normal">Exch Ref: ${pick.betfairExchangeEst}</span>` : (pick.tradingInstruction?.entryRange ? pick.tradingInstruction.entryRange.join(' - ') : (pick.quota || '-'))}
+                            </div>
                         </div>
                         <div>
                             <div class="text-xs text-gray-500">TARGET</div>
@@ -3673,12 +3675,7 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                                 <div><span class="text-gray-400">Sub:</span> <span class="font-bold text-red-600">${match.homeTeam.goalsConceded}</span></div>
                             </div>
                         </div>
-                        ${match.homeTeam.injuryNames ? `
-                            <div class="mt-2 text-xs bg-red-50 rounded p-1">
-                                <p class="text-red-700 font-semibold">⚠️ Assenti:</p>
-                                <p class="text-red-600">${match.homeTeam.injuryNames}</p>
-                            </div>
-                        ` : ''}
+                        ${match.homeTeam.injuryNames ? '' : ''}
                     </div>
                     
                     <!-- Away Team -->
@@ -3692,19 +3689,35 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                                 <div><span class="text-gray-400">Sub:</span> <span class="font-bold text-red-600">${match.awayTeam.goalsConceded}</span></div>
                             </div>
                         </div>
-                        ${match.awayTeam.injuryNames ? `
-                            <div class="mt-2 text-xs bg-red-50 rounded p-1">
-                                <p class="text-red-700 font-semibold">⚠️ Assenti:</p>
-                                <p class="text-red-600">${match.awayTeam.injuryNames}</p>
-                            </div>
-                        ` : ''}
+                        ${match.awayTeam.injuryNames ? '' : ''}
                     </div>
                 </div>
                 
+                <!-- Odds Section (New) -->
+                ${match.odds ? `
+                    <div class="grid grid-cols-3 gap-2 mb-4 text-center">
+                        <div class="bg-white rounded-lg p-2 border border-gray-200">
+                            <p class="text-[10px] text-gray-500 font-bold uppercase">1</p>
+                            <p class="text-sm font-black text-blue-900">${match.odds.home}</p>
+                        </div>
+                        <div class="bg-white rounded-lg p-2 border border-gray-200">
+                            <p class="text-[10px] text-gray-500 font-bold uppercase">X</p>
+                            <p class="text-sm font-black text-gray-600">${match.odds.draw}</p>
+                        </div>
+                        <div class="bg-white rounded-lg p-2 border border-gray-200">
+                            <p class="text-[10px] text-gray-500 font-bold uppercase">2</p>
+                            <p class="text-sm font-black text-red-900">${match.odds.away}</p>
+                        </div>
+                    </div>
+                ` : ''}
+
                 <!-- Recommended Tip -->
                 <div class="bg-gradient-to-r from-purple-600 to-purple-500 rounded-xl p-4 text-center text-white shadow-lg">
                     <p class="text-xs opacity-90 mb-1">💡 TIP CONSIGLIATA</p>
-                    <p class="text-lg font-black">${match.recommendedTip}</p>
+                    <div class="flex flex-col items-center justify-center">
+                        <p class="text-lg font-black">${match.recommendedTip}</p>
+                        ${match.recommendedTipOdd ? `<p class="text-xs bg-black bg-opacity-20 px-2 py-0.5 rounded-full mt-1 font-mono text-purple-100">@ ${match.recommendedTipOdd}</p>` : ''}
+                    </div>
                 </div>
             </div>
         `;
@@ -3789,29 +3802,32 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
             cardClass = "bg-gradient-to-br from-blue-900 via-indigo-900 to-blue-950 border-blue-500 shadow-2xl animate-pulse-slow";
         }
 
-        // Events rendering
-        let eventsHTML = '';
+        // Parse Events for Persistent Display
+        const homeEvents = [];
+        const awayEvents = [];
+
         if (match.events && match.events.length > 0) {
-            eventsHTML = `
-                <div class="mt-4 pt-3 border-t border-white border-opacity-10 space-y-2">
-                    ${match.events.slice(-5).map(ev => {
-                let icon = 'fa-futbol';
-                let color = 'text-white';
-                if (ev.type === 'Card') {
-                    icon = 'fa-square';
-                    color = ev.detail.includes('Yellow') ? 'text-yellow-400' : 'text-red-500';
+            match.events.forEach(ev => {
+                const isHome = ev.team.toLowerCase().includes(match.homeTeam.name.toLowerCase()) ||
+                    match.homeTeam.name.toLowerCase().includes(ev.team.toLowerCase()); // Simple matching
+                // Actually match.homeTeam.name might be short, ev.team might be long. Assuming "Home" based on name match?
+                // Better: Check if ev.team matches match.homeTeam.name roughly. 
+                // Or use side logic if available? API gives team name.
+
+                // Let's rely on name equality or contains
+                const side = (ev.team === match.homeTeam.name) ? 'home' : 'away';
+
+                if (ev.type === 'Goal') {
+                    const cleanName = ev.player.split(' ').pop(); // Just surname
+                    if (side === 'home') homeEvents.push({ type: 'goal', text: `${ev.time}' ${cleanName} ⚽` });
+                    else awayEvents.push({ type: 'goal', text: `⚽ ${cleanName} ${ev.time}'` });
                 }
-                return `
-                            <div class="flex items-center gap-2 text-[10px] font-bold text-gray-200">
-                                <span class="opacity-50">${ev.time}</span>
-                                <i class="fa-solid ${icon} ${color} text-[8px]"></i>
-                                <span>${ev.player}</span>
-                                <span class="opacity-40 italic">(${ev.type})</span>
-                            </div>
-                        `;
-            }).join('')}
-                </div>
-            `;
+                if (ev.type === 'Card' && ev.detail.includes('Red')) {
+                    const cleanName = ev.player.split(' ').pop();
+                    if (side === 'home') homeEvents.push({ type: 'red', text: `${ev.time}' ${cleanName} 🟥` });
+                    else awayEvents.push({ type: 'red', text: `🟥 ${cleanName} ${ev.time}'` });
+                }
+            });
         }
 
 
@@ -3843,42 +3859,58 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                 <!-- Score Box -->
                 <div class="bg-black bg-opacity-40 rounded-xl p-4 mb-4 text-center">
                     <p class="text-4xl font-black text-white mb-1">${score}</p>
-                    <p class="text-xs text-green-200 font-bold">${scoreHT}</p>
+                    <p class="text-xs text-green-200 font-bold mb-3">${scoreHT}</p>
+                    
+                    <!-- Persistent Events (Goals/Red Cards) -->
+                    ${(homeEvents.length > 0 || awayEvents.length > 0) ? `
+                        <div class="border-t border-white/20 pt-2 grid grid-cols-2 gap-4 text-[11px] font-bold text-gray-100 items-start">
+                            <div class="text-left space-y-1">
+                                ${homeEvents.map(e => `<div class="${e.type === 'red' ? 'text-red-400' : ''}">${e.text}</div>`).join('')}
+                            </div>
+                            <div class="text-right space-y-1">
+                                ${awayEvents.map(e => `<div class="${e.type === 'red' ? 'text-red-400' : ''}">${e.text}</div>`).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 
                 <!-- Recommended Tip -->
                 <div class="bg-purple-600 rounded-xl p-3 text-center text-white mb-4">
-                    <p class="text-xs opacity-90">💡 Tip Consigliata</p>
-                    <p class="text-lg font-bold">${match.recommendedTip}</p>
+                    <p class="text-[10px] opacity-80 mb-1">TIP CONSIGLIATA</p>
+                    <div class="flex items-center justify-center gap-2">
+                        <p class="text-lg font-bold">${match.recommendedTip}</p>
+                        ${match.recommendedTipOdd ? `<span class="bg-black bg-opacity-20 text-[10px] px-2 py-1 rounded-md font-mono">@${match.recommendedTipOdd}</span>` : ''}
+                    </div>
                 </div>
 
-                <!-- Events -->
-                ${eventsHTML}
-                
-                <!-- Stats -->
-                <div class="bg-black bg-opacity-30 rounded-xl p-4 mt-4 space-y-3">
-                    <p class="text-xs font-bold text-green-200 uppercase mb-3 text-center">📊 Statistiche Live</p>
-                    
-                    <div>
-                        <div class="flex justify-between text-xs font-bold text-white mb-1">
-                            <span>Possesso Palla</span>
-                            <span>${possession}</span>
-                        </div>
-                        <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
-                            <div class="h-full bg-gradient-to-r from-green-500 to-emerald-500" style="width: ${possession.split('-')[0].trim()}"></div>
-                        </div>
+                <!-- Live Stats -->
+                <div class="bg-gray-900 rounded-xl p-3 border border-gray-800">
+                    <div class="flex items-center justify-center gap-2 mb-2">
+                        <img src="logo_serie_a.png" class="h-3 w-3 opacity-70"> <!-- Assuming icon exists or use emoji -->
+                        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">STATISTICHE LIVE</p>
                     </div>
                     
-                    <div class="flex justify-around pt-2">
-                        <div class="text-center">
-                            <p class="text-[9px] text-gray-400 uppercase">Tiri in Porta</p>
-                            <p class="text-white font-bold text-xs">${shotsOnGoal}</p>
+                    <!-- Possession Bar -->
+                    <div class="flex justify-between text-xs font-bold text-white mb-1">
+                        <span>Possesso Palla</span>
+                        <span>${possession}</span>
+                    </div>
+                    <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden mb-3">
+                        <div class="h-full bg-green-500" style="width: ${parseInt(possession) || 50}%"></div>
+                    </div>
+
+                    <!-- Simple Grid -->
+                    <div class="grid grid-cols-2 gap-4 text-center">
+                        <div>
+                            <p class="text-[10px] text-gray-400 uppercase">Tiri in Porta</p>
+                            <p class="text-sm font-bold text-white">${shotsOnGoal}</p>
                         </div>
-                        <div class="text-center">
-                            <p class="text-[9px] text-gray-400 uppercase">Attacchi Pericolosi</p>
-                            <p class="text-white font-bold text-xs">${dangerousAttacks}</p>
+                        <div>
+                            <p class="text-[10px] text-gray-400 uppercase">Attacchi Pericolosi</p>
+                            <p class="text-sm font-bold text-white">${dangerousAttacks}</p>
                         </div>
                     </div>
+                    ${xgDisplay}
                 </div>
                 
                 ${isHighPressure ? `
