@@ -3781,12 +3781,12 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
 
         const isHighPressure = !isFinished && (pressure === "HIGH");
 
-        // Define xgDisplay (fixes ReferenceError)
-        const xg = liveStats.xg; // e.g. "1.24 - 0.88" or undefined
-        const xgDisplay = xg ? `
+        // Define xgDisplay (fixes ReferenceError & [Object Object])
+        const xgObj = liveStats.xg; // { home: "1.24", away: "0.88" } or null
+        const xgDisplay = (xgObj && xgObj.home && xgObj.away) ? `
             <div class="mt-2 pt-2 border-t border-gray-800 flex justify-between items-center px-1">
                 <span class="text-[10px] text-gray-400 font-bold">xG</span>
-                <span class="text-xs font-mono text-purple-400 font-bold">${xg}</span>
+                <span class="text-xs font-mono text-purple-400 font-bold">${xgObj.home} - ${xgObj.away}</span>
             </div>
         ` : '';
 
