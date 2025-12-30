@@ -419,6 +419,23 @@
             <div id="my-matches-container" class="space-y-4">
                 <!-- Populated dynamically -->
             </div>
+
+            <!-- Trading Favorites Section -->
+            <div id="trading-favorites-section" class="mt-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-lg font-bold flex items-center gap-2">
+                        <span class="bg-orange-500 text-white px-2 py-1 rounded-lg text-xs">📈 TRADING</span>
+                        I Miei Trading
+                    </h3>
+                </div>
+                <div id="trading-favorites-container" class="space-y-4">
+                    <!-- Populated dynamically -->
+                </div>
+                <div id="trading-favorites-empty" class="hidden text-center py-8 bg-gray-800 bg-opacity-50 rounded-xl">
+                    <p class="text-gray-400">Nessun Trading nei preferiti</p>
+                    <p class="text-gray-500 text-sm mt-1">Vai alla tab Trading e aggiungi le partite con ⭐</p>
+                </div>
+            </div>
         </div>
 
         <!-- Account Page -->
@@ -1825,6 +1842,98 @@
             // DON'T call showPage here - it's already called by the navigation button!
         }
 
+        // Load Trading Favorites into Star Tab
+        async function loadTradingFavorites() {
+            const container = document.getElementById('trading-favorites-container');
+            const emptyState = document.getElementById('trading-favorites-empty');
+
+            if (!container) return;
+            container.innerHTML = '';
+
+            try {
+                if (!currentUser) {
+                    emptyState.classList.remove('hidden');
+                    return;
+                }
+
+                // Fetch user's trading favorites
+                const favDoc = await getDoc(doc(db, "user_favorites", currentUser.uid));
+                if (!favDoc.exists() || !favDoc.data().tradingPicks || favDoc.data().tradingPicks.length === 0) {
+                    emptyState.classList.remove('hidden');
+                    return;
+                }
+
+                const tradingPickIds = favDoc.data().tradingPicks; // ['trading_Inter_Milan', ...]
+
+                // Fetch today's trading picks to get details
+                const today = new Date().toISOString().split('T')[0];
+                const picksDoc = await getDoc(doc(db, "daily_trading_picks", today));
+                if (!picksDoc.exists()) {
+                    emptyState.classList.remove('hidden');
+                    return;
+                }
+
+                const allPicks = picksDoc.data().picks || [];
+
+                // Filter only favorited picks
+                const favoritedPicks = allPicks.filter(pick => {
+                    const pickId = `trading_${(pick.partita || '').replace(/\s/g, '_').replace(/-/g, '_')}`;
+                    return tradingPickIds.includes(pickId);
+                });
+
+                if (favoritedPicks.length === 0) {
+                    emptyState.classList.remove('hidden');
+                    return;
+                }
+
+                emptyState.classList.add('hidden');
+
+                // Render favorited trading picks
+                favoritedPicks.forEach(pick => {
+                    const isOver = pick.strategy === 'BACK_OVER_25';
+                    const strategyColor = isOver ? 'bg-green-500' : 'bg-blue-500';
+                    const strategyLabel = isOver ? '🔥 OVER 2.5' : '🛡️ UNDER 3.5';
+
+                    const card = document.createElement('div');
+                    card.className = 'bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-4 border-2 border-orange-300 shadow-lg';
+
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="bg-orange-500 text-white px-2 py-1 rounded-lg text-xs font-bold">📈 TRADING</span>
+                            <span class="px-3 py-1 rounded-full ${strategyColor} text-white font-bold text-xs">${strategyLabel}</span>
+                        </div>
+                        <div class="text-lg font-bold text-gray-900 mb-1">${pick.partita || ''}</div>
+                        ${pick.currentSignal ? `
+                            <div class="inline-block px-3 py-1 rounded-full text-xs font-bold mb-2 ${pick.currentSignal === 'ENTRY' ? 'bg-yellow-400 text-yellow-900' :
+                                pick.currentSignal === 'CASHOUT' ? 'bg-green-400 text-green-900' :
+                                    pick.currentSignal === 'GREEN' ? 'bg-emerald-500 text-white animate-pulse' :
+                                        pick.currentSignal === 'STOPLOSS' ? 'bg-red-500 text-white animate-pulse' :
+                                            'bg-gray-300 text-gray-700'
+                            }">
+                                ${pick.currentSignal === 'ENTRY' ? '🎯 ENTRY ZONE' :
+                                pick.currentSignal === 'CASHOUT' ? '💰 CASH OUT' :
+                                    pick.currentSignal === 'GREEN' ? '🎉 GREEN!' :
+                                        pick.currentSignal === 'STOPLOSS' ? '🚨 STOP!' :
+                                            pick.currentSignal}
+                            </div>
+                        ` : ''}
+                        <div class="text-sm text-gray-600">
+                            <span class="font-semibold">Tip:</span> ${pick.tradingInstruction?.action || pick.tip || '-'}
+                        </div>
+                        ${pick.ora ? `<div class="text-sm text-gray-500 mt-1">⏰ ${pick.ora}</div>` : ''}
+                    `;
+
+                    container.appendChild(card);
+                });
+
+                console.log(`[TradingFavorites] Loaded ${favoritedPicks.length} favorited trading picks`);
+
+            } catch (e) {
+                console.error('[TradingFavorites] Error loading:', e);
+                emptyState.classList.remove('hidden');
+            }
+        }
+
         // Remove Single Match
         async function removeMatch(matchId) {
             if (!confirm('Vuoi rimuovere questa partita dai preferiti?')) return;
@@ -1899,6 +2008,7 @@
                 loadHistory(); // Load 7-day history
             } else if (pageName === 'my-matches') {
                 showMyMatches();
+                loadTradingFavorites(); // Load trading favorites in Star tab
                 document.getElementById('page-my-matches').classList.add('active');
             } else if (pageName === 'account') {
                 populateAccountPage();
@@ -3443,6 +3553,28 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
             const picks = picksDoc.data().picks;
             console.log(`[Trading] Loaded ${picks.length} picks for ${dateToLoad}`);
 
+            // Fetch trading signals to attach current status
+            try {
+                const signalsSnapshot = await getDocs(collection(db, "trading_signals"));
+                const signalsMap = new Map();
+                signalsSnapshot.forEach(doc => {
+                    signalsMap.set(doc.id, doc.data());
+                });
+
+                // Attach signal to each pick
+                picks.forEach(pick => {
+                    const pickName = (pick.partita || "").toLowerCase().replace(/[^a-z]/g, "");
+                    const signalDoc = signalsMap.get(`trading_${pickName}`);
+                    if (signalDoc && signalDoc.currentSignal) {
+                        pick.currentSignal = signalDoc.currentSignal;
+                        pick.signalDetails = signalDoc.signalDetails;
+                    }
+                });
+                console.log(`[Trading] Attached signals from ${signalsMap.size} signal docs`);
+            } catch (sigErr) {
+                console.warn('[Trading] Could not fetch signals:', sigErr.message);
+            }
+
             document.getElementById('trading-empty').classList.add('hidden');
             renderTradingPicks(picks);
             updateTradingDateDisplay(dateToLoad, true);
@@ -3490,6 +3622,22 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                 
                 <!-- Teams -->
                 <div class="text-xl font-bold text-gray-900 mb-1">${pick.partita || ''}</div>
+                
+                <!-- Trading Signal Badge (if available) -->
+                ${pick.currentSignal ? `
+                    <div class="inline-block px-3 py-1 rounded-full text-xs font-bold mb-2 ${pick.currentSignal === 'ENTRY' ? 'bg-yellow-400 text-yellow-900' :
+                        pick.currentSignal === 'CASHOUT' ? 'bg-green-400 text-green-900' :
+                            pick.currentSignal === 'GREEN' ? 'bg-emerald-500 text-white animate-pulse' :
+                                pick.currentSignal === 'STOPLOSS' ? 'bg-red-500 text-white animate-pulse' :
+                                    'bg-gray-300 text-gray-700'
+                    }">
+                        ${pick.currentSignal === 'ENTRY' ? '🎯 ENTRY ZONE' :
+                        pick.currentSignal === 'CASHOUT' ? '💰 CASH OUT AVAILABLE' :
+                            pick.currentSignal === 'GREEN' ? '🎉 GREEN - CHIUDI!' :
+                                pick.currentSignal === 'STOPLOSS' ? '🚨 STOP LOSS!' :
+                                    pick.currentSignal}
+                    </div>
+                ` : ''}
                 
                 <!-- League -->
                 <div class="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold mb-3">
