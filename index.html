@@ -1842,8 +1842,8 @@
             // DON'T call showPage here - it's already called by the navigation button!
         }
 
-        // Load Trading Favorites into Star Tab
-        async function loadTradingFavorites() {
+        // Load Trading Favorites into Star Tab (Render UI)
+        async function renderTradingFavoritesInStarTab() {
             const container = document.getElementById('trading-favorites-container');
             const emptyState = document.getElementById('trading-favorites-empty');
 
@@ -2008,7 +2008,7 @@
                 loadHistory(); // Load 7-day history
             } else if (pageName === 'my-matches') {
                 showMyMatches();
-                loadTradingFavorites(); // Load trading favorites in Star tab
+                renderTradingFavoritesInStarTab(); // Load trading favorites in Star tab
                 document.getElementById('page-my-matches').classList.add('active');
             } else if (pageName === 'account') {
                 populateAccountPage();
