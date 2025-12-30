@@ -1035,6 +1035,7 @@
                     // Load Trading Favorites (only first time) to update badge correctly
                     try {
                         await loadTradingFavorites();
+                        await renderTradingFavoritesInStarTab(); // This sets window.activeTradingFavoritesCount
                     } catch (e) {
                         console.warn('[Client] Could not load trading favorites:', e);
                     }
