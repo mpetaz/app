@@ -1984,6 +1984,7 @@
 
                 // Store count of ACTIVE (visible today) trading favorites for badge
                 window.activeTradingFavoritesCount = favoritedSignals.length;
+                updateMyMatchesCount(); // Force UI update with correct numbers
 
             } catch (e) {
                 console.error('[TradingFavorites] Error loading:', e);
