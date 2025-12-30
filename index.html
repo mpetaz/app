@@ -1981,6 +1981,9 @@
 
                 console.log(`[TradingFavorites] Loaded ${favoritedSignals.length} favorited trading signals`);
 
+                // Store count of ACTIVE (visible today) trading favorites for badge
+                window.activeTradingFavoritesCount = favoritedSignals.length;
+
             } catch (e) {
                 console.error('[TradingFavorites] Error loading:', e);
                 emptyState.classList.remove('hidden');
@@ -2032,9 +2035,9 @@
             const navBtn = document.querySelector('[data-page="my-matches"]');
             const countBadge = navBtn.querySelector('.count-badge');
 
-            // Total = Betting favorites + Trading favorites
+            // Total = Betting favorites + ACTIVE (visible today) Trading favorites
             const bettingCount = window.selectedMatches.length;
-            const tradingCount = tradingFavorites.length;
+            const tradingCount = window.activeTradingFavoritesCount || 0; // Use active count, not DB total
             const totalCount = bettingCount + tradingCount;
 
             if (totalCount > 0) {
@@ -2253,7 +2256,18 @@
             try {
                 const favDoc = await getDoc(doc(db, "user_favorites", currentUser.uid));
                 if (favDoc.exists()) {
-                    tradingFavorites = favDoc.data().tradingPicks || [];
+                    const rawFavorites = favDoc.data().tradingPicks || [];
+                    // Remove duplicates using Set
+                    tradingFavorites = [...new Set(rawFavorites)];
+
+                    // If we cleaned duplicates, save back to DB
+                    if (tradingFavorites.length !== rawFavorites.length) {
+                        console.warn(`[Trading] Cleaned ${rawFavorites.length - tradingFavorites.length} duplicate favorites!`);
+                        await setDoc(doc(db, "user_favorites", currentUser.uid), {
+                            tradingPicks: tradingFavorites
+                        }, { merge: true });
+                    }
+
                     console.log('[Trading] Favorites loaded:', tradingFavorites.length);
                     updateMyMatchesCount(); // Update badge to include trading favorites
                 }
