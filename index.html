@@ -1842,6 +1842,12 @@
             // DON'T call showPage here - it's already called by the navigation button!
         }
 
+        // Helper to generate consistent Trading Pick IDs (Matches backend logic)
+        function getTradingPickId(partita) {
+            const cleanName = (partita || "").toLowerCase().replace(/[^a-z]/g, "");
+            return `trading_${cleanName}`;
+        }
+
         // Load Trading Favorites into Star Tab (Render UI)
         async function renderTradingFavoritesInStarTab() {
             const container = document.getElementById('trading-favorites-container');
@@ -1863,65 +1869,105 @@
                     return;
                 }
 
-                const tradingPickIds = favDoc.data().tradingPicks; // ['trading_Inter_Milan', ...]
+                const tradingPickIds = favDoc.data().tradingPicks || [];
 
-                // Fetch today's trading picks to get details
-                const today = new Date().toISOString().split('T')[0];
-                const picksDoc = await getDoc(doc(db, "daily_trading_picks", today));
-                if (!picksDoc.exists()) {
-                    emptyState.classList.remove('hidden');
-                    return;
-                }
-
-                const allPicks = picksDoc.data().picks || [];
-
-                // Filter only favorited picks
-                const favoritedPicks = allPicks.filter(pick => {
-                    const pickId = `trading_${(pick.partita || '').replace(/\s/g, '_').replace(/-/g, '_')}`;
-                    return tradingPickIds.includes(pickId);
+                // Fetch all signals to find the favorited ones
+                const signalsSnapshot = await getDocs(collection(db, "trading_signals"));
+                const signalsMap = new Map();
+                signalsSnapshot.forEach(doc => {
+                    signalsMap.set(doc.id, doc.data());
                 });
 
-                if (favoritedPicks.length === 0) {
+                // Match favorited IDs with signals (using resilient matching)
+                const favoritedSignals = [];
+                tradingPickIds.forEach(favId => {
+                    // Try direct match
+                    let sig = signalsMap.get(favId);
+
+                    // If no direct match, try clean match (maximum resilience)
+                    if (!sig) {
+                        const cleanFav = favId.toLowerCase().replace(/[^a-z]/g, "");
+                        for (let [sid, sdata] of signalsMap) {
+                            const cleanSid = sid.toLowerCase().replace(/[^a-z]/g, "");
+                            if (cleanSid === cleanFav || cleanSid.includes(cleanFav) || cleanFav.includes(cleanSid)) {
+                                sig = sdata;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (sig) favoritedSignals.push(sig);
+                });
+
+                if (favoritedSignals.length === 0) {
+                    console.log("[TradingFavorites] No matching signals found for favorites:", tradingPickIds);
                     emptyState.classList.remove('hidden');
                     return;
                 }
 
                 emptyState.classList.add('hidden');
 
+                // Sort: put active signals (ENTRY/CASHOUT) first
+                favoritedSignals.sort((a, b) => {
+                    const priority = { 'ENTRY': 3, 'CASHOUT': 4, 'GREEN': 2, 'STOPLOSS': 1 };
+                    return (priority[b.currentSignal] || 0) - (priority[a.currentSignal] || 0);
+                });
+
                 // Render favorited trading picks
-                favoritedPicks.forEach(pick => {
-                    const isOver = pick.strategy === 'BACK_OVER_25';
-                    const strategyColor = isOver ? 'bg-green-500' : 'bg-blue-500';
-                    const strategyLabel = isOver ? '🔥 OVER 2.5' : '🛡️ UNDER 3.5';
+                favoritedSignals.forEach(sig => {
+                    const signalDoc = sig;
+                    const partita = signalDoc.matchName || "Partita";
+                    const currentSignal = signalDoc.currentSignal;
+                    const tip = signalDoc.originalPick?.tip || "-";
 
                     const card = document.createElement('div');
-                    card.className = 'bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-4 border-2 border-orange-300 shadow-lg';
+                    card.className = 'bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-4 border-2 border-orange-300 shadow-lg relative';
 
                     card.innerHTML = `
                         <div class="flex items-center justify-between mb-2">
                             <span class="bg-orange-500 text-white px-2 py-1 rounded-lg text-xs font-bold">📈 TRADING</span>
-                            <span class="px-3 py-1 rounded-full ${strategyColor} text-white font-bold text-xs">${strategyLabel}</span>
+                            ${signalDoc.liveData?.elapsed ? `<span class="text-xs font-bold text-orange-600">⏱️ ${signalDoc.liveData.elapsed}'</span>` : ''}
                         </div>
-                        <div class="text-lg font-bold text-gray-900 mb-1">${pick.partita || ''}</div>
-                        ${pick.currentSignal ? `
-                            <div class="inline-block px-3 py-1 rounded-full text-xs font-bold mb-2 ${pick.currentSignal === 'ENTRY' ? 'bg-yellow-400 text-yellow-900' :
-                                pick.currentSignal === 'CASHOUT' ? 'bg-green-400 text-green-900' :
-                                    pick.currentSignal === 'GREEN' ? 'bg-emerald-500 text-white animate-pulse' :
-                                        pick.currentSignal === 'STOPLOSS' ? 'bg-red-500 text-white animate-pulse' :
+                        <div class="text-lg font-bold text-gray-900 mb-1">${partita}</div>
+                        ${currentSignal ? `
+                            <div class="inline-block px-3 py-1 rounded-full text-xs font-bold mb-2 ${currentSignal === 'ENTRY' ? 'bg-yellow-400 text-yellow-900' :
+                                currentSignal === 'CASHOUT' ? 'bg-green-400 text-green-900' :
+                                    currentSignal === 'GREEN' ? 'bg-emerald-500 text-white animate-pulse' :
+                                        currentSignal === 'STOPLOSS' ? 'bg-red-500 text-white animate-pulse' :
                                             'bg-gray-300 text-gray-700'
                             }">
-                                ${pick.currentSignal === 'ENTRY' ? '🎯 ENTRY ZONE' :
-                                pick.currentSignal === 'CASHOUT' ? '💰 CASH OUT' :
-                                    pick.currentSignal === 'GREEN' ? '🎉 GREEN!' :
-                                        pick.currentSignal === 'STOPLOSS' ? '🚨 STOP!' :
-                                            pick.currentSignal}
+                                ${currentSignal === 'ENTRY' ? '🎯 ENTRY ZONE' :
+                                currentSignal === 'CASHOUT' ? '💰 CASH OUT' :
+                                    currentSignal === 'GREEN' ? '🎉 GREEN!' :
+                                        currentSignal === 'STOPLOSS' ? '🚨 STOP!' :
+                                            currentSignal}
                             </div>
                         ` : ''}
-                        <div class="text-sm text-gray-600">
-                            <span class="font-semibold">Tip:</span> ${pick.tradingInstruction?.action || pick.tip || '-'}
+                        <div class="flex justify-between items-end mt-2">
+                            <div class="text-sm text-gray-600">
+                                <span class="font-semibold text-xs uppercase text-gray-400 block">Tipo:</span> ${tip}
+                                ${signalDoc.liveData?.score ? `<span class="block text-gray-900 font-bold mt-1">⚽ Risultato: ${signalDoc.liveData.score}</span>` : ''}
+                            </div>
+                            <button class="bg-white/80 p-2 rounded-lg text-red-500 hover:bg-white transition shadow-sm remove-trading-fav" data-id="${signalDoc.pickId}">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
                         </div>
-                        ${pick.ora ? `<div class="text-sm text-gray-500 mt-1">⏰ ${pick.ora}</div>` : ''}
                     `;
+
+                    // Add delete functionality
+                    card.querySelector('.remove-trading-fav').onclick = (e) => {
+                        e.stopPropagation();
+                        if (confirm(`Rimuovere ${partita} dai preferiti?`)) {
+                            const sid = e.currentTarget.dataset.id;
+                            // Re-use logic from toggleTradingFavorite but specifically for removal
+                            tradingFavorites = tradingFavorites.filter(id => id !== sid && id !== getTradingPickId(partita));
+                            setDoc(doc(db, "user_favorites", currentUser.uid), {
+                                tradingPicks: tradingFavorites
+                            }, { merge: true }).then(() => {
+                                renderTradingFavoritesInStarTab(); // Refresh
+                            });
+                        }
+                    };
 
                     container.appendChild(card);
                 });
@@ -2301,8 +2347,8 @@
             const strategyLabel = pick.strategy === 'BACK_OVER_25' ? 'BACK O2.5' : 'LAY Draw';
             const icon = pick.strategy === 'BACK_OVER_25' ? '📊' : '🎯';
 
-            // Generate unique ID for this pick
-            const pickId = `trading_${pick.partita?.replace(/\s/g, '_') || Date.now()}`;
+            // Generate unique ID for this pick (Matches backend logic)
+            const pickId = getTradingPickId(pick.partita);
 
             // Check if already favorited
             const isFavorite = tradingFavorites.includes(pickId);
