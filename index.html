@@ -1031,6 +1031,13 @@
                     } catch (e) {
                         console.warn('[Client] Could not load AI knowledge:', e);
                     }
+
+                    // Load Trading Favorites (only first time) to update badge correctly
+                    try {
+                        await loadTradingFavorites();
+                    } catch (e) {
+                        console.warn('[Client] Could not load trading favorites:', e);
+                    }
                 }
             } catch (e) {
                 console.error('[Client] Critical error loading data:', e);
