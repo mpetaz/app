@@ -1972,7 +1972,7 @@
                     container.appendChild(card);
                 });
 
-                console.log(`[TradingFavorites] Loaded ${favoritedPicks.length} favorited trading picks`);
+                console.log(`[TradingFavorites] Loaded ${favoritedSignals.length} favorited trading signals`);
 
             } catch (e) {
                 console.error('[TradingFavorites] Error loading:', e);
@@ -2025,16 +2025,21 @@
             const navBtn = document.querySelector('[data-page="my-matches"]');
             const countBadge = navBtn.querySelector('.count-badge');
 
-            if (window.selectedMatches.length > 0) {
+            // Total = Betting favorites + Trading favorites
+            const bettingCount = window.selectedMatches.length;
+            const tradingCount = tradingFavorites.length;
+            const totalCount = bettingCount + tradingCount;
+
+            if (totalCount > 0) {
                 if (!countBadge) {
                     const badge = document.createElement('span');
                     badge.className = 'count-badge absolute top-0 right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold z-50';
-                    badge.textContent = window.selectedMatches.length;
+                    badge.textContent = totalCount;
                     navBtn.style.position = 'relative';
                     navBtn.appendChild(badge);
-                    console.log('[UI] Badge created:', window.selectedMatches.length);
+                    console.log('[UI] Badge created:', totalCount, `(Betting: ${bettingCount}, Trading: ${tradingCount})`);
                 } else {
-                    countBadge.textContent = window.selectedMatches.length;
+                    countBadge.textContent = totalCount;
                 }
             } else if (countBadge) {
                 countBadge.remove();
