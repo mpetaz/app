@@ -1445,6 +1445,11 @@
             const matchId = `${match.data}_${match.partita}`;
             const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
 
+            // NEW: Delegate to Magic AI Card renderer if applicable
+            if (match.magicStats) {
+                return createMagicAICard(match, index, stratId);
+            }
+
             const card = document.createElement('div');
 
             // Keep card blue always, only color the result box
@@ -4478,6 +4483,161 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
             if (char === 'L') return '🔴';
             return char;
         }).join('');
+    }
+
+    // Create Magic AI Card (Scientific View)
+    function createMagicAICard(match, index, stratId) {
+        const matchId = `${match.data}_${match.partita}`;
+        // Correctly check if already flagged based on the generated ID
+        const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
+
+        const card = document.createElement('div');
+        // Base style similar to standard card but with specific margin
+        card.className = 'match-card rounded-xl shadow-lg fade-in mb-3 overflow-hidden bg-white';
+
+        // Helpers for Magic Stats
+        const ms = match.magicStats;
+        const confidence = ms.confidence_score || 0;
+        const probHome = ms.probabilities ? ms.probabilities.home_win : 0;
+        const probOver = ms.probabilities ? ms.probabilities.over_2_5 : 0;
+        const probGoal = ms.probabilities ? ms.probabilities.goal : 0;
+
+        const exactScores = ms.exact_score_top_3 || [];
+
+        // Draw Risk Flag
+        const isDrawRisk = ms.risk_factors && ms.risk_factors.draw_risk;
+
+        card.innerHTML = `
+            <!-- Header Scientifico -->
+            <div class="bg-gradient-to-r from-purple-700 to-indigo-800 p-3 flex justify-between items-center text-white">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-wand-magic-sparkles text-yellow-300 animate-pulse"></i>
+                    <span class="font-bold text-sm tracking-wider">MAGIA AI</span>
+                </div>
+                <div class="text-[10px] bg-purple-900 bg-opacity-50 px-2 py-0.5 rounded border border-purple-500 flex items-center gap-1">
+                    <i class="fa-solid fa-microchip"></i> 2500 SIMULAZIONI
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="p-4">
+                <!-- Top Row: Star - Time - League -->
+                <div class="flex justify-between items-start mb-3">
+                        <div class="flex items-center gap-2">
+                            <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-xl text-gray-400 hover:text-yellow-400 transition" data-match-id="${matchId}">
+                            <i class="fa-${isFlagged ? 'solid' : 'regular'} fa-star"></i>
+                        </button>
+                        ${match.ora ? `<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-bold">⏰ ${match.ora}</span>` : ''}
+                    </div>
+                    <div class="text-[10px] uppercase font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 truncate max-w-[120px]">
+                        ${match.lega}
+                    </div>
+                </div>
+
+                <!-- Teams -->
+                <div class="text-lg font-black text-gray-800 leading-tight mb-4 text-center">
+                    ${match.partita}
+                </div>
+
+                <!-- AI SIGNAL & CONFIDENCE -->
+                <div class="flex items-center justify-between gap-3 mb-5">
+                        <!-- Signal Box -->
+                    <div class="flex-1 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-2 border border-indigo-100 text-center relative overflow-hidden">
+                            <div class="text-[10px] text-gray-500 uppercase font-bold mb-1">AI SIGNAL</div>
+                            <div class="text-2xl font-black text-indigo-700 leading-none">${match.tip}</div>
+                            <div class="absolute top-0 right-0 w-8 h-8 bg-indigo-100 rounded-bl-full opacity-50"></div>
+                    </div>
+
+                    <!-- Confidence Circle (Visual) -->
+                    <div class="flex flex-col items-center">
+                        <div class="relative w-12 h-12 flex items-center justify-center rounded-full border-4 ${confidence > 80 ? 'border-green-400' : 'border-yellow-400'} bg-white shadow-sm">
+                            <span class="text-sm font-bold text-gray-700">${confidence}%</span>
+                        </div>
+                        <span class="text-[9px] text-gray-400 mt-1 font-bold">CONFIDENZA</span>
+                    </div>
+
+                        <!-- Odd Box -->
+                        <div class="flex-1 bg-gray-50 rounded-xl p-2 border border-gray-200 text-center">
+                            <div class="text-[10px] text-gray-500 uppercase font-bold mb-1">QUOTA</div>
+                            <div class="text-xl font-black text-gray-700">${match.quota}</div>
+                    </div>
+                </div>
+
+                <!-- Separator -->
+                <hr class="border-gray-100 mb-4">
+
+                <!-- PROBABILITY BARS -->
+                <div class="space-y-3 mb-5">
+                    <!-- Home Win -->
+                    <div>
+                        <div class="flex justify-between text-[11px] mb-1 font-semibold text-gray-600">
+                            <span>🏠 Vittoria Casa</span>
+                            <span>${probHome}%</span>
+                        </div>
+                        <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-500 rounded-full" style="width: ${probHome}%"></div>
+                        </div>
+                    </div>
+                    <!-- Over 2.5 -->
+                    <div>
+                            <div class="flex justify-between text-[11px] mb-1 font-semibold text-gray-600">
+                            <span>⚽ Over 2.5 Goal</span>
+                            <span>${probOver}%</span>
+                        </div>
+                        <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-green-500 rounded-full" style="width: ${probOver}%"></div>
+                        </div>
+                    </div>
+                        <!-- BTTS / Goal -->
+                    <div>
+                            <div class="flex justify-between text-[11px] mb-1 font-semibold text-gray-600">
+                            <span>🥅 Gol (Entrambe segnano)</span>
+                            <span>${probGoal}%</span>
+                        </div>
+                        <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-purple-500 rounded-full" style="width: ${probGoal}%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- EXACT SCORES PREDICTION -->
+                ${exactScores.length > 0 ? `
+                    <div class="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                        <div class="text-[10px] font-bold text-slate-500 uppercase mb-2 flex justify-between">
+                            <span>🎯 Risultati Esatti Probabili</span>
+                            <span class="text-slate-400 text-[9px] lowercase">base sim</span>
+                        </div>
+                        <div class="flex justify-center gap-2">
+                            ${exactScores.map((score, idx) => `
+                                <div class="flex-1 text-center ${idx === 0 ? 'bg-white shadow-sm border-indigo-200 ring-1 ring-indigo-100' : 'bg-slate-100 border-transparent'} border rounded py-1.5 px-1">
+                                    <div class="text-sm font-bold text-slate-800">${score.score}</div>
+                                    <div class="text-[9px] text-slate-500">${score.probability}%</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- DRAW RISK WARNING -->
+                ${isDrawRisk ? `
+                    <div class="mt-3 flex items-center justify-center gap-2 text-[11px] text-orange-600 bg-orange-50 border border-orange-200 p-1.5 rounded-lg">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span class="font-bold">Alta probabilità di pareggio rilevata</span>
+                    </div>
+                ` : ''}
+
+            </div>
+        `;
+
+        // Flag Button Event Listener
+        const flagBtn = card.querySelector('.flag-btn');
+        flagBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Reuse existing toggleFlag function
+            toggleFlag(matchId, match, stratId, flagBtn);
+        });
+
+        return card;
     }
 
 </script>
