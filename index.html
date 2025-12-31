@@ -4495,17 +4495,21 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
         // Base style similar to standard card but with specific margin
         card.className = 'match-card rounded-xl shadow-lg fade-in mb-3 overflow-hidden bg-white';
 
-        // Helpers for Magic Stats
+        // Helpers for Magic Stats - CORRECTED MAPPING from engine.js
         const ms = match.magicStats;
-        const confidence = ms.confidence_score || 0;
-        const probHome = ms.probabilities ? ms.probabilities.home_win : 0;
-        const probOver = ms.probabilities ? ms.probabilities.over_2_5 : 0;
-        const probGoal = ms.probabilities ? ms.probabilities.goal : 0;
+        // Confidence is stored in match.score by the engine (from generateMagiaAI)
+        const confidence = match.score || 0;
 
-        const exactScores = ms.exact_score_top_3 || [];
+        // Data structure is flat in engine.js output
+        const probHome = ms.winHomeProb || 0;
+        const probOver = ms.over25Prob || 0;
+        const probGoal = ms.bttsProb || 0;
 
-        // Draw Risk Flag
-        const isDrawRisk = ms.risk_factors && ms.risk_factors.draw_risk;
+        const exactScores = ms.topScores || [];
+
+        // Draw Risk Flag - engine.js sets 'drawRisk' as text "Alto" or "Basso"
+        const drawRiskLevel = ms.drawRisk || 'Basso';
+        const isDrawRisk = drawRiskLevel === 'Alto';
 
         card.innerHTML = `
             <!-- Header Scientifico -->
@@ -4514,8 +4518,10 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                     <i class="fa-solid fa-wand-magic-sparkles text-yellow-300 animate-pulse"></i>
                     <span class="font-bold text-sm tracking-wider">MAGIA AI</span>
                 </div>
-                <div class="text-[10px] bg-purple-900 bg-opacity-50 px-2 py-0.5 rounded border border-purple-500 flex items-center gap-1">
-                    <i class="fa-solid fa-microchip"></i> 2500 SIMULAZIONI
+                <div class="flex items-center gap-2">
+                    <div class="text-[10px] bg-purple-900 bg-opacity-50 px-2 py-0.5 rounded border border-purple-500 flex items-center gap-1 shadow-sm">
+                        <i class="fa-solid fa-microchip"></i> 2500 SIM
+                    </div>
                 </div>
             </div>
 
@@ -4527,91 +4533,86 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                             <button class="flag-btn ${isFlagged ? 'flagged' : ''} text-xl text-gray-400 hover:text-yellow-400 transition" data-match-id="${matchId}">
                             <i class="fa-${isFlagged ? 'solid' : 'regular'} fa-star"></i>
                         </button>
-                        ${match.ora ? `<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-bold">⏰ ${match.ora}</span>` : ''}
+                        ${match.ora ? `<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold shadow-sm border border-gray-200">⏰ ${match.ora}</span>` : ''}
                     </div>
-                    <div class="text-[10px] uppercase font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 truncate max-w-[120px]">
+                    <div class="text-[10px] uppercase font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-200 truncate max-w-[140px] shadow-sm">
                         ${match.lega}
                     </div>
                 </div>
 
                 <!-- Teams -->
-                <div class="text-lg font-black text-gray-800 leading-tight mb-4 text-center">
+                <div class="text-lg font-black text-gray-800 leading-tight mb-5 text-center px-1">
                     ${match.partita}
                 </div>
 
                 <!-- AI SIGNAL & CONFIDENCE -->
-                <div class="flex items-center justify-between gap-3 mb-5">
+                <div class="flex items-center justify-between gap-3 mb-6 bg-slate-50 p-2 rounded-xl border border-slate-100 shadow-inner">
                         <!-- Signal Box -->
-                    <div class="flex-1 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-2 border border-indigo-100 text-center relative overflow-hidden">
-                            <div class="text-[10px] text-gray-500 uppercase font-bold mb-1">AI SIGNAL</div>
-                            <div class="text-2xl font-black text-indigo-700 leading-none">${match.tip}</div>
-                            <div class="absolute top-0 right-0 w-8 h-8 bg-indigo-100 rounded-bl-full opacity-50"></div>
+                    <div class="flex-1 bg-white rounded-lg p-2 border border-indigo-100 text-center relative overflow-hidden shadow-sm">
+                            <div class="text-[9px] text-gray-500 uppercase font-bold mb-1 tracking-wide">AI SIGNAL</div>
+                            <div class="text-xl font-black text-indigo-600 leading-none py-1">${match.tip}</div>
                     </div>
 
                     <!-- Confidence Circle (Visual) -->
-                    <div class="flex flex-col items-center">
-                        <div class="relative w-12 h-12 flex items-center justify-center rounded-full border-4 ${confidence > 80 ? 'border-green-400' : 'border-yellow-400'} bg-white shadow-sm">
-                            <span class="text-sm font-bold text-gray-700">${confidence}%</span>
+                    <div class="flex flex-col items-center mx-1">
+                        <div class="relative w-14 h-14 flex items-center justify-center rounded-full border-[3px] ${confidence > 80 ? 'border-green-400' : 'border-yellow-400'} bg-white shadow-md">
+                            <span class="text-base font-black text-gray-700">${confidence}%</span>
                         </div>
-                        <span class="text-[9px] text-gray-400 mt-1 font-bold">CONFIDENZA</span>
+                        <span class="text-[8px] text-gray-400 mt-1 font-bold uppercase tracking-widest">Confidenza</span>
                     </div>
 
                         <!-- Odd Box -->
-                        <div class="flex-1 bg-gray-50 rounded-xl p-2 border border-gray-200 text-center">
-                            <div class="text-[10px] text-gray-500 uppercase font-bold mb-1">QUOTA</div>
-                            <div class="text-xl font-black text-gray-700">${match.quota}</div>
+                        <div class="flex-1 bg-white rounded-lg p-2 border border-gray-200 text-center shadow-sm">
+                            <div class="text-[9px] text-gray-500 uppercase font-bold mb-1 tracking-wide">QUOTA</div>
+                            <div class="text-xl font-black text-gray-700 py-1">${match.quota}</div>
                     </div>
                 </div>
 
-                <!-- Separator -->
-                <hr class="border-gray-100 mb-4">
-
                 <!-- PROBABILITY BARS -->
-                <div class="space-y-3 mb-5">
+                <div class="space-y-4 mb-6 px-1">
                     <!-- Home Win -->
                     <div>
-                        <div class="flex justify-between text-[11px] mb-1 font-semibold text-gray-600">
-                            <span>🏠 Vittoria Casa</span>
-                            <span>${probHome}%</span>
+                        <div class="flex justify-between text-[11px] mb-1.5 font-bold text-gray-700">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid fa-home text-blue-500"></i> Vittoria Casa</span>
+                            <span class="bg-blue-50 text-blue-700 px-1.5 rounded">${probHome}%</span>
                         </div>
-                        <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-blue-500 rounded-full" style="width: ${probHome}%"></div>
+                        <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden border border-gray-100">
+                            <div class="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full shadow-sm" style="width: ${probHome}%"></div>
                         </div>
                     </div>
                     <!-- Over 2.5 -->
                     <div>
-                            <div class="flex justify-between text-[11px] mb-1 font-semibold text-gray-600">
-                            <span>⚽ Over 2.5 Goal</span>
-                            <span>${probOver}%</span>
+                            <div class="flex justify-between text-[11px] mb-1.5 font-bold text-gray-700">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid fa-futbol text-green-500"></i> Over 2.5 Goal</span>
+                            <span class="bg-green-50 text-green-700 px-1.5 rounded">${probOver}%</span>
                         </div>
-                        <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-green-500 rounded-full" style="width: ${probOver}%"></div>
+                        <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden border border-gray-100">
+                            <div class="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full shadow-sm" style="width: ${probOver}%"></div>
                         </div>
                     </div>
                         <!-- BTTS / Goal -->
                     <div>
-                            <div class="flex justify-between text-[11px] mb-1 font-semibold text-gray-600">
-                            <span>🥅 Gol (Entrambe segnano)</span>
-                            <span>${probGoal}%</span>
+                            <div class="flex justify-between text-[11px] mb-1.5 font-bold text-gray-700">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid fa-handshake text-purple-500"></i> Gol (BB)</span>
+                            <span class="bg-purple-50 text-purple-700 px-1.5 rounded">${probGoal}%</span>
                         </div>
-                        <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-purple-500 rounded-full" style="width: ${probGoal}%"></div>
+                        <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden border border-gray-100">
+                            <div class="h-full bg-gradient-to-r from-purple-400 to-purple-600 rounded-full shadow-sm" style="width: ${probGoal}%"></div>
                         </div>
                     </div>
                 </div>
 
                 <!-- EXACT SCORES PREDICTION -->
                 ${exactScores.length > 0 ? `
-                    <div class="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                        <div class="text-[10px] font-bold text-slate-500 uppercase mb-2 flex justify-between">
+                    <div class="bg-slate-50 rounded-xl p-3 border border-slate-200 mb-4">
+                        <div class="text-[10px] font-bold text-slate-500 uppercase mb-3 flex justify-between px-1">
                             <span>🎯 Risultati Esatti Probabili</span>
-                            <span class="text-slate-400 text-[9px] lowercase">base sim</span>
                         </div>
-                        <div class="flex justify-center gap-2">
+                        <div class="grid grid-cols-3 gap-3">
                             ${exactScores.map((score, idx) => `
-                                <div class="flex-1 text-center ${idx === 0 ? 'bg-white shadow-sm border-indigo-200 ring-1 ring-indigo-100' : 'bg-slate-100 border-transparent'} border rounded py-1.5 px-1">
-                                    <div class="text-sm font-bold text-slate-800">${score.score}</div>
-                                    <div class="text-[9px] text-slate-500">${score.probability}%</div>
+                                <div class="flex flex-col items-center justify-center ${idx === 0 ? 'bg-white shadow-md border-indigo-200 ring-1 ring-indigo-50 transform scale-105 z-10' : 'bg-slate-100/50 border-slate-200'} border rounded-lg py-2">
+                                    <div class="text-sm font-black text-slate-800 tracking-tight">${score.score}</div>
+                                    <div class="text-[9px] font-semibold ${idx === 0 ? 'text-indigo-600' : 'text-slate-400'}">${score.percent}%</div>
                                 </div>
                             `).join('')}
                         </div>
@@ -4620,9 +4621,9 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
 
                 <!-- DRAW RISK WARNING -->
                 ${isDrawRisk ? `
-                    <div class="mt-3 flex items-center justify-center gap-2 text-[11px] text-orange-600 bg-orange-50 border border-orange-200 p-1.5 rounded-lg">
-                        <i class="fa-solid fa-triangle-exclamation"></i>
-                        <span class="font-bold">Alta probabilità di pareggio rilevata</span>
+                    <div class="mt-2 flex items-center justify-center gap-2 text-[11px] text-orange-700 bg-orange-50 border border-orange-200 p-2 rounded-lg shadow-sm">
+                        <i class="fa-solid fa-triangle-exclamation animate-pulse"></i>
+                        <span class="font-bold">Rischio Pareggio Elevato</span>
                     </div>
                 ` : ''}
 
