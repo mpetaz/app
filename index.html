@@ -751,12 +751,13 @@
         const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'best_05_ht', 'cups'];
         // Premium strategies (winrate_80, ___magia_ai, custom) = NO warnings
 
-        // Expose to window for Chatbot
+        // Expose to window for Chatbot and global access
         window.globalStats = globalStats;
         window.strategiesData = null; // Will be updated
         window.currentUser = null; // Will be updated
         window.currentUserProfile = null; // User profile data
         window.aiKnowledge = null; // AI Knowledge Base
+        window.tradingFavorites = []; // Initialize global state for trading favorites
 
         // Date formatting
         function formatDateIT(dateString) {
@@ -1896,6 +1897,37 @@
 
                 const tradingPickIds = favDoc.data().tradingPicks || [];
 
+                // NEW: Get daily picks for the selected global date to filter favorites
+                const targetDate = selectedDateGlobal;
+                const tradingDailyDoc = await getDoc(doc(db, "daily_trading_picks", targetDate));
+                let dailyPicksForDate = [];
+                if (tradingDailyDoc.exists()) {
+                    dailyPicksForDate = tradingDailyDoc.data().picks || [];
+                }
+
+                // If no trading picks for this date, show empty (matches betting behavior)
+                if (dailyPicksForDate.length === 0) {
+                    console.log(`[TradingFavorites] No trading picks for date ${targetDate}`);
+                    emptyState.classList.remove('hidden');
+                    window.activeTradingFavoritesCount = 0;
+                    updateMyMatchesCount();
+                    return;
+                }
+
+                // Get the IDs of the matches for this specific day
+                const dailyPickIds = dailyPicksForDate.map(p => getTradingPickId(p.partita));
+
+                // Filter user's global favorites by what is active TODAY (the source)
+                const activeFavoriteIds = tradingPickIds.filter(id => dailyPickIds.includes(id));
+
+                if (activeFavoriteIds.length === 0) {
+                    console.log(`[TradingFavorites] None of the user favorites are active for date ${targetDate}`);
+                    emptyState.classList.remove('hidden');
+                    window.activeTradingFavoritesCount = 0;
+                    updateMyMatchesCount();
+                    return;
+                }
+
                 // Fetch all signals to find the favorited ones
                 const signalsSnapshot = await getDocs(collection(db, "trading_signals"));
                 const signalsMap = new Map();
@@ -1904,8 +1936,9 @@
                 });
 
                 // Match favorited IDs with signals (using resilient matching)
-                const favoritedSignals = [];
-                tradingPickIds.forEach(favId => {
+                let favoritedSignals = [];
+
+                activeFavoriteIds.forEach(favId => {
                     // Try direct match
                     let sig = signalsMap.get(favId);
 
@@ -1921,12 +1954,17 @@
                         }
                     }
 
-                    if (sig) favoritedSignals.push(sig);
+                    if (sig) {
+                        favoritedSignals.push(sig);
+                    }
                 });
 
                 if (favoritedSignals.length === 0) {
-                    console.log("[TradingFavorites] No matching signals found for favorites:", tradingPickIds);
+                    console.log("[TradingFavorites] No matching ACTIVE signals found for favorites:", tradingPickIds);
                     emptyState.classList.remove('hidden');
+                    // Ensure badge matches what we see (0 trading signals active)
+                    window.activeTradingFavoritesCount = 0;
+                    updateMyMatchesCount();
                     return;
                 }
 
@@ -2277,17 +2315,18 @@
                 if (favDoc.exists()) {
                     const rawFavorites = favDoc.data().tradingPicks || [];
                     // Remove duplicates using Set
-                    tradingFavorites = [...new Set(rawFavorites)];
+                    window.tradingFavorites = [...new Set(rawFavorites)];
+                    tradingFavorites = window.tradingFavorites; // Keep both in sync
 
                     // If we cleaned duplicates, save back to DB
-                    if (tradingFavorites.length !== rawFavorites.length) {
-                        console.warn(`[Trading] Cleaned ${rawFavorites.length - tradingFavorites.length} duplicate favorites!`);
+                    if (window.tradingFavorites.length !== rawFavorites.length) {
+                        console.warn(`[Trading] Cleaned ${rawFavorites.length - window.tradingFavorites.length} duplicate favorites!`);
                         await setDoc(doc(db, "user_favorites", currentUser.uid), {
-                            tradingPicks: tradingFavorites
+                            tradingPicks: window.tradingFavorites
                         }, { merge: true });
                     }
 
-                    console.log('[Trading] Favorites loaded:', tradingFavorites.length);
+                    console.log('[Trading] Favorites loaded:', window.tradingFavorites.length);
                     updateMyMatchesCount(); // Update badge to include trading favorites
                 }
             } catch (e) {
@@ -2298,50 +2337,49 @@
         // Save Trading Favorite
         async function toggleTradingFavorite(pickId) {
             if (!currentUser) {
-                alert('Devi essere loggato per salvare preferiti');
+                alert('Accedi per salvare i tuoi trading preferiti!');
                 return;
             }
 
-            const index = tradingFavorites.indexOf(pickId);
-            if (index > -1) {
-                tradingFavorites.splice(index, 1); // Remove
-            } else {
-                tradingFavorites.push(pickId); // Add
-            }
-
             try {
-                await setDoc(doc(db, "user_favorites", currentUser.uid), {
-                    tradingPicks: tradingFavorites
-                }, { merge: true });
-
-                console.log('[Trading] Favorite toggled:', pickId, 'Now:', tradingFavorites.length);
-
-                // Update UI - star color
-                const btn = document.querySelector(`.trading-favorite-btn[data-trading-id="${pickId}"]`);
-                const card = document.querySelector(`.stat-card[data-trading-id="${pickId}"]`);
-
-                if (tradingFavorites.includes(pickId)) {
-                    // Add favorite styling (green emerald for contrast)
-                    if (btn) {
-                        btn.classList.remove('text-white/50');
-                        btn.classList.add('text-green-400');
-                    }
-                    if (card) {
-                        card.classList.add('ring-4', 'ring-emerald-500', 'shadow-xl', 'shadow-emerald-500/50');
-                    }
+                const index = window.tradingFavorites.indexOf(pickId);
+                if (index > -1) {
+                    window.tradingFavorites.splice(index, 1);
+                    console.log('[Trading] Removed from favorites:', pickId);
                 } else {
-                    // Remove favorite styling
-                    if (btn) {
-                        btn.classList.remove('text-green-400');
-                        btn.classList.add('text-white/50');
-                    }
-                    if (card) {
-                        card.classList.remove('ring-4', 'ring-emerald-500', 'shadow-xl', 'shadow-emerald-500/50');
-                    }
+                    window.tradingFavorites.push(pickId);
+                    console.log('[Trading] Added to favorites:', pickId);
                 }
 
-                // Update star badge count
+                tradingFavorites = window.tradingFavorites; // Sync local var
+
+                // Save to Firestore
+                await setDoc(doc(db, "user_favorites", currentUser.uid), {
+                    tradingPicks: window.tradingFavorites,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+
+                // UI feedback
+                const btn = document.querySelector(`.trading-favorite-btn[data-trading-id="${pickId}"]`);
+                if (btn) {
+                    btn.classList.toggle('text-yellow-300', window.tradingFavorites.includes(pickId));
+                    btn.classList.toggle('text-white/50', !window.tradingFavorites.includes(pickId));
+                }
+
+                // If favorited match card is in Trading list, update it
+                const card = document.querySelector(`[data-trading-id="${pickId}"]`);
+                if (card) {
+                    card.classList.toggle('ring-4', window.tradingFavorites.includes(pickId));
+                    card.classList.toggle('ring-emerald-500', window.tradingFavorites.includes(pickId));
+                    card.classList.toggle('shadow-xl', window.tradingFavorites.includes(pickId));
+                    card.classList.toggle('shadow-emerald-500/50', window.tradingFavorites.includes(pickId));
+                }
+
+                // Update badge and Star tab if active
                 updateMyMatchesCount();
+                if (document.getElementById('page-my-matches').classList.contains('active')) {
+                    renderTradingFavoritesInStarTab();
+                }
             } catch (e) {
                 console.error('[Trading] Error saving favorite:', e);
             }
@@ -2697,28 +2735,48 @@
 
         // Delete all matches button
         document.getElementById('delete-all-matches-btn').addEventListener('click', async () => {
-            if (window.selectedMatches.length === 0) {
+            const bettingCount = window.selectedMatches.length;
+            const tradingCount = window.tradingFavorites.length;
+            const totalCount = bettingCount + tradingCount;
+
+            if (totalCount === 0) {
                 alert('Nessuna partita da cancellare');
                 return;
             }
 
-            if (!confirm(`Vuoi cancellare tutte le ${window.selectedMatches.length} partite salvate?\n\nQuesta azione è irreversibile.`)) {
+            if (!confirm(`Vuoi cancellare tutte le ${totalCount} partite salvate (${bettingCount} Scommesse + ${tradingCount} Trading)?\n\nQuesta azione è irreversibile.`)) {
                 return;
             }
 
             try {
-                // Clear all matches
-                window.selectedMatches = [];
+                // 1. Clear Betting matches
+                if (bettingCount > 0) {
+                    window.selectedMatches = [];
+                    await setDoc(doc(db, "users", currentUser.uid, "data", "selected_matches"), {
+                        matches: [],
+                        updated: Date.now()
+                    });
+                }
 
-                // Save to Firebase
-                await setDoc(doc(db, "users", currentUser.uid, "data", "selected_matches"), {
-                    matches: [],
-                    updated: Date.now()
-                });
+                // 2. Clear Trading picks
+                if (tradingCount > 0) {
+                    window.tradingFavorites = [];
+                    tradingFavorites = []; // Sync local var
+                    await setDoc(doc(db, "user_favorites", currentUser.uid), {
+                        tradingPicks: [],
+                        updated: Date.now()
+                    }, { merge: true });
+                }
 
-                // Update UI
+                // Update UI badge
                 updateMyMatchesCount();
-                showMyMatches();
+
+                // Refresh current view (if on Star page)
+                const currentPage = document.querySelector('.page.active').id;
+                if (currentPage === 'page-my-matches') {
+                    showMyMatches();
+                    renderTradingFavoritesInStarTab();
+                }
 
                 alert('✅ Tutte le partite sono state cancellate');
             } catch (e) {
