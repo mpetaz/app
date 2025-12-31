@@ -4589,10 +4589,10 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                         </div>
                         <div class="text-[10px] text-slate-500 leading-tight">
                             ${ms.drawProb > 28
-                ? '⚠️ <strong>Attenzione:</strong> Probabilità pareggio molto elevata (${ms.drawProb}%). Si consiglia cautela o copertura DNB (Doppia Chance).'
+                ? `⚠️ <strong>Attenzione:</strong> Probabilità pareggio molto elevata (${ms.drawProb}%). Si consiglia cautela o copertura DNB (Doppia Chance).`
                 : (ms.drawProb > 22
-                    ? 'ℹ️ Rischio pareggio moderato (${ms.drawProb}%). Match equilibrato.'
-                    : '✅ Rischio pareggio basso (${ms.drawProb}%). Tendenza definita.')}
+                    ? `ℹ️ Rischio pareggio moderato (${ms.drawProb}%). Match equilibrato.`
+                    : `✅ Rischio pareggio basso (${ms.drawProb}%). Tendenza definita.`)}
                         </div>
                     </div>
 
