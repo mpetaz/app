@@ -213,6 +213,23 @@
                 box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
             }
         }
+
+        /* Trading Live Pulsing Indicator */
+        .pulsing-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
     </style>
 </head>
 
@@ -2331,6 +2348,57 @@
         }
 
         // Load Trading Picks from Firestore
+        // Toggle functions for collapsible sections
+        window.toggleStats = function (pickId) {
+            const content = document.getElementById(`stats-content-${pickId}`);
+            const icon = document.getElementById(`stats-icon-${pickId}`);
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.textContent = '▲';
+            } else {
+                content.classList.add('hidden');
+                icon.textContent = '▼';
+            }
+        };
+
+        window.toggleEvents = function (pickId) {
+            const content = document.getElementById(`events-content-${pickId}`);
+            const icon = document.getElementById(`events-icon-${pickId}`);
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.textContent = '▲';
+            } else {
+                content.classList.add('hidden');
+                icon.textContent = '▼';
+            }
+        };
+
+        // Auto-refresh interval for live trading picks
+        let tradingRefreshInterval = null;
+
+        function startTradingLiveRefresh() {
+            // Clear existing interval if any
+            if (tradingRefreshInterval) {
+                clearInterval(tradingRefreshInterval);
+            }
+
+            // Start new refresh every 60 seconds
+            tradingRefreshInterval = setInterval(async () => {
+                console.log('[Trading] Auto-refreshing live data...');
+                await loadTradingPicks();
+            }, 60000); // 60 seconds
+
+            console.log('[Trading] Auto-refresh started (60s interval)');
+        }
+
+        function stopTradingLiveRefresh() {
+            if (tradingRefreshInterval) {
+                clearInterval(tradingRefreshInterval);
+                tradingRefreshInterval = null;
+                console.log('[Trading] Auto-refresh stopped');
+            }
+        }
+
         async function loadTradingPicks() {
             try {
                 // First load favorites
@@ -2343,7 +2411,34 @@
                 const emptyState = document.getElementById('trading-empty');
 
                 if (tradingDoc.exists()) {
-                    const picks = tradingDoc.data().picks || [];
+                    let picks = tradingDoc.data().picks || [];
+
+                    // Fetch live signals from trading_signals collection
+                    const signalsSnapshot = await getDocs(collection(db, "trading_signals"));
+                    const liveSignals = {};
+                    signalsSnapshot.forEach(doc => {
+                        liveSignals[doc.id] = doc.data();
+                    });
+
+                    // Enrich picks with live signal data
+                    picks = picks.map(pick => {
+                        const pickId = getTradingPickId(pick.partita);
+                        const signalDocId = `trading_${pickId}`;
+                        const liveSignal = liveSignals[signalDocId];
+
+                        if (liveSignal) {
+                            return {
+                                ...pick,
+                                currentSignal: liveSignal.currentSignal,
+                                signalExplanation: liveSignal.signalExplanation,
+                                liveData: liveSignal.liveData,
+                                liveStats: liveSignal.liveStats,
+                                liveOdds: liveSignal.liveOdds,
+                                events: liveSignal.events
+                            };
+                        }
+                        return pick;
+                    });
 
                     if (picks.length > 0) {
                         container.innerHTML = picks.map(pick => renderTradingCard(pick)).join('');
@@ -2358,18 +2453,29 @@
                                 toggleTradingFavorite(pickId);
                             });
                         });
+
+                        // Start auto-refresh if any pick is live
+                        const hasLive = picks.some(p => p.liveData?.status && p.liveData.status !== 'NS' && p.liveData.status !== 'FT');
+                        if (hasLive) {
+                            startTradingLiveRefresh();
+                        } else {
+                            stopTradingLiveRefresh();
+                        }
                     } else {
                         container.classList.add('hidden');
                         emptyState.classList.remove('hidden');
+                        stopTradingLiveRefresh();
                     }
                 } else {
                     container.classList.add('hidden');
                     emptyState.classList.remove('hidden');
+                    stopTradingLiveRefresh();
                 }
 
                 console.log('[Trading] Picks loaded for', today);
             } catch (e) {
                 console.error('[Trading] Error loading picks:', e);
+                stopTradingLiveRefresh();
             }
         }
 
@@ -2388,8 +2494,135 @@
             // Favorite styling: thicker green ring and glow effect (emerald-500) for better contrast
             const favoriteCardClass = isFavorite ? 'ring-4 ring-emerald-500 shadow-xl shadow-emerald-500/50' : '';
 
+            // Live signal data (if available from backend)
+            const signal = pick.currentSignal || null;
+            const signalExplanation = pick.signalExplanation || '';
+            const liveData = pick.liveData || {};
+            const liveStats = pick.liveStats || null;
+            const liveOdds = pick.liveOdds || null;
+            const events = pick.events || [];
+
+            // Signal badge
+            let signalBadge = '';
+            if (signal) {
+                const signalColors = {
+                    'ENTRY': 'bg-yellow-500',
+                    'CASHOUT': 'bg-green-500',
+                    'GREEN': 'bg-emerald-600',
+                    'STOPLOSS': 'bg-red-600'
+                };
+                const signalEmojis = {
+                    'ENTRY': '🎯',
+                    'CASHOUT': '💰',
+                    'GREEN': '🎉',
+                    'STOPLOSS': '🚨'
+                };
+                signalBadge = `
+                    <div class="${signalColors[signal]} text-white px-3 py-1.5 rounded-lg font-bold text-xs mb-2 flex items-center justify-center gap-1">
+                        <span>${signalEmojis[signal]}</span>
+                        <span>${signal}</span>
+                    </div>
+                    ${signalExplanation ? `<div class="text-[10px] text-gray-700 bg-yellow-50 p-2 rounded mb-2 italic">${signalExplanation}</div>` : ''}
+                `;
+            }
+
+            // Live score & time
+            const isLive = liveData.status && liveData.status !== 'NS' && liveData.status !== 'FT';
+            let liveHeader = '';
+            if (isLive) {
+                liveHeader = `
+                    <div class="bg-green-500 text-white px-2 py-1 text-xs font-bold flex items-center justify-between">
+                        <span class="pulsing-dot">🔴 LIVE</span>
+                        <span class="text-sm">${liveData.score || '0-0'}</span>
+                        <span>⏱️ ${liveData.elapsed || 0}'</span>
+                    </div>
+                `;
+            }
+
+            // Stats section (collapsible)
+            let statsSection = '';
+            if (liveStats) {
+                const xgHome = liveStats.xg?.home !== undefined ? liveStats.xg.home.toFixed(1) : '0.0';
+                const xgAway = liveStats.xg?.away !== undefined ? liveStats.xg.away.toFixed(1) : '0.0';
+                statsSection = `
+                    <div class="border-t border-gray-200 mt-2">
+                        <button class="stats-toggle w-full text-left px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-between" onclick="toggleStats('${pickId}')">
+                            <span>📊 Statistiche Live</span>
+                            <span id="stats-icon-${pickId}">▼</span>
+                        </button>
+                        <div id="stats-content-${pickId}" class="hidden px-3 pb-2 text-[10px] space-y-1">
+                            <div class="flex justify-between"><span>Possesso:</span><span class="font-bold">${liveStats.possession || 'N/A'}</span></div>
+                            <div class="flex justify-between"><span>Tiri in porta:</span><span class="font-bold">${liveStats.shotsOnGoal || 'N/A'}</span></div>
+                            <div class="flex justify-between"><span>xG:</span><span class="font-bold">${xgHome} - ${xgAway}</span></div>
+                            <div class="flex justify-between"><span>Attacchi pericolosi:</span><span class="font-bold">${liveStats.dangerousAttacks || 'N/A'}</span></div>
+                            <div class="flex justify-between"><span>Corner:</span><span class="font-bold">${liveStats.corners || 'N/A'}</span></div>
+                            <div class="flex justify-between"><span>Pressione:</span><span class="font-bold ${liveStats.pressure === 'HIGH' ? 'text-red-600' : 'text-green-600'}">${liveStats.pressure || 'NORMAL'}</span></div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Odds section
+            let oddsSection = '';
+            if (liveOdds) {
+                oddsSection = `
+                    <div class="border-t border-gray-200 mt-2 px-3 py-2">
+                        <div class="text-xs font-bold text-gray-700 mb-1">💰 Quote Live</div>
+                        <div class="grid grid-cols-3 gap-1 text-[10px]">
+                            <div class="bg-white border rounded p-1 text-center">
+                                <div class="text-gray-500">1</div>
+                                <div class="font-bold">${liveOdds.home?.toFixed(2) || '-'}</div>
+                            </div>
+                            <div class="bg-white border rounded p-1 text-center">
+                                <div class="text-gray-500">X</div>
+                                <div class="font-bold">${liveOdds.draw?.toFixed(2) || '-'}</div>
+                            </div>
+                            <div class="bg-white border rounded p-1 text-center">
+                                <div class="text-gray-500">2</div>
+                                <div class="font-bold">${liveOdds.away?.toFixed(2) || '-'}</div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-1 text-[10px] mt-1">
+                            <div class="bg-white border rounded p-1 text-center">
+                                <div class="text-gray-500">O 2.5</div>
+                                <div class="font-bold">${liveOdds.over25?.toFixed(2) || '-'}</div>
+                            </div>
+                            <div class="bg-white border rounded p-1 text-center">
+                                <div class="text-gray-500">U 2.5</div>
+                                <div class="font-bold">${liveOdds.under25?.toFixed(2) || '-'}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Events timeline
+            let eventsSection = '';
+            if (events && events.length > 0) {
+                const recentEvents = events.slice(-5).reverse(); // Last 5 events, newest first
+                eventsSection = `
+                    <div class="border-t border-gray-200 mt-2">
+                        <button class="events-toggle w-full text-left px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-between" onclick="toggleEvents('${pickId}')">
+                            <span>📋 Eventi (${events.length})</span>
+                            <span id="events-icon-${pickId}">▼</span>
+                        </button>
+                        <div id="events-content-${pickId}" class="hidden px-3 pb-2 text-[10px] space-y-1">
+                            ${recentEvents.map(ev => {
+                    const eventIcon = ev.type === 'Goal' ? '⚽' : ev.type === 'Card' ? (ev.detail === 'Yellow Card' ? '🟨' : '🟥') : '🔄';
+                    return `<div class="flex items-center gap-2">
+                                    <span>${eventIcon}</span>
+                                    <span class="font-bold">${ev.time}'</span>
+                                    <span>${ev.player} (${ev.team})</span>
+                                </div>`;
+                }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="stat-card rounded-xl overflow-hidden mb-3 ${favoriteCardClass}" data-trading-id="${pickId}">
+                    ${liveHeader}
                     <div class="bg-gradient-to-r ${strategyColor} text-white p-3">
                         <div class="flex items-center justify-between mb-1">
                             <div class="flex items-center gap-2">
@@ -2409,6 +2642,7 @@
                         <div class="text-xs opacity-90">${pick.ora || ''} • ${pick.partita || ''}</div>
                     </div>
                     <div class="p-3 bg-gray-50">
+                        ${signalBadge}
                         <div class="grid grid-cols-2 gap-2 text-xs mb-2">
                             <div class="bg-white p-2 rounded border">
                                 <div class="text-gray-500 text-[10px]">Azione</div>
@@ -2428,6 +2662,9 @@
                             </div>
                         </div>
                         ${pick.reasoning ? `<div class="text-[10px] text-blue-700 bg-blue-50 p-2 rounded">${pick.reasoning}</div>` : ''}
+                        ${statsSection}
+                        ${oddsSection}
+                        ${eventsSection}
                     </div>
                 </div>
             `;
