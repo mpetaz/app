@@ -4508,7 +4508,7 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                     <span class="font-bold text-sm tracking-wider uppercase">Magia AI Scanner</span>
                 </div>
                 <div class="text-[10px] bg-indigo-800 px-2 py-0.5 rounded border border-indigo-600 flex items-center gap-1 font-mono">
-                    <i class="fa-solid fa-gears animate-spin-slow text-green-400"></i> 5000 SIMS
+                    <i class="fa-solid fa-bolt text-yellow-400"></i> ANALISI ATTIVA
                 </div>
             </div>
 
@@ -4531,29 +4531,29 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                     ${match.partita}
                 </div>
 
-                <!-- MAIN AI SIGNAL (NEW) -->
+                <!-- MAIN AI SIGNAL -->
                 <div class="flex justify-center mb-6">
                     <div class="bg-indigo-50 border-2 border-indigo-200 rounded-2xl p-4 flex flex-col items-center min-w-[140px] shadow-sm relative overflow-hidden">
-                        <div class="absolute top-0 right-0 bg-indigo-200 text-indigo-700 text-[8px] font-black px-1.5 py-0.5 rounded-bl uppercase">Magia Tip</div>
-                        <span class="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-1">AI Prediction</span>
+                        <div class="absolute top-0 right-0 bg-indigo-200 text-indigo-700 text-[8px] font-black px-1.5 py-0.5 rounded-bl uppercase">Tip Magia</div>
+                        <span class="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-1">Previsione IA</span>
                         <div class="text-3xl font-black text-indigo-900">${ms.tipMagiaAI}</div>
                         ${ms.oddMagiaAI ? `
                             <div class="text-sm font-bold text-indigo-500 mt-1">@ ${ms.oddMagiaAI}</div>
                         ` : `
                             <div class="text-[9px] font-bold text-red-400 mt-1 uppercase bg-red-50 px-2 py-0.5 rounded-full border border-red-100">
-                                ${ms.oddMagiaAIError || 'Quota non trovata'}
+                                ${ms.oddMagiaAIError || 'Quota non disponibile'}
                             </div>
                         `}
                     </div>
                 </div>
 
-                <!-- NEW: TOP 3 SIGNALS (SCANNER VIEW) -->
+                <!-- TOP SIGNAL CONVERGENCE -->
                 <div class="mb-6">
-                    <div class="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 text-center">Top 3 Convergence Pointers</div>
+                    <div class="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 text-center">Convergenza Segnali IA</div>
                     <div class="flex justify-center gap-2">
                         ${ms.topSignals.map(sig => `
                             <div class="flex-1 bg-white border-2 border-slate-100 rounded-xl p-2 text-center shadow-sm">
-                                <div class="text-[10px] font-bold text-slate-400 uppercase">${sig.label}</div>
+                                <div class="text-[10px] font-bold text-slate-400 uppercase">${sig.label.replace('Win Home', 'Casa').replace('Win Away', 'Trasferta').replace('Draw', 'Pareggio')}</div>
                                 <div class="text-lg font-black text-indigo-600">${sig.prob}%</div>
                             </div>
                         `).join('')}
@@ -4561,33 +4561,10 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                 </div>
 
                 <div class="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <!-- Core Probability Bars -->
-                    <div>
-                        <div class="flex justify-between items-end mb-1">
-                            <span class="text-xs font-bold text-slate-600 uppercase tracking-tighter">Prob. Vittoria Casa</span>
-                            <span class="text-sm font-black text-slate-800">${ms.winHomeProb}%</span>
-                        </div>
-                        <div class="w-full bg-slate-200 rounded-full h-1.5 flex overflow-hidden">
-                            <div class="bg-indigo-500 h-full transition-all duration-1000" style="width: ${ms.winHomeProb}%"></div>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="flex justify-between items-end mb-1">
-                            <span class="text-xs font-bold text-slate-600 uppercase tracking-tighter">Prob. Over 2.5 Goal</span>
-                            <span class="text-sm font-black text-slate-800">${ms.over25Prob}%</span>
-                        </div>
-                        <div class="w-full bg-slate-200 rounded-full h-1.5 flex overflow-hidden">
-                            <div class="bg-emerald-500 h-full transition-all duration-1000" style="width: ${ms.over25Prob}%"></div>
-                        </div>
-                    </div>
-
-                    <div class="border-t border-slate-200 my-3"></div>
-
                     <!-- Exact Scores (Only if > 12%) -->
                     ${ms.topScores && ms.topScores.length > 0 ? `
                         <div class="flex justify-between items-center mb-2">
-                             <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risultati Probabili (>12%)</span>
+                             <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risultati Più Probabili</span>
                         </div>
                         <div class="flex gap-2 mb-4">
                             ${ms.topScores.map(score => `
@@ -4599,16 +4576,28 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                         </div>
                     ` : ''}
 
-                    <!-- Risk Indicators -->
-                    <div class="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-200">
-                        <div class="flex items-center gap-2">
-                             <i class="fa-solid fa-shield-halved ${ms.drawProb > 28 ? 'text-red-400' : 'text-green-400'} text-xs"></i>
-                             <span class="text-[10px] font-bold text-slate-500 uppercase">Draw Risk Index</span>
+                    <!-- Risk Indicator: DRAW -->
+                    <div class="flex flex-col gap-2 bg-white p-3 rounded-xl border border-slate-200">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center gap-2">
+                                 <i class="fa-solid fa-triangle-exclamation ${ms.drawProb > 28 ? 'text-red-500' : (ms.drawProb > 22 ? 'text-yellow-500' : 'text-green-500')}"></i>
+                                 <span class="text-[10px] font-black text-slate-600 uppercase">Indice Rischio Pareggio</span>
+                            </div>
+                            <span class="text-xs font-black ${ms.drawProb > 28 ? 'text-red-600' : (ms.drawProb > 22 ? 'text-yellow-600' : 'text-green-600')}">
+                                ${ms.drawProb > 28 ? 'ALTO' : (ms.drawProb > 22 ? 'MEDIO' : 'BASSO')}
+                            </span>
                         </div>
-                        <span class="text-[10px] font-black ${ms.drawProb > 28 ? 'text-red-600' : 'text-green-600'}">
-                            ${ms.drawProb > 28 ? 'HIGH' : (ms.drawProb > 22 ? 'MEDIUM' : 'LOW')} (${ms.drawProb}%)
-                        </span>
+                        <div class="text-[10px] text-slate-500 leading-tight">
+                            ${ms.drawProb > 28
+                ? '⚠️ <strong>Attenzione:</strong> Probabilità pareggio molto elevata (${ms.drawProb}%). Si consiglia cautela o copertura DNB (Doppia Chance).'
+                : (ms.drawProb > 22
+                    ? 'ℹ️ Rischio pareggio moderato (${ms.drawProb}%). Match equilibrato.'
+                    : '✅ Rischio pareggio basso (${ms.drawProb}%). Tendenza definita.')}
+                        </div>
                     </div>
+
+                </div>
+            </div>
 
                 </div>
             </div>
