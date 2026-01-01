@@ -35,6 +35,7 @@ let currentTradingDate = new Date().toISOString().split('T')[0];
 let tradingUnsubscribe = null; // For real-time updates
 let strategiesUnsubscribe = null; // For real-time betting updates
 let liveHubUnsubscribe = null; // For unified live scores hub
+let serieARefreshInterval = null; // Refresh for Serie A section
 window.liveScoresHub = {}; // Global store for live updates
 
 // Auth Persistence
@@ -1029,12 +1030,17 @@ window.showPage = function (pageId) {
         window.showMyMatches();
         if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
         startTradingLiveRefresh();
-    } else if (pageId === 'trading') {
+    } else if (pageId === 'trading' || pageId === 'trading-sportivo') {
         startTradingLiveRefresh();
     } else if (pageId === 'history') {
         window.loadHistory();
+    } else if (pageId === 'serie-a') {
+        loadSerieAMatches();
+        if (serieARefreshInterval) clearInterval(serieARefreshInterval);
+        serieARefreshInterval = setInterval(loadSerieAMatches, 30000);
     } else {
         if (tradingLiveInterval) clearInterval(tradingLiveInterval);
+        if (serieARefreshInterval) clearInterval(serieARefreshInterval);
     }
 };
 
@@ -1649,5 +1655,173 @@ const initHistoryTabs = () => {
     }
 };
 initHistoryTabs();
+
+// ==================== SERIE A LIVE RESTORED ====================
+async function loadSerieAMatches() {
+    const container = document.getElementById('serie-a-live-container');
+    if (!container) return;
+
+    console.log('[Serie A] Loading matches...');
+
+    try {
+        const q = query(
+            collection(db, "serie_a_matches"),
+            where("status", "in", ["NOT_STARTED", "LIVE", "FINISHED"])
+        );
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            container.innerHTML = `
+                <div class="text-center py-12 text-gray-300">
+                    <i class="fa-solid fa-calendar-xmark text-5xl mb-4 opacity-50"></i>
+                    <p class="font-bold text-lg">Nessuna partita di Serie A oggi</p>
+                    <p class="text-xs text-gray-500 mt-2">Le partite verranno caricate la mattina</p>
+                </div>`;
+            return;
+        }
+
+        const matches = [];
+        snapshot.forEach(doc => matches.push(doc.data()));
+
+        matches.sort((a, b) => {
+            if (a.status === "LIVE" && b.status !== "LIVE") return -1;
+            if (a.status !== "LIVE" && b.status === "LIVE") return 1;
+            if (a.status === "FINISHED" && b.status !== "FINISHED") return 1;
+            if (a.status !== "FINISHED" && b.status === "FINISHED") return -1;
+            return new Date(a.kickoffTime) - new Date(b.kickoffTime);
+        });
+
+        let matchesHTML = '';
+        matches.forEach(match => {
+            if (match.status === "NOT_STARTED") {
+                matchesHTML += renderPreMatchCard(match);
+            } else {
+                matchesHTML += renderLiveMatchCard(match);
+            }
+        });
+
+        container.innerHTML = matchesHTML;
+
+    } catch (e) {
+        console.error('[Serie A] Error:', e);
+        container.innerHTML = '<div class="text-center text-red-400 py-12">Errore caricamento Serie A.</div>';
+    }
+}
+
+function renderPreMatchCard(match) {
+    const kickoffDate = new Date(match.kickoffTime);
+    const timeStr = kickoffDate.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    const homeForm = match.homeTeam?.form || "-----";
+    const awayForm = match.awayTeam?.form || "-----";
+
+    return `
+        <div class="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-5 shadow-lg border-2 border-blue-200 mb-4">
+            <div class="flex items-center justify-between mb-4">
+                <span class="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">🕐 ${timeStr}</span>
+                <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">PRE-MATCH</span>
+            </div>
+            <div class="text-center mb-5">
+                <h3 class="text-xl font-black text-gray-900">${match.matchName}</h3>
+                <p class="text-xs text-gray-500 mt-1">🏆 ${match.lega}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-5">
+                <div class="bg-white rounded-xl p-3 border border-gray-200 text-center">
+                    <img src="${match.homeTeam.logo}" class="w-14 h-14 mx-auto mb-2">
+                    <p class="font-bold text-sm text-gray-900">${match.homeTeam.name}</p>
+                    <div class="text-xs text-gray-500 mt-2 space-y-1">
+                        <div><span class="font-semibold">C:</span> ${formatFormLast5(homeForm, true)}</div>
+                        <div class="grid grid-cols-2 gap-1 mt-1">
+                            <div><span class="text-gray-400">G:</span> <span class="font-bold text-green-600">${match.homeTeam.goalsScored}</span></div>
+                            <div><span class="text-gray-400">S:</span> <span class="font-bold text-red-600">${match.homeTeam.goalsConceded}</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl p-3 border border-gray-200 text-center">
+                    <img src="${match.awayTeam.logo}" class="w-14 h-14 mx-auto mb-2">
+                    <p class="font-bold text-sm text-gray-900">${match.awayTeam.name}</p>
+                    <div class="text-xs text-gray-500 mt-2 space-y-1">
+                        <div><span class="font-semibold">T:</span> ${formatFormLast5(awayForm, false)}</div>
+                        <div class="grid grid-cols-2 gap-1 mt-1">
+                            <div><span class="text-gray-400">G:</span> <span class="font-bold text-green-600">${match.awayTeam.goalsScored}</span></div>
+                            <div><span class="text-gray-400">S:</span> <span class="font-bold text-red-600">${match.awayTeam.goalsConceded}</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-gradient-to-r from-purple-600 to-purple-500 rounded-xl p-4 text-center text-white shadow-lg">
+                <p class="text-xs opacity-90 mb-1">💡 TIP CONSIGLIATA</p>
+                <div class="flex flex-col items-center justify-center">
+                    <p class="text-lg font-black">${match.recommendedTip}</p>
+                    ${match.recommendedTipOdd ? `<p class="text-xs bg-white text-purple-700 px-2 py-0.5 rounded-full mt-1 font-bold">@${match.recommendedTipOdd}</p>` : ''}
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderLiveMatchCard(match) {
+    const score = match.score || "0-0";
+    const elapsed = match.elapsed || "0'";
+    const scoreHT = match.scoreHT ? `(HT: ${match.scoreHT})` : "";
+    const isFinished = match.status === "FINISHED";
+    const liveStats = match.liveStats || {};
+    const possession = liveStats.possession || "50% - 50%";
+    const shotsOnGoal = liveStats.shotsOnGoal || "0 - 0";
+    const dangerousAttacks = liveStats.dangerousAttacks || "0 - 0";
+    const pressure = liveStats.pressure || "NORMAL";
+
+    let cardClass = isFinished
+        ? (calcTipResult(match.recommendedTip, score) === 'WIN' ? "bg-emerald-900 border-emerald-500" : "bg-rose-900 border-rose-500")
+        : "bg-blue-900 border-blue-500 animate-pulse-slow";
+
+    return `
+        <div class="${cardClass} rounded-2xl p-5 border-2 mb-4 text-white">
+            <div class="flex items-center justify-between mb-4">
+                <span class="bg-white/20 px-3 py-1 rounded-full text-[10px] font-bold">${isFinished ? '🏁 FINALE' : '🔵 LIVE'}</span>
+                ${!isFinished ? `<span class="font-bold text-sm">${elapsed}</span>` : ''}
+            </div>
+            <div class="text-center mb-4">
+                <h3 class="text-xl font-black">${match.matchName}</h3>
+                <p class="text-xs text-blue-200 mt-1">🏆 Serie A</p>
+            </div>
+            <div class="bg-black/30 rounded-xl p-4 mb-4 text-center">
+                <p class="text-4xl font-black mb-1">${score}</p>
+                <p class="text-xs text-blue-100 font-bold">${scoreHT}</p>
+            </div>
+            <div class="bg-white/10 rounded-xl p-3 border border-white/10">
+                <div class="flex justify-between text-xs font-bold mb-1">
+                    <span>Possesso</span>
+                    <span>${possession}</span>
+                </div>
+                <div class="h-1.5 bg-white/10 rounded-full overflow-hidden mb-3">
+                    <div class="h-full bg-blue-400" style="width: ${parseInt(possession) || 50}%"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    <div><p class="text-[10px] opacity-60 uppercase">Tiri in Porta</p><p class="text-sm font-bold">${shotsOnGoal}</p></div>
+                    <div><p class="text-[10px] opacity-60 uppercase">Attacchi Peric.</p><p class="text-sm font-bold">${dangerousAttacks}</p></div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function calcTipResult(tip, score) {
+    if (!tip || !score) return 'UNKNOWN';
+    const [h, a] = score.split('-').map(Number);
+    const total = h + a;
+    const t = tip.toUpperCase();
+
+    if (t === '1') return h > a ? 'WIN' : 'LOSE';
+    if (t === 'X') return h === a ? 'WIN' : 'LOSE';
+    if (t === '2') return a > h ? 'WIN' : 'LOSE';
+    if (t.startsWith('+') || t.startsWith('OVER')) {
+        const val = parseFloat(t.replace('+', '').replace('OVER', ''));
+        return total > val ? 'WIN' : 'LOSE';
+    }
+    return 'UNKNOWN';
+}
+
+function formatFormLast5(form, isHome) {
+    if (!form || form === "-----") return "-----";
+    return form.slice(-5).split('').map(c => c === 'W' ? '🟢' : c === 'D' ? '🟡' : '🔴').join('');
+}
 
 console.log('[App] Logic Initialized.');
