@@ -228,24 +228,7 @@
             </div>
 
             <div id="my-matches-container" class="space-y-4">
-                <!-- Populated dynamically -->
-            </div>
-
-            <!-- Trading Favorites Section -->
-            <div id="trading-favorites-section" class="mt-6">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-bold flex items-center gap-2">
-                        <span class="bg-orange-500 text-white px-2 py-1 rounded-lg text-xs">📈 TRADING</span>
-                        I Miei Trading
-                    </h3>
-                </div>
-                <div id="trading-favorites-container" class="space-y-4">
-                    <!-- Populated dynamically -->
-                </div>
-                <div id="trading-favorites-empty" class="hidden text-center py-8 bg-gray-800 bg-opacity-50 rounded-xl">
-                    <p class="text-gray-400">Nessun Trading nei preferiti</p>
-                    <p class="text-gray-500 text-sm mt-1">Vai alla tab Trading e aggiungi le partite con ⭐</p>
-                </div>
+                <!-- Populated dynamically with Betting Favorites -->
             </div>
         </div>
 
@@ -373,16 +356,32 @@
                 <p class="text-sm text-gray-400 mb-4">Le migliori partite selezionate per trading sportivo</p>
 
                 <!-- Date Navigation -->
-                <div class="flex items-center justify-between bg-gray-800 rounded-lg p-3">
+                <div class="flex items-center justify-between bg-gray-800 rounded-lg p-3 mb-4">
                     <button id="trading-date-prev" class="text-gray-400 hover:text-white transition">
                         <i class="fa-solid fa-chevron-left"></i>
                     </button>
                     <div class="text-center">
-                        <div id="trading-selected-date-display" class="font-bold text-white">Oggi</div>
-                        <div id="trading-date-indicator" class="text-xs text-gray-400 mt-1">-</div>
+                        <div id="trading-selected-date-display" class="font-bold text-white text-sm">Oggi</div>
+                        <div id="trading-date-indicator" class="text-[10px] text-gray-500 mt-0.5">-</div>
                     </div>
                     <button id="trading-date-next" class="text-gray-400 hover:text-white transition">
                         <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                </div>
+
+                <!-- Dashboard Filters -->
+                <div class="flex gap-2 mb-4 bg-gray-900 p-1 rounded-xl">
+                    <button id="filter-trading-all"
+                        class="flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all bg-gray-800 text-white shadow-lg">
+                        TUTTE
+                    </button>
+                    <button id="filter-trading-live"
+                        class="flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all bg-transparent text-gray-500 hover:bg-gray-800 flex items-center justify-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span> LIVE
+                    </button>
+                    <button id="filter-trading-favs"
+                        class="flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all bg-transparent text-gray-500 hover:bg-gray-800 flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-star text-yellow-500 text-[10px]"></i> MIE
                     </button>
                 </div>
             </div>
