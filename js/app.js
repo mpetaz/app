@@ -787,7 +787,7 @@ function renderStrategies() {
 
     const premium = [];
     const standard = [];
-    const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
+    const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht', 'winrate_80'];
 
     Object.entries(window.strategiesData).forEach(([id, strat]) => {
         if (STANDARD_STRATEGIES.includes(id)) standard.push({ id, strat });
@@ -797,7 +797,7 @@ function renderStrategies() {
     if (premium.length) {
         const sec = document.createElement('div');
         sec.className = 'col-span-full mb-2';
-        sec.innerHTML = '<div class="text-sm font-bold text-purple-300">✨ PREMIUM STRATEGIES</div>';
+        sec.innerHTML = '<div class="text-sm font-bold text-purple-300">✨ Strategie AI</div>';
         container.appendChild(sec);
         premium.forEach(x => container.appendChild(createStrategyBtn(x.id, x.strat, true)));
     }
@@ -805,7 +805,7 @@ function renderStrategies() {
     if (standard.length) {
         const sec = document.createElement('div');
         sec.className = 'col-span-full mt-4 mb-2';
-        sec.innerHTML = '<div class="text-sm font-bold text-blue-300">📂 STANDARD STRATEGIES</div>';
+        sec.innerHTML = '<div class="text-sm font-bold text-blue-300">📂 Strategie Fisse</div>';
         container.appendChild(sec);
         standard.forEach(x => container.appendChild(createStrategyBtn(x.id, x.strat, false)));
     }
