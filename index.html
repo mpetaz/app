@@ -467,6 +467,48 @@
         // Gemini API Key is now handled securely server-side via Cloud Functions.
         // No more direct client-side keys.
     </script>
+
+    <!-- AI CHATBOT WIDGET -->
+    <div id="ai-chat-widget" class="fixed bottom-20 right-6 z-50 flex flex-col items-end font-sans">
+        <!-- Chat Window -->
+        <div id="ai-chat-window"
+            class="hidden bg-white w-80 h-96 rounded-2xl shadow-2xl border border-gray-200 flex flex-col mb-4 overflow-hidden transition-all transform origin-bottom-right">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-purple-600 to-blue-600 p-4 flex justify-between items-center text-white">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-robot"></i>
+                    <span class="font-bold text-sm">euGENIO 🧞‍♂️</span>
+                </div>
+                <button id="close-chat-btn" class="hover:text-gray-200 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Messages Area -->
+            <div id="chat-messages" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-3 text-sm">
+                <!-- Welcome Message dynamically added -->
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-3 bg-white border-t border-gray-100">
+                <form id="chat-form" class="flex gap-2">
+                    <input type="text" id="chat-input" placeholder="Scrivi una domanda..."
+                        class="flex-1 p-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500">
+                    <button type="submit"
+                        class="bg-purple-600 text-white p-2 rounded-lg hover:bg-purple-700 transition shadow-sm disabled:opacity-50">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Toggle Button -->
+        <button id="toggle-chat-btn"
+            class="bg-gradient-to-r from-purple-600 to-blue-600 text-white w-14 h-14 rounded-full shadow-lg hover:shadow-xl transition transform hover:scale-105 flex items-center justify-center text-2xl">
+            <i class="fa-solid fa-comment-dots"></i>
+        </button>
+    </div>
+
     <script type="module" src="js/app.js?v=3.5.3"></script>
     <script src="js/pwa.js?v=3.5.3"></script>
 </body>
