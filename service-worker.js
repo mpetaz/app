@@ -12,7 +12,7 @@ const STATIC_ASSETS = [
     '/favicon.png',
     '/manifest.webmanifest',
     '/',
-    '/app.html',
+    '/index.html',
     '/css/app.css',
     '/js/app.js',
     '/js/pwa.js'
