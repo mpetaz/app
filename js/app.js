@@ -221,12 +221,17 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 mb-4">
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div class="flex justify-between items-end mb-2">
-                         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
                     </div>
                     <div class="flex h-2.5 rounded-full overflow-hidden mb-2 shadow-inner bg-slate-200">
                         <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
                         <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
                         <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] font-bold text-slate-500 px-1">
+                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-indigo-500"></div>1 (${Math.round(ms.winHomeProb || 0)}%)</div>
+                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-slate-300"></div>X (${Math.round(ms.drawProb || 0)}%)</div>
+                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-purple-500"></div>2 (${Math.round(ms.winAwayProb || 0)}%)</div>
                     </div>
                 </div>
             </div>
@@ -268,7 +273,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         ? `<button class="text-gray-400 hover:text-emerald-500 transition text-xl" onclick="toggleTradingFavorite('${matchId}')">
              <i class="${isFlagged ? 'fa-solid text-emerald-500' : 'fa-regular'} fa-bookmark"></i>
            </button>`
-        : `<button class="flag-btn ${isFlagged ? 'flagged' : ''} text-gray-400 hover:text-yellow-400 transition" onclick="toggleFlag('${matchId}')">
+        : `<button class="flag-btn ${isFlagged ? 'flagged text-yellow-400' : 'text-gray-400'} hover:text-yellow-400 transition" onclick="toggleFlag('${matchId}')">
              ${isFlagged ? '<i class="fa-solid fa-star"></i>' : '<i class="fa-regular fa-star"></i>'}
            </button>`;
 
@@ -614,38 +619,72 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
 
 window.toggleFlag = async function (matchId) {
     let foundMatch = null;
+
+    // Search in all loaded strategies
     if (window.strategiesData) {
         Object.values(window.strategiesData).forEach(s => {
-            const m = s.matches?.find(x => (`${x.data}_${x.partita}` === matchId) || (x.id === matchId));
+            const matches = s.matches || (Array.isArray(s) ? s : []); // Handle different structures
+            const m = matches.find(x => {
+                const id = x.id || `${x.data}_${x.partita}`;
+                return id === matchId;
+            });
             if (m) foundMatch = m;
         });
     }
 
-    if (!foundMatch) foundMatch = window.selectedMatches.find(m => m.id === matchId);
+    // Fallback: Check if already in selectedMatches
+    if (!foundMatch) {
+        foundMatch = window.selectedMatches.find(m => {
+            const id = m.id || `${m.data}_${m.partita}`;
+            return id === matchId;
+        });
+    }
 
     if (foundMatch) {
-        const idx = window.selectedMatches.findIndex(m => m.id === matchId);
+        // Ensure ID is consistent
+        const consistentId = foundMatch.id || `${foundMatch.data}_${foundMatch.partita}`;
+
+        const idx = window.selectedMatches.findIndex(m => (m.id || `${m.data}_${m.partita}`) === consistentId);
+
         if (idx >= 0) {
             window.selectedMatches.splice(idx, 1);
-            alert("Removed from Favorites");
+            // Removed alert("Removed from Favorites");
         } else {
-            window.selectedMatches.push({ ...foundMatch, id: matchId });
-            alert("Added to Favorites");
+            window.selectedMatches.push({ ...foundMatch, id: consistentId });
+            // Removed alert("Added to Favorites");
         }
-        window.updateMyMatchesCount();
 
+        if (window.updateMyMatchesCount) window.updateMyMatchesCount();
+
+        // Update Firebase
         if (window.currentUser) {
-            setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
-                matches: window.selectedMatches,
-                updated: Date.now()
-            });
+            try {
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
+                    matches: window.selectedMatches,
+                    updated: Date.now()
+                });
+            } catch (e) { console.error("Error saving favorites:", e); }
+        } else {
+            alert("Accedi per salvare i preferiti!");
         }
 
+        // Update UI buttons immediately
         const btns = document.querySelectorAll(`button[onclick="toggleFlag('${matchId}')"]`);
         btns.forEach(b => {
-            if (idx >= 0) { b.classList.remove('flagged'); b.innerHTML = '<i class="fa-regular fa-star"></i>'; }
-            else { b.classList.add('flagged'); b.innerHTML = '<i class="fa-solid fa-star"></i>'; }
+            // Reset classes
+            b.className = "flag-btn transition hover:text-yellow-400 text-xl";
+            if (idx >= 0) {
+                // It was removed -> now inactive
+                b.classList.add("text-gray-400");
+                b.innerHTML = '<i class="fa-regular fa-star"></i>';
+            } else {
+                // It was added -> now active
+                b.classList.add("flagged", "text-yellow-400");
+                b.innerHTML = '<i class="fa-solid fa-star"></i>';
+            }
         });
+    } else {
+        console.error("Match not found for ID:", matchId);
     }
 };
 
