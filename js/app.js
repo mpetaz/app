@@ -143,13 +143,15 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             risultato: liveHubData.score,
             status: liveHubData.status,
             minute: liveHubData.elapsed,
-            esito: liveHubData.evaluation,
+            esito: liveHubData.evaluation === 'WIN' ? 'Vinto' : (liveHubData.evaluation === 'LOSE' ? 'Perso' : liveHubData.evaluation),
             liveData: {
                 ...match.liveData,
                 score: liveHubData.score,
                 elapsed: liveHubData.elapsed,
                 status: liveHubData.status
-            }
+            },
+            liveStats: liveHubData.liveStats || match.liveStats,
+            events: liveHubData.events || match.events
         };
     }
 
@@ -1252,7 +1254,7 @@ window.showMyMatches = function (sortMode = 'score') {
 
         sortedMatches.forEach((m, idx) => {
             try {
-                const card = window.createUniversalCard(m, idx, m.strategyId || null);
+                const card = window.createUniversalCard(m, idx, m.strategyId || null, { detailedTrading: !!m.liveStats });
 
                 // Replace flag button with delete button
                 const flagBtn = card.querySelector('.flag-btn, button[data-match-id]');
