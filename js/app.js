@@ -182,6 +182,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     let esitoClass = '';
     if (match.esito === 'Vinto') esitoClass = 'bg-green-50/80 border-green-200 ring-1 ring-green-100';
     else if (match.esito === 'Perso') esitoClass = 'bg-red-50/80 border-red-200 ring-1 ring-red-100';
+    else if (match.esito === 'CASH_OUT') esitoClass = 'bg-yellow-50/80 border-yellow-200 ring-1 ring-yellow-100';
+    else if (match.esito === 'PUSH') esitoClass = 'bg-gray-50/80 border-gray-200 ring-1 ring-gray-100';
 
     card.className = `match-card rounded-xl shadow-lg fade-in mb-3 overflow-hidden bg-white border border-gray-100 relative ${esitoClass} ${isFlagged && isTrading ? 'ring-2 ring-emerald-500' : ''}`;
 
@@ -723,6 +725,7 @@ onAuthStateChanged(auth, async (user) => {
         // Init logic
         await loadData();
         initTradingPage(); // Start trading listener
+        initLiveHubListener(); // Start global live scores sync
 
         // Navigation Handler
         document.querySelectorAll('.nav-btn').forEach(btn => {
