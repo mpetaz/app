@@ -353,14 +353,23 @@ window.loadTradingPicks = function (date) {
     });
 };
 
+// Helper to generate consistent Trading Pick IDs (Matches backend logic)
+window.getTradingPickId = function (partita) {
+    const cleanName = (partita || "").toLowerCase().replace(/[^a-z]/g, "");
+    return `trading_${cleanName}`;
+};
+
 window.loadTradingFavorites = async function () {
     if (!window.currentUser) return;
     try {
-        const docSnap = await getDoc(doc(db, "users", window.currentUser.uid, "data", "trading_favorites"));
-        if (docSnap.exists()) {
-            tradingFavorites = docSnap.data().ids || [];
-            // Refresh visual state if current page is trading
-            // (Simplest: just reload current view references if needed, but onSnapshot handles re-render mostly)
+        const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
+        if (favDoc.exists()) {
+            const rawFavorites = favDoc.data().tradingPicks || [];
+            // Remove duplicates using Set
+            window.tradingFavorites = [...new Set(rawFavorites)];
+            tradingFavorites = window.tradingFavorites; // Keep both in sync
+            console.log('[Trading] Favorites loaded:', window.tradingFavorites.length);
+            window.updateMyMatchesCount();
         }
     } catch (e) { console.error("Load Trading Favs Error", e); }
 };
@@ -369,10 +378,17 @@ window.toggleTradingFavorite = async function (matchId) {
     if (!window.currentUser) return alert("Accedi per salvare");
 
     const idx = tradingFavorites.indexOf(matchId);
-    if (idx >= 0) tradingFavorites.splice(idx, 1);
-    else tradingFavorites.push(matchId);
+    if (idx >= 0) {
+        tradingFavorites.splice(idx, 1);
+        console.log('[Trading] Removed from favorites:', matchId);
+    } else {
+        tradingFavorites.push(matchId);
+        console.log('[Trading] Added to favorites:', matchId);
+    }
 
-    // Optimistic UI Update using data attribute for robustness
+    window.tradingFavorites = tradingFavorites; // Sync
+
+    // Optimistic UI Update
     const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
     btns.forEach(b => {
         const icon = b.querySelector('i');
@@ -382,36 +398,98 @@ window.toggleTradingFavorite = async function (matchId) {
     });
 
     try {
-        await setDoc(doc(db, "users", window.currentUser.uid, "data", "trading_favorites"), {
-            ids: tradingFavorites,
-            updated: Date.now()
-        });
+        await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
+            tradingPicks: tradingFavorites,
+            updatedAt: new Date().toISOString()
+        }, { merge: true });
     } catch (e) { alert("Errore salvataggio"); }
 
-    if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
+    window.updateMyMatchesCount();
 };
 
 window.renderTradingFavoritesInStarTab = async function () {
     const container = document.getElementById('trading-favorites-container');
-    const empty = document.getElementById('trading-favorites-empty');
+    const emptyState = document.getElementById('trading-favorites-empty');
     if (!container) return;
 
     container.innerHTML = '';
 
-    if (tradingFavorites.length === 0) {
-        empty.classList.remove('hidden');
-        return;
-    }
-    empty.classList.add('hidden');
+    try {
+        if (!window.currentUser) {
+            if (emptyState) emptyState.classList.remove('hidden');
+            return;
+        }
 
-    // Fetch details for favorites (This is tricky if we don't have them in memory)
-    // For now, we only show them if they are in the Current Date loaded?
-    // Or we need to fetch them.
-    // Simplifying: Show simplified list or assume data is available.
-    // Ideally, we store full object in favorites or fetch by ID. Here we just stored IDs.
-    // User requested "Link Trading Favorites to Date" in history.
-    // For now, let's just show a text list or simple retrieval if active.
-}
+        // Fetch user's trading favorites
+        const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
+        if (!favDoc.exists() || !favDoc.data().tradingPicks || favDoc.data().tradingPicks.length === 0) {
+            if (emptyState) emptyState.classList.remove('hidden');
+            return;
+        }
+
+        const tradingPickIds = favDoc.data().tradingPicks || [];
+
+        // Get daily picks for today to filter favorites
+        const today = new Date().toISOString().split('T')[0];
+        const tradingDailyDoc = await getDoc(doc(db, "daily_trading_picks", today));
+        let dailyPicksForDate = [];
+        if (tradingDailyDoc.exists()) {
+            dailyPicksForDate = tradingDailyDoc.data().picks || [];
+        }
+
+        if (dailyPicksForDate.length === 0) {
+            console.log('[TradingFavorites] No trading picks for today');
+            if (emptyState) emptyState.classList.remove('hidden');
+            return;
+        }
+
+        // Get the IDs of the matches for today
+        const dailyPickIds = dailyPicksForDate.map(p => window.getTradingPickId(p.partita));
+
+        // Filter user's global favorites by what is active TODAY
+        const activeFavoriteIds = tradingPickIds.filter(id => dailyPickIds.includes(id));
+
+        if (activeFavoriteIds.length === 0) {
+            console.log('[TradingFavorites] None of user favorites are active today');
+            if (emptyState) emptyState.classList.remove('hidden');
+            return;
+        }
+
+        if (emptyState) emptyState.classList.add('hidden');
+
+        // Render favorited trading picks using daily picks data
+        activeFavoriteIds.forEach(favId => {
+            // Find the matching pick from daily picks
+            const pick = dailyPicksForDate.find(p => window.getTradingPickId(p.partita) === favId);
+            if (!pick) return;
+
+            const card = document.createElement('div');
+            const strategyColor = pick.strategy === 'BACK_OVER_25' ? 'from-purple-600 to-blue-600' : 'from-orange-500 to-red-500';
+            const strategyLabel = pick.strategy === 'BACK_OVER_25' ? 'BACK O2.5' : 'LAY Draw';
+            const icon = pick.strategy === 'BACK_OVER_25' ? '📊' : '🎯';
+
+            card.className = `bg-gradient-to-r ${strategyColor} rounded-xl p-4 mb-3 text-white shadow-lg relative`;
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-2">
+                    <span class="bg-white/20 px-2 py-1 rounded text-xs font-bold">${icon} ${strategyLabel}</span>
+                    <button class="text-red-300 hover:text-red-100 transition text-lg" onclick="window.removeTradingFavorite('${favId}'); event.stopPropagation();">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+                <div class="text-lg font-bold mb-1">${pick.partita || 'Partita'}</div>
+                <div class="text-sm opacity-80">${pick.lega || ''}</div>
+                ${pick.liveData?.elapsed ? `<div class="text-xs mt-2 bg-white/20 inline-block px-2 py-1 rounded">⏱️ ${pick.liveData.elapsed}' | ${pick.liveData.score || '0-0'}</div>` : ''}
+            `;
+            container.appendChild(card);
+        });
+
+        console.log(`[TradingFavorites] Rendered ${activeFavoriteIds.length} favorites`);
+
+    } catch (e) {
+        console.error('[TradingFavorites] Error loading:', e);
+        if (emptyState) emptyState.classList.remove('hidden');
+    }
+};
 
 // ==================== MAIN FUNCTIONS ====================
 onAuthStateChanged(auth, async (user) => {
@@ -871,15 +949,16 @@ window.removeTradingFavorite = async function (pickId) {
     const idx = tradingFavorites.indexOf(pickId);
     if (idx >= 0) {
         tradingFavorites.splice(idx, 1);
+        window.tradingFavorites = tradingFavorites; // Keep in sync
         window.updateMyMatchesCount();
         window.showMyMatches();
 
         if (window.currentUser) {
             try {
-                await setDoc(doc(db, "users", window.currentUser.uid, "data", "trading_favorites"), {
-                    ids: tradingFavorites,
-                    updated: Date.now()
-                });
+                await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
+                    tradingPicks: tradingFavorites,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
             } catch (e) {
                 console.error("Error removing trading favorite:", e);
             }
