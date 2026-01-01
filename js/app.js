@@ -480,11 +480,55 @@ async function loadData(dateToLoad = null) {
             }
         }
 
+        // Load Warning Stats for Standard
         const wStats = await getDoc(doc(db, "system", "warning_stats"));
         if (wStats.exists()) warningStats = wStats.data();
 
+        await renderStats();
+
     } catch (e) {
         console.error("Load Data Error", e);
+    }
+}
+
+async function renderStats() {
+    try {
+        // Read pre-calculated stats from system/global_stats (populated by admin)
+        const statsDoc = await getDoc(doc(db, "system", "global_stats"));
+
+        if (statsDoc.exists()) {
+            const stats = statsDoc.data();
+
+            // Update Global Stats for AI
+            window.globalStats = {
+                total: stats.total || 0,
+                wins: stats.wins || 0,
+                losses: stats.losses || 0,
+                winrate: stats.winrate || 0
+            };
+
+            document.getElementById('stat-total').textContent = stats.total || 0;
+            document.getElementById('stat-wins').textContent = stats.wins || 0;
+            document.getElementById('stat-losses').textContent = stats.losses || 0;
+            document.getElementById('stat-winrate').textContent = (stats.winrate || 0) + '%';
+            document.getElementById('last-update').textContent = formatDateLong(stats.lastUpdate || new Date().toISOString().split('T')[0]);
+        } else {
+            console.warn('[Stats] No global_stats found in system collection');
+            // Set defaults
+            document.getElementById('stat-total').textContent = '0';
+            document.getElementById('stat-wins').textContent = '0';
+            document.getElementById('stat-losses').textContent = '0';
+            document.getElementById('stat-winrate').textContent = '0%';
+            document.getElementById('last-update').textContent = formatDateLong(new Date().toISOString().split('T')[0]);
+        }
+    } catch (e) {
+        console.error('Error loading stats:', e);
+        // Set defaults on error
+        document.getElementById('stat-total').textContent = '0';
+        document.getElementById('stat-wins').textContent = '0';
+        document.getElementById('stat-losses').textContent = '0';
+        document.getElementById('stat-winrate').textContent = '0%';
+        document.getElementById('last-update').textContent = formatDateLong(new Date().toISOString().split('T')[0]);
     }
 }
 
