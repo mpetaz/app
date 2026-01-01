@@ -1044,16 +1044,9 @@ window.updateMyMatchesCount = function () {
 
     let countBadge = navBtn.querySelector('.count-badge');
 
-    // Total = Betting favorites + Trading favorites  
+    // Only count Betting favorites (including Magia AI)
     const bettingCount = (window.selectedMatches || []).length;
-    // Use active count calculated by render function if available, otherwise 0 or raw length if preferred
-    // The backup used activeTradingFavoritesCount || 0. We stick to that.
-    const tradingCount = window.activeTradingFavoritesCount || 0;
-
-    // Fallback: If 0 but we have favorites and haven't rendered yet, it might be confusing.
-    // But since we trigger render on load if on page, or show 0 until viewed, this is safer than showing 19.
-
-    const totalCount = bettingCount + tradingCount;
+    const totalCount = bettingCount;
 
     if (totalCount > 0) {
         if (!countBadge) {
@@ -1068,7 +1061,6 @@ window.updateMyMatchesCount = function () {
     }
 };
 
-// Only renders Betting Favorites
 window.showMyMatches = function (sortMode = 'score') {
     const container = document.getElementById('my-matches-container');
     if (!container) return;
@@ -1076,13 +1068,9 @@ window.showMyMatches = function (sortMode = 'score') {
     container.innerHTML = '';
 
     // 1. Refresh scores from current strategiesData (if available)
-    console.log('[DEBUG] showMyMatches - strategiesData available:', !!window.strategiesData);
-    console.log('[DEBUG] showMyMatches - selectedMatches count:', window.selectedMatches.length);
     if (window.strategiesData) {
-        console.log('[DEBUG] Available strategies:', Object.keys(window.strategiesData));
         window.selectedMatches = window.selectedMatches.map(sm => {
             const smId = sm.id || `${sm.data}_${sm.partita}`;
-            console.log('[DEBUG] Processing favorite:', sm.partita, 'ID:', smId, 'StrategyId:', sm.strategyId);
             let latestMatch = null;
 
             // STRATEGY-AWARE LOOKUP
@@ -1123,11 +1111,11 @@ window.showMyMatches = function (sortMode = 'score') {
                 // Merge everything relevant for live status
                 return {
                     ...sm,
-                    risultato: latestMatch.risultato,
-                    esito: latestMatch.esito,
-                    liveData: latestMatch.liveData,
-                    liveStats: latestMatch.liveStats,
-                    minute: latestMatch.minute || latestMatch.liveData?.minute
+                    risultato: latestMatch.risultato || null,
+                    esito: latestMatch.esito || null,
+                    liveData: latestMatch.liveData || null,
+                    liveStats: latestMatch.liveStats || null,
+                    minute: latestMatch.minute || latestMatch.liveData?.minute || null
                 };
             }
             return sm;
@@ -1238,8 +1226,13 @@ window.removeMatch = async function (matchId) {
         // Save to Firebase
         if (window.currentUser) {
             try {
+                // Sanitize to avoid "undefined" errors in Firestore
+                const sanitizedMatches = JSON.parse(JSON.stringify(window.selectedMatches, (key, value) => {
+                    return value === undefined ? null : value;
+                }));
+
                 await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
-                    matches: window.selectedMatches,
+                    matches: sanitizedMatches,
                     updated: Date.now()
                 });
             } catch (e) {
