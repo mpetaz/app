@@ -4576,23 +4576,32 @@ ${eugenioPromptCache.telegramBotKnowledge || eugenioPromptCache.telegramKnowledg
                         </div>
                     ` : ''}
 
-                    <!-- Risk Indicator: DRAW -->
-                    <div class="flex flex-col gap-2 bg-white p-3 rounded-xl border border-slate-200">
-                        <div class="flex justify-between items-center">
-                            <div class="flex items-center gap-2">
-                                 <i class="fa-solid fa-triangle-exclamation ${ms.drawProb > 28 ? 'text-red-500' : (ms.drawProb > 22 ? 'text-yellow-500' : 'text-green-500')}"></i>
-                                 <span class="text-[10px] font-black text-slate-600 uppercase">Indice Rischio Pareggio</span>
-                            </div>
-                            <span class="text-xs font-black ${ms.drawProb > 28 ? 'text-red-600' : (ms.drawProb > 22 ? 'text-yellow-600' : 'text-green-600')}">
-                                ${ms.drawProb > 28 ? 'ALTO' : (ms.drawProb > 22 ? 'MEDIO' : 'BASSO')}
-                            </span>
+                    <!-- 1X2 PROBABILITY DISTRIBUTION -->
+                    <div class="bg-white p-3 rounded-xl border border-slate-200">
+                        <div class="flex justify-between items-end mb-2">
+                             <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Distribuzione 1X2</span>
                         </div>
-                        <div class="text-[10px] text-slate-500 leading-tight">
-                            ${ms.drawProb > 28
-                ? `⚠️ <strong>Attenzione:</strong> Probabilità pareggio molto elevata (${ms.drawProb}%). Si consiglia cautela o copertura DNB (Doppia Chance).`
-                : (ms.drawProb > 22
-                    ? `ℹ️ Rischio pareggio moderato (${ms.drawProb}%). Match equilibrato.`
-                    : `✅ Rischio pareggio basso (${ms.drawProb}%). Tendenza definita.`)}
+                        
+                        <!-- Visual Bar -->
+                        <div class="flex h-3 rounded-full overflow-hidden mb-2 shadow-inner bg-slate-100 relative">
+                            <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
+                            <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
+                            <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
+                        </div>
+
+                        <!-- Labels -->
+                        <div class="flex justify-between text-[10px] font-mono leading-tight">
+                            <div class="text-left w-1/3 ${ms.winHomeProb > ms.winAwayProb && ms.winHomeProb > ms.drawProb ? 'text-indigo-700 font-black' : 'text-slate-500'}">
+                                1: ${Math.round(ms.winHomeProb || 0)}%
+                                ${ms.winHomeProb > ms.winAwayProb && ms.winHomeProb > ms.drawProb ? '<i class="fa-solid fa-crown text-[8px] ml-1"></i>' : ''}
+                            </div>
+                            <div class="text-center w-1/3 ${ms.drawProb > ms.winHomeProb && ms.drawProb > ms.winAwayProb ? 'text-slate-800 font-black' : 'text-slate-400'}">
+                                X: ${Math.round(ms.drawProb || 0)}%
+                            </div>
+                            <div class="text-right w-1/3 ${ms.winAwayProb > ms.winHomeProb && ms.winAwayProb > ms.drawProb ? 'text-purple-700 font-black' : 'text-slate-500'}">
+                                2: ${Math.round(ms.winAwayProb || 0)}%
+                                ${ms.winAwayProb > ms.winHomeProb && ms.winAwayProb > ms.drawProb ? '<i class="fa-solid fa-crown text-[8px] ml-1"></i>' : ''}
+                            </div>
                         </div>
                     </div>
 
