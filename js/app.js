@@ -96,7 +96,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     let headerHTML = '';
     if (isTrading && options.detailedTrading && match.liveData) {
-        const isLive = match.liveData.minute > 0;
+        const elapsed = match.liveData.elapsed || match.liveData.minute || 0;
+        const isLive = elapsed > 0;
         headerHTML = `
             <div class="${headerClass} p-3 flex justify-between items-center text-white relative">
                  <div class="flex items-center gap-2">
@@ -106,7 +107,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 <div class="flex items-center gap-3">
                     <div class="flex items-center gap-2">
                         ${isLive ? '<span class="animate-pulse text-red-400 font-bold text-xs">● LIVE</span>' : ''}
-                        <div class="text-xl font-black font-mono">${match.liveData.minute || 0}'</div>
+                        <div class="text-xl font-black font-mono">${elapsed}'</div>
                     </div>
                     ${flagBtnHTML}
                 </div>
@@ -128,8 +129,9 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     }
 
     // --- Teams & Score ---
-    const scoreDisplay = (isTrading && options.detailedTrading && match.liveData)
-        ? `<div class="mt-1 text-2xl font-black text-gray-900 tracking-widest">${match.liveData.homeScore} - ${match.liveData.awayScore}</div>`
+    const currentScore = match.liveData?.score || (match.liveData ? `${match.liveData.homeScore || 0} - ${match.liveData.awayScore || 0}` : null);
+    const scoreDisplay = (isTrading && options.detailedTrading && currentScore)
+        ? `<div class="mt-1 text-2xl font-black text-gray-900 tracking-widest">${currentScore}</div>`
         : (match.risultato ? `<div class="mt-1 text-xl font-black text-gray-900">${match.risultato}</div>` : '');
 
     const teamsHTML = `
@@ -192,16 +194,20 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // TRADING: Live Stats
     if (isTrading && options.detailedTrading && match.liveStats) {
+        const pos = typeof match.liveStats.possession === 'object'
+            ? `${match.liveStats.possession.home}% - ${match.liveStats.possession.away}%`
+            : (match.liveStats.possession || '0% - 0%');
+
         insightsHTML += `
             <div class="px-4 mb-3">
                 <div class="grid grid-cols-3 gap-2 text-center text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
                      <div>
                         <div class="text-[10px] text-gray-400 font-bold uppercase">Possesso</div>
-                        <div class="font-black text-gray-800 text-xs">${match.liveStats.possession?.home || 0}% - ${match.liveStats.possession?.away || 0}%</div>
+                        <div class="font-black text-gray-800 text-xs">${pos}</div>
                      </div>
                      <div>
                         <div class="text-[10px] text-gray-400 font-bold uppercase">Tiri</div>
-                        <div class="font-black text-gray-800 text-xs">${match.liveStats.shots?.home || 0} - ${match.liveStats.shots?.away || 0}</div>
+                        <div class="font-black text-gray-800 text-xs">${match.liveStats.shotsOnGoal || (match.liveStats.shots ? `${match.liveStats.shots.home}-${match.liveStats.shots.away}` : '0-0')}</div>
                      </div>
                      <div>
                         <div class="text-[10px] text-gray-400 font-bold uppercase">XG</div>
@@ -218,12 +224,19 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 mb-3">
                  <div class="text-[9px] font-bold text-gray-300 uppercase tracking-widest mb-1">Timeline</div>
                  <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                    ${match.events.map(ev => `
+                    ${match.events.map(ev => {
+            const time = ev.time || ev.minute || 0;
+            const type = (ev.type || "").toUpperCase();
+            const isGoal = type.includes('GOAL');
+            const isRed = type.includes('RED') || ev.detail?.includes('Red');
+            const isYellow = type.includes('YELLOW') || ev.detail?.includes('Yellow') || type === 'CARD';
+
+            return `
                         <div class="flex-shrink-0 bg-white border border-gray-100 rounded px-1.5 py-0.5 text-[10px] flex items-center gap-1 shadow-sm">
-                            <span class="font-bold text-gray-400">${ev.minute}'</span>
-                            <span class="font-bold text-gray-800">${ev.type === 'GOAL' ? '⚽' : (ev.type === 'RED_CARD' ? '🟥' : '🟨')}</span>
-                        </div>
-                    `).join('')}
+                            <span class="font-bold text-gray-400">${time}'</span>
+                            <span class="font-bold text-gray-800">${isGoal ? '⚽' : (isRed ? '🟥' : '🟨')}</span>
+                        </div>`;
+        }).join('')}
                  </div>
             </div>
         `;
@@ -355,13 +368,12 @@ window.loadTradingPicks = function (date) {
             // Merge functionality
             const mergedPicks = picks.map(pick => {
                 const pickId = window.getTradingPickId(pick.partita);
-                // Try direct match or fuzzy match logic if needed, but ID should be consistent now
-                // Also try "trading_" + clean name
-                let sig = signalsMap[pickId];
 
-                // Fallback matching if ID format differs slightly
+                // Try multiple ID formats for matching
+                let sig = signalsMap[pickId] || signalsMap[`trading_${pickId}`] || signalsMap[pickId.replace('trading_', '')];
+
                 if (!sig) {
-                    // Try to find by partial match on name
+                    // Try to find by partial match on name (normalized)
                     const cleanPickName = pick.partita.toLowerCase().replace(/[^a-z]/g, "");
                     for (const sid in signalsMap) {
                         if (sid.includes(cleanPickName)) {
@@ -372,7 +384,9 @@ window.loadTradingPicks = function (date) {
                 }
 
                 if (sig) {
-                    return { ...pick, ...sig, id: pickId }; // Merge signal data (live, currentSignal, etc)
+                    // Normalize sig data to ensure consistent structure if needed, 
+                    // or just merge as is since createUniversalCard is now more robust.
+                    return { ...pick, ...sig, id: pickId };
                 }
                 return { ...pick, id: pickId };
             });
@@ -556,7 +570,7 @@ window.renderTradingFavoritesInStarTab = async function () {
             if (!pick) return;
 
             // Merge with live signal if available
-            let sig = signalsMap[favId];
+            let sig = signalsMap[favId] || signalsMap[`trading_${favId}`] || signalsMap[favId.replace('trading_', '')];
             if (!sig) {
                 // Fallback fuzzy match
                 const cleanName = pick.partita.toLowerCase().replace(/[^a-z]/g, "");
