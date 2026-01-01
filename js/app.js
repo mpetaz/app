@@ -754,14 +754,96 @@ window.showPage = function (pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(`page-${pageId}`).classList.add('active');
     window.scrollTo(0, 0);
+
+    // Render My Matches when navigating to star tab
+    if (pageId === 'star' || pageId === 'my-matches') {
+        window.showMyMatches();
+    }
 };
 
 window.updateMyMatchesCount = function () {
     const badge = document.getElementById('my-matches-badge');
-    const count = window.selectedMatches.length;
+    const count = (window.selectedMatches || []).length;
     if (badge) {
         badge.textContent = count;
         badge.classList.toggle('hidden', count === 0);
+    }
+};
+
+window.showMyMatches = function (sortMode = 'score') {
+    const container = document.getElementById('my-matches-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!window.selectedMatches || window.selectedMatches.length === 0) {
+        container.innerHTML = '<div class="text-center text-gray-300 py-12">Nessuna partita selezionata ⭐</div>';
+        return;
+    }
+
+    console.log('[showMyMatches] Rendering', window.selectedMatches.length, 'matches');
+
+    // Clone and sort
+    let sortedMatches = [...window.selectedMatches];
+
+    if (sortMode === 'time') {
+        sortedMatches.sort((a, b) => {
+            if (!a.ora && !b.ora) return 0;
+            if (!a.ora) return 1;
+            if (!b.ora) return -1;
+            return a.ora.localeCompare(b.ora);
+        });
+    } else {
+        sortedMatches.sort((a, b) => (b.score || 0) - (a.score || 0));
+    }
+
+    sortedMatches.forEach((m, idx) => {
+        try {
+            const card = window.createUniversalCard(m, idx, m.strategyId || null);
+
+            // Replace flag button with delete button
+            const flagBtn = card.querySelector('.flag-btn, button[data-match-id]');
+            if (flagBtn) {
+                const matchId = m.id || `${m.data}_${m.partita}`;
+                flagBtn.innerHTML = '<i class="fa-solid fa-trash text-red-400"></i>';
+                flagBtn.className = 'text-red-400 hover:text-red-600 transition text-xl ml-2';
+                flagBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    window.removeMatch(matchId);
+                };
+            }
+
+            container.appendChild(card);
+        } catch (e) {
+            console.error('[showMyMatches] Error creating card:', e, m);
+        }
+    });
+};
+
+window.removeMatch = async function (matchId) {
+    const idx = window.selectedMatches.findIndex(m => {
+        const id = m.id || `${m.data}_${m.partita}`;
+        return id === matchId;
+    });
+
+    if (idx >= 0) {
+        window.selectedMatches.splice(idx, 1);
+        window.updateMyMatchesCount();
+
+        // Re-render the list
+        window.showMyMatches();
+
+        // Save to Firebase
+        if (window.currentUser) {
+            try {
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
+                    matches: window.selectedMatches,
+                    updated: Date.now()
+                });
+            } catch (e) {
+                console.error("Error removing match:", e);
+            }
+        }
     }
 };
 
