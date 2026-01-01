@@ -1098,4 +1098,166 @@ window.formatDateLong = function (str) {
 
 const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
 
+
+// ==================== euGENIO CHATBOT LOGIC ====================
+(function () {
+    const chatWindow = document.getElementById('ai-chat-window');
+    const toggleBtn = document.getElementById('toggle-chat-btn');
+    const closeBtn = document.getElementById('close-chat-btn');
+    const form = document.getElementById('chat-form');
+    const input = document.getElementById('chat-input');
+    const messagesContainer = document.getElementById('chat-messages');
+
+    if (!chatWindow || !toggleBtn) return;
+
+    let isOpen = false;
+    let chatHistory = [];
+    let hasWelcomed = false;
+    let eugenioPromptCache = null;
+
+    window.loadEugenioPrompt = async function () {
+        try {
+            const promptDoc = await window.getDoc(window.doc(window.db, "system_prompts", "eugenio"));
+            if (promptDoc.exists()) {
+                eugenioPromptCache = promptDoc.data();
+                console.log('[Eugenio] ✅ Prompt loaded from Firebase');
+            }
+        } catch (e) {
+            console.error('[Eugenio] ❌ Error loading prompt:', e);
+        }
+    };
+
+    function getUserName() {
+        if (window.currentUserProfile && window.currentUserProfile.name) {
+            return window.currentUserProfile.name;
+        }
+        if (window.currentUser && window.currentUser.email) {
+            const name = window.currentUser.email.split('@')[0];
+            return name.charAt(0).toUpperCase() + name.slice(1);
+        }
+        return "Amico";
+    }
+
+    function buildSystemPrompt() {
+        const userName = getUserName();
+        const strategies = window.strategiesData || {};
+        const stats = window.globalStats || { total: 0, wins: 0, losses: 0, winrate: 0 };
+
+        let strategiesText = Object.entries(strategies)
+            .map(([id, s]) => `- **${s.name}**: ${s.totalMatches || 0} partite attive.`)
+            .join('\n') || "Nessuna strategia caricata.";
+
+        let prompt = `Sei **euGENIO 🧞‍♂️**, l'assistente AI di Tipster-AI.
+Parla in prima persona singolare. Il tuo interlocutore è **${userName}**.
+
+**STATISTICHE GLOBALI:**
+- Totale: ${stats.total}
+- Vinte: ${stats.wins}
+- Winrate: ${stats.winrate}%
+
+**STRATEGIE OGGI:**
+${strategiesText}
+
+**INFO EXTRA:**
+${eugenioPromptCache?.additionalContext || ''}
+${eugenioPromptCache?.tradingKnowledge || ''}
+
+Regole:
+1. Saluta SOLO nel primo messaggio.
+2. Sii conciso e professionale.
+3. Promuovi il gioco responsabile.`;
+
+        return prompt;
+    }
+
+    function toggleChat() {
+        isOpen = !isOpen;
+        if (isOpen) {
+            chatWindow.classList.remove('hidden');
+            toggleBtn.classList.add('hidden');
+            setTimeout(() => input.focus(), 100);
+
+            if (!hasWelcomed) {
+                const welcomeMsg = `Ciao ${getUserName()}! 👋 Sono euGENIO 🧞‍♂️. Come posso aiutarti oggi?`;
+                appendMessage(welcomeMsg, 'ai');
+                hasWelcomed = true;
+            }
+        } else {
+            chatWindow.classList.add('hidden');
+            toggleBtn.classList.remove('hidden');
+        }
+    }
+
+    function appendMessage(text, sender) {
+        const div = document.createElement('div');
+        div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'}`;
+        const bubble = document.createElement('div');
+        bubble.className = sender === 'user'
+            ? 'bg-purple-600 text-white rounded-2xl rounded-tr-none p-3 shadow-sm max-w-[85%]'
+            : 'bg-white border border-gray-200 rounded-2xl rounded-tl-none p-3 shadow-sm max-w-[85%] text-gray-800';
+        bubble.innerHTML = text;
+        div.appendChild(bubble);
+        messagesContainer.appendChild(div);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    function showLoading() {
+        const div = document.createElement('div');
+        div.id = 'ai-loading';
+        div.className = 'flex justify-start';
+        div.innerHTML = `<div class="bg-white border border-gray-200 rounded-2xl rounded-tl-none p-3 shadow-sm">
+            <div class="flex gap-1">
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+            </div>
+        </div>`;
+        messagesContainer.appendChild(div);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    toggleBtn.addEventListener('click', toggleChat);
+    closeBtn.addEventListener('click', toggleChat);
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+
+        input.value = '';
+        appendMessage(text, 'user');
+        showLoading();
+
+        try {
+            if (chatHistory.length === 0) {
+                if (!eugenioPromptCache) await window.loadEugenioPrompt();
+                chatHistory.push({ role: "user", parts: [{ text: buildSystemPrompt() }] });
+                chatHistory.push({ role: "model", parts: [{ text: "Certamente! Sono pronto ad aiutarti." }] });
+            }
+
+            chatHistory.push({ role: "user", parts: [{ text: text }] });
+
+            const result = await window.chatWithGemini({
+                contents: chatHistory,
+                generationConfig: { temperature: 1, maxOutputTokens: 1024 }
+            });
+
+            const loading = document.getElementById('ai-loading');
+            if (loading) loading.remove();
+
+            const responseText = result.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Scusa, non ho capito. 🧞‍♂️";
+            chatHistory.push({ role: "model", parts: [{ text: responseText }] });
+
+            // Simple markdown-ish to HTML
+            const htmlText = responseText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+            appendMessage(htmlText, 'ai');
+
+        } catch (err) {
+            const loading = document.getElementById('ai-loading');
+            if (loading) loading.remove();
+            appendMessage("Ops! C'è stato un errore nel contattare euGENIO. 🧞‍♂️", 'ai');
+        }
+    });
+})();
+
 console.log('[App] Logic Initialized.');
