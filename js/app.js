@@ -82,32 +82,46 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const card = document.createElement('div');
     card.className = `match-card rounded-xl shadow-lg fade-in mb-3 overflow-hidden bg-white border border-gray-100 relative ${isFlagged && isTrading ? 'ring-2 ring-emerald-500' : ''}`;
 
-    // --- Header ---
-    // If Live Trading, show specialized header
+    // --- Footer ---
+    // Moved Flag Button to Header
+
+    // Header Generation with Star
+    const flagBtnHTML = isTrading
+        ? `<button class="text-white/70 hover:text-white transition text-xl bg-white/10 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" onclick="toggleTradingFavorite('${matchId}'); event.stopPropagation();">
+             <i class="${isFlagged ? 'fa-solid text-emerald-300' : 'fa-regular'} fa-bookmark"></i>
+           </button>`
+        : `<button class="flag-btn ${isFlagged ? 'flagged text-yellow-300' : 'text-white/60'} hover:text-yellow-300 transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
+             ${isFlagged ? '<i class="fa-solid fa-star drop-shadow-md"></i>' : '<i class="fa-regular fa-star"></i>'}
+           </button>`;
+
     let headerHTML = '';
     if (isTrading && options.detailedTrading && match.liveData) {
         const isLive = match.liveData.minute > 0;
         headerHTML = `
-            <div class="${headerClass} p-3 flex justify-between items-center text-white">
+            <div class="${headerClass} p-3 flex justify-between items-center text-white relative">
                  <div class="flex items-center gap-2">
                     ${headerIcon}
                     <span class="font-bold text-sm tracking-wider uppercase">${headerTitle}</span>
                 </div>
-                <div class="flex items-center gap-2">
-                    ${isLive ? '<span class="animate-pulse text-red-400 font-bold text-xs">● LIVE</span>' : ''}
-                    <div class="text-xl font-black font-mono">${match.liveData.minute || 0}'</div>
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-2">
+                        ${isLive ? '<span class="animate-pulse text-red-400 font-bold text-xs">● LIVE</span>' : ''}
+                        <div class="text-xl font-black font-mono">${match.liveData.minute || 0}'</div>
+                    </div>
+                    ${flagBtnHTML}
                 </div>
             </div>
         `;
     } else {
         headerHTML = `
-            <div class="${headerClass} p-3 flex justify-between items-center text-white">
+            <div class="${headerClass} p-3 flex justify-between items-center text-white relative">
                 <div class="flex items-center gap-2">
                     ${headerIcon}
                     <span class="font-bold text-sm tracking-wider uppercase">${headerTitle}</span>
                 </div>
                 <div class="flex items-center gap-2">
                     ${match.ora ? `<span class="text-xs bg-white/20 px-2 py-0.5 rounded font-bold">⏰ ${match.ora}</span>` : ''}
+                    ${flagBtnHTML}
                 </div>
             </div>
         `;
@@ -120,8 +134,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     const teamsHTML = `
         <div class="p-4 pb-2 text-center">
-            <div class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">${match.lega || 'Unknown League'}</div>
-            <div class="text-lg font-black text-gray-800 leading-tight">${match.partita}</div>
+            <div class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">${match.lega || 'Unknown League'}</div>
+            <div class="text-lg font-black text-gray-800 leading-tight mb-1">${match.partita}</div>
             ${scoreDisplay}
         </div>
     `;
@@ -146,18 +160,18 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         `;
     } else if (isTrading) {
         primarySignalHTML = `
-            <div class="border-t border-b border-gray-100 py-3 mb-3 bg-gray-50 flex justify-around">
-                <div class="text-center">
-                    <div class="text-xs text-gray-400 font-bold uppercase">Azione</div>
-                    <div class="font-black text-gray-800 text-lg">${match.tradingInstruction?.action || match.tip || '-'}</div>
+            <div class="border-t border-b border-gray-100 py-2 mb-3 bg-gray-50 grid grid-cols-3 gap-1 px-1">
+                <div class="text-center p-1">
+                    <div class="text-[10px] text-gray-400 font-bold uppercase mb-1">Azione</div>
+                    <div class="font-black text-gray-800 text-sm leading-tight">${match.tradingInstruction?.action || match.tip || '-'}</div>
                 </div>
-                <div class="text-center">
-                    <div class="text-xs text-gray-400 font-bold uppercase">Entry</div>
-                    <div class="font-black text-green-600 text-lg">${match.tradingInstruction?.entryRange ? match.tradingInstruction.entryRange.join('-') : '-'}</div>
+                <div class="text-center p-1 border-l border-r border-gray-200">
+                    <div class="text-[10px] text-gray-400 font-bold uppercase mb-1">Entry</div>
+                    <div class="font-black text-green-600 text-sm">${match.tradingInstruction?.entryRange ? match.tradingInstruction.entryRange.join('-') : '-'}</div>
                 </div>
-                <div class="text-center">
-                    <div class="text-xs text-gray-400 font-bold uppercase">Exit</div>
-                    <div class="font-black text-orange-500 text-lg">${match.tradingInstruction?.exitTarget || 'Auto'}</div>
+                <div class="text-center p-1">
+                    <div class="text-[10px] text-gray-400 font-bold uppercase mb-1">Exit</div>
+                    <div class="font-black text-orange-500 text-xs leading-tight">${match.tradingInstruction?.exitTarget || 'Auto'}</div>
                 </div>
             </div>
         `;
@@ -180,18 +194,18 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     if (isTrading && options.detailedTrading && match.liveStats) {
         insightsHTML += `
             <div class="px-4 mb-3">
-                <div class="grid grid-cols-3 gap-2 text-center text-xs bg-gray-50 p-2 rounded-lg">
+                <div class="grid grid-cols-3 gap-2 text-center text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
                      <div>
-                        <div class="text-gray-400 font-bold">POSSESSO</div>
-                        <div class="font-black text-gray-800">${match.liveStats.possession?.home || 0}% - ${match.liveStats.possession?.away || 0}%</div>
+                        <div class="text-[10px] text-gray-400 font-bold uppercase">Possesso</div>
+                        <div class="font-black text-gray-800 text-xs">${match.liveStats.possession?.home || 0}% - ${match.liveStats.possession?.away || 0}%</div>
                      </div>
                      <div>
-                        <div class="text-gray-400 font-bold">TIRI</div>
-                        <div class="font-black text-gray-800">${match.liveStats.shots?.home || 0} - ${match.liveStats.shots?.away || 0}</div>
+                        <div class="text-[10px] text-gray-400 font-bold uppercase">Tiri</div>
+                        <div class="font-black text-gray-800 text-xs">${match.liveStats.shots?.home || 0} - ${match.liveStats.shots?.away || 0}</div>
                      </div>
                      <div>
-                        <div class="text-gray-400 font-bold">XG</div>
-                        <div class="font-black text-gray-800">${match.liveStats.xg?.home || 0} - ${match.liveStats.xg?.away || 0}</div>
+                        <div class="text-[10px] text-gray-400 font-bold uppercase">XG</div>
+                        <div class="font-black text-gray-800 text-xs">${match.liveStats.xg?.home || 0} - ${match.liveStats.xg?.away || 0}</div>
                      </div>
                 </div>
             </div>
@@ -202,11 +216,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     if (isTrading && options.detailedTrading && match.events && match.events.length > 0) {
         insightsHTML += `
             <div class="px-4 mb-3">
-                 <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Eventi Chiave</div>
+                 <div class="text-[9px] font-bold text-gray-300 uppercase tracking-widest mb-1">Timeline</div>
                  <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                     ${match.events.map(ev => `
-                        <div class="flex-shrink-0 bg-white border border-gray-200 rounded px-2 py-1 text-[10px] flex items-center gap-1">
-                            <span class="font-bold text-gray-500">${ev.minute}'</span>
+                        <div class="flex-shrink-0 bg-white border border-gray-100 rounded px-1.5 py-0.5 text-[10px] flex items-center gap-1 shadow-sm">
+                            <span class="font-bold text-gray-400">${ev.minute}'</span>
                             <span class="font-bold text-gray-800">${ev.type === 'GOAL' ? '⚽' : (ev.type === 'RED_CARD' ? '🟥' : '🟨')}</span>
                         </div>
                     `).join('')}
@@ -221,7 +235,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 mb-4">
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div class="flex justify-between items-end mb-2">
-                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
+                         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
                     </div>
                     <div class="flex h-2.5 rounded-full overflow-hidden mb-2 shadow-inner bg-slate-200">
                         <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
@@ -268,20 +282,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         }
     }
 
-    // --- Footer ---
-    const flagBtnHTML = isTrading
-        ? `<button class="text-gray-400 hover:text-emerald-500 transition text-xl" onclick="toggleTradingFavorite('${matchId}')">
-             <i class="${isFlagged ? 'fa-solid text-emerald-500' : 'fa-regular'} fa-bookmark"></i>
-           </button>`
-        : `<button class="flag-btn ${isFlagged ? 'flagged text-yellow-400' : 'text-gray-400'} hover:text-yellow-400 transition" onclick="toggleFlag('${matchId}')">
-             ${isFlagged ? '<i class="fa-solid fa-star"></i>' : '<i class="fa-regular fa-star"></i>'}
-           </button>`;
-
+    // --- Footer is now simpler without the Flag Button ---
     const footerHTML = `
-        <div class="bg-gray-50 p-2 border-t border-gray-100 flex justify-between items-center px-4">
-             ${flagBtnHTML}
-             ${options.showTime !== false && !isTrading ? '' : ''}
-              ${isTrading ? '<span class="text-[10px] font-bold text-gray-400">TRADING</span>' : ''}
+        <div class="bg-gray-50 p-2 border-t border-gray-100 flex justify-end items-center px-4">
+              ${isTrading ? '<span class="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Trading Pick</span>' : '<span class="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Standard Pick</span>'}
         </div>
     `;
 
@@ -434,6 +438,63 @@ onAuthStateChanged(auth, async (user) => {
         document.getElementById('login-container').classList.remove('hidden');
     }
 });
+
+// Event Listeners for Strategy & Ranking Pages
+const backToStrategiesBtn = document.getElementById('back-to-strategies');
+if (backToStrategiesBtn) {
+    backToStrategiesBtn.addEventListener('click', () => window.showPage('strategies'));
+}
+
+const sortByScoreBtn = document.getElementById('sort-by-score');
+if (sortByScoreBtn) {
+    sortByScoreBtn.addEventListener('click', () => {
+        if (currentStrategyId && window.strategiesData[currentStrategyId]) {
+            window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], 'score');
+        }
+    });
+}
+
+const sortByTimeBtn = document.getElementById('sort-by-time');
+if (sortByTimeBtn) {
+    sortByTimeBtn.addEventListener('click', () => {
+        if (currentStrategyId && window.strategiesData[currentStrategyId]) {
+            window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], 'time');
+        }
+    });
+}
+
+// My Matches Sorting
+const myMatchesSortScore = document.getElementById('my-matches-sort-score');
+if (myMatchesSortScore) {
+    myMatchesSortScore.addEventListener('click', () => {
+        // Implement logic if needed, currently reusing logic or re-rendering my matches
+        // For simplicity, we can just re-render if we had a render function exposed
+    });
+}
+
+// Additional Listeners
+const deleteAllMatchesBtn = document.getElementById('delete-all-matches-btn');
+if (deleteAllMatchesBtn) {
+    deleteAllMatchesBtn.addEventListener('click', async () => {
+        if (confirm("Sei sicuro di voler cancellare tutte le partite salvate?")) {
+            window.selectedMatches = [];
+            window.updateMyMatchesCount();
+            // Remove all trading favorites too if desired, or just betting matches
+            // User requested "Delete All" to clear both betting and trading in previous session.
+            // Let's clear both for consistency with that request.
+            try {
+                tradingFavorites = [];
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "trading_favorites"), { ids: [], updated: Date.now() });
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), { matches: [], updated: Date.now() });
+                alert("Tutti i preferiti cancellati.");
+                // Refresh UI
+                const starBtns = document.querySelectorAll('.fa-star.fa-solid'); // Reset stars
+                starBtns.forEach(el => el.parentElement.innerHTML = '<i class="fa-regular fa-star"></i>');
+                if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
+            } catch (e) { console.error(e); }
+        }
+    });
+}
 
 async function loadUserProfile(uid) {
     try {
