@@ -9,7 +9,6 @@ const STATIC_ASSETS = [
     '/logo.png',
     '/icon-192.png',
     '/icon-512.png',
-    '/favicon.png',
     '/manifest.webmanifest',
     '/',
     '/index.html',
