@@ -420,16 +420,64 @@ window.getTradingPickId = function (partita) {
     return `trading_${cleanName}`;
 };
 
+// Helper to clean up old trading favorites from DB (Root Cause Fix)
+async function cleanupOldTradingFavorites(allFavorites) {
+    if (!allFavorites || allFavorites.length === 0) return allFavorites;
+
+    const today = new Date().toISOString().split('T')[0];
+    try {
+        const tradingDailyDoc = await getDoc(doc(db, "daily_trading_picks", today));
+        if (!tradingDailyDoc.exists()) {
+            // If no daily picks for today, we can't really validate, so keep safe
+            return allFavorites;
+        }
+
+        const dailyPicks = tradingDailyDoc.data().picks || [];
+        const dailyIds = dailyPicks.map(p => window.getTradingPickId(p.partita));
+
+        // Filter: Keep only favorites that exist in TODAY's daily picks
+        // This effectively removes "dead" favorites from past days
+        const activeFavorites = allFavorites.filter(id => dailyIds.includes(id));
+
+        const removedCount = allFavorites.length - activeFavorites.length;
+
+        if (removedCount > 0) {
+            console.log(`[Trading Cleanup] Removing ${removedCount} old/inactive favorites from DB.`);
+
+            // Update Real Database
+            await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
+                tradingPicks: activeFavorites,
+                updatedAt: new Date().toISOString()
+            }, { merge: true });
+
+            return activeFavorites;
+        }
+    } catch (e) {
+        console.error("[Trading Cleanup] Error:", e);
+    }
+    return allFavorites;
+}
+
 window.loadTradingFavorites = async function () {
     if (!window.currentUser) return;
     try {
         const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
         if (favDoc.exists()) {
-            const rawFavorites = favDoc.data().tradingPicks || [];
-            // Remove duplicates using Set
-            window.tradingFavorites = [...new Set(rawFavorites)];
-            tradingFavorites = window.tradingFavorites; // Keep both in sync
-            console.log('[Trading] Favorites loaded:', window.tradingFavorites.length);
+            let rawFavorites = favDoc.data().tradingPicks || [];
+
+            // 1. Remove duplicates locally
+            rawFavorites = [...new Set(rawFavorites)];
+
+            // 2. Perform DB Cleanup (The "Source" Fix)
+            // We only want to keep favorites that are valid for TODAY.
+            // Everything else is trash/history.
+            const cleanFavorites = await cleanupOldTradingFavorites(rawFavorites);
+
+            window.tradingFavorites = cleanFavorites;
+            // Since we cleaned the DB, "active" count is just the length
+            window.activeTradingFavoritesCount = window.tradingFavorites.length;
+
+            console.log('[Trading] Favorites loaded & cleaned:', window.tradingFavorites.length);
             window.updateMyMatchesCount();
         }
     } catch (e) { console.error("Load Trading Favs Error", e); }
@@ -518,29 +566,53 @@ window.renderTradingFavoritesInStarTab = async function () {
 
         if (emptyState) emptyState.classList.add('hidden');
 
-        // Render favorited trading picks using daily picks data
+        // Fetch Live Signals
+        const signalsSnapshot = await getDocs(collection(db, "trading_signals"));
+        const signalsMap = {};
+        signalsSnapshot.forEach(doc => {
+            signalsMap[doc.id] = doc.data();
+        });
+
+        // Render favorited trading picks using daily picks data merged with signals
         activeFavoriteIds.forEach(favId => {
             // Find the matching pick from daily picks
-            const pick = dailyPicksForDate.find(p => window.getTradingPickId(p.partita) === favId);
+            let pick = dailyPicksForDate.find(p => window.getTradingPickId(p.partita) === favId);
             if (!pick) return;
 
-            const card = document.createElement('div');
-            const strategyColor = pick.strategy === 'BACK_OVER_25' ? 'from-purple-600 to-blue-600' : 'from-orange-500 to-red-500';
-            const strategyLabel = pick.strategy === 'BACK_OVER_25' ? 'BACK O2.5' : 'LAY Draw';
-            const icon = pick.strategy === 'BACK_OVER_25' ? '📊' : '🎯';
+            // Merge with live signal if available
+            let sig = signalsMap[favId];
+            if (!sig) {
+                // Fallback fuzzy match
+                const cleanName = pick.partita.toLowerCase().replace(/[^a-z]/g, "");
+                for (const sid in signalsMap) {
+                    if (sid.includes(cleanName)) {
+                        sig = signalsMap[sid];
+                        break;
+                    }
+                }
+            }
+            if (sig) {
+                pick = { ...pick, ...sig };
+            }
 
-            card.className = `bg-gradient-to-r ${strategyColor} rounded-xl p-4 mb-3 text-white shadow-lg relative`;
-            card.innerHTML = `
-                <div class="flex justify-between items-start mb-2">
-                    <span class="bg-white/20 px-2 py-1 rounded text-xs font-bold">${icon} ${strategyLabel}</span>
-                    <button class="text-red-300 hover:text-red-100 transition text-lg" onclick="window.removeTradingFavorite('${favId}'); event.stopPropagation();">
-                        <i class="fa-solid fa-trash"></i>
-                    </button>
-                </div>
-                <div class="text-lg font-bold mb-1">${pick.partita || 'Partita'}</div>
-                <div class="text-sm opacity-80">${pick.lega || ''}</div>
-                ${pick.liveData?.elapsed ? `<div class="text-xs mt-2 bg-white/20 inline-block px-2 py-1 rounded">⏱️ ${pick.liveData.elapsed}' | ${pick.liveData.score || '0-0'}</div>` : ''}
-            `;
+            // Create card with detailedTrading option to show live header
+            const card = window.createUniversalCard(pick, 0, null, { isTrading: true, detailedTrading: true });
+
+            // Add custom delete button for favorites view
+            // Note: createUniversalCard already adds a favorite button. 
+            // We want to override/replace it with a trash can or ensure it works as delete.
+            // But createUniversalCard logic for 'isFlagged' might be tricky if checked against different list.
+            // Let's just append a delete button or rely on the one generated?
+            // The generated one calls toggleTradingFavorite, which removes it. Ideally that's fine.
+            // But user asked for "Trash" icon in favorites usually.
+
+            // Let's force replace the action button if needed, or better, stick to the consistent card.
+            // However, previous implementation used a simpler custom card. 
+            // The user liked the "live" cards. So using createUniversalCard is better.
+            // We just need to ensure the "bookmark" button shows as "active" (solid).
+            // Logic in createUniversalCard: const isFlagged = ... tradingFavorites.includes(matchId);
+            // So it should be solid. Clicking it toggles (removes). That is acceptable.
+
             container.appendChild(card);
         });
 
@@ -930,9 +1002,12 @@ window.updateMyMatchesCount = function () {
 
     let countBadge = navBtn.querySelector('.count-badge');
 
-    // Total = Betting favorites + Trading favorites  
+    // Total = Betting favorites + Active Trading Favorites (fallback to all if not calculated yet)
     const bettingCount = (window.selectedMatches || []).length;
-    const tradingCount = (tradingFavorites || []).length;
+    // Use the active count if defined (filtered by date), otherwise fallback to total
+    const tradingCount = typeof window.activeTradingFavoritesCount !== 'undefined' ?
+        window.activeTradingFavoritesCount : (tradingFavorites || []).length;
+
     const totalCount = bettingCount + tradingCount;
 
     if (totalCount > 0) {
