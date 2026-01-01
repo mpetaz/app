@@ -84,10 +84,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // --- Header ---
     // If Live Trading, show specialized header
-    let headerContent = '';
+    let headerHTML = '';
     if (isTrading && options.detailedTrading && match.liveData) {
         const isLive = match.liveData.minute > 0;
-        headerContent = `
+        headerHTML = `
             <div class="${headerClass} p-3 flex justify-between items-center text-white">
                  <div class="flex items-center gap-2">
                     ${headerIcon}
@@ -100,7 +100,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             </div>
         `;
     } else {
-        headerContent = `
+        headerHTML = `
             <div class="${headerClass} p-3 flex justify-between items-center text-white">
                 <div class="flex items-center gap-2">
                     ${headerIcon}
