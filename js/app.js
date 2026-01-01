@@ -1143,29 +1143,41 @@ const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
         const strategies = window.strategiesData || {};
         const stats = window.globalStats || { total: 0, wins: 0, losses: 0, winrate: 0 };
 
+        const strategyDefinitions = {
+            'magia_ai': 'Studiata in TEMPO REALE dall\'AI (analisi LLM). Analizza pattern complessi e asimmetrie di quota.',
+            'special_ai': 'Selezione ultra-precisa basata su algoritmi proprietari ad alta affidabilità.',
+            'winrate_80': 'Solo partite con storico vittorie superiore all\'80%.'
+        };
+
         let strategiesText = Object.entries(strategies)
-            .map(([id, s]) => `- **${s.name}**: ${s.totalMatches || 0} partite attive.`)
+            .map(([id, s]) => {
+                const def = strategyDefinitions[id] || s.description || 'Analisi statistica.';
+                return `- **${s.name}**: ${def} (${s.totalMatches || 0} partite).`;
+            })
             .join('\n') || "Nessuna strategia caricata.";
 
         let prompt = `Sei **euGENIO 🧞‍♂️**, l'assistente AI di Tipster-AI.
 Parla in prima persona singolare. Il tuo interlocutore è **${userName}**.
 
+**DEFINIZIONI CRUCIALI:**
+- **MAGIA AI 🔮**: NON è una semplice selezione. È lo studio in TEMPO REALE dei match fatto dall'AI. Cerca il valore (Value Bet) e pattern invisibili.
+- **SPECIAL AI ✨**: È la selezione puramente statistica più PRECISA dell'app, curata dai nostri algoritmi storici.
+
 **STATISTICHE GLOBALI:**
-- Totale: ${stats.total}
-- Vinte: ${stats.wins}
-- Winrate: ${stats.winrate}%
+- Totale: ${stats.total} | Vinte: ${stats.wins} | Winrate: ${stats.winrate}%
 
 **STRATEGIE OGGI:**
 ${strategiesText}
 
-**INFO EXTRA:**
+**KNOWLEDGE BASE (ADMIN):**
+${eugenioPromptCache?.customInstructions || ''}
 ${eugenioPromptCache?.additionalContext || ''}
 ${eugenioPromptCache?.tradingKnowledge || ''}
 
-Regole:
+Regole comportamentali:
 1. Saluta SOLO nel primo messaggio.
-2. Sii conciso e professionale.
-3. Promuovi il gioco responsabile.`;
+2. NON confondere Magia AI (tempo reale) con Special AI (precisione statistica).
+3. Sii conciso e professionale.`;
 
         return prompt;
     }
