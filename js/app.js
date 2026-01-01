@@ -88,7 +88,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // Header Generation with Star
     const flagBtnHTML = isTrading
         ? `<button data-match-id="${matchId}" class="text-white/70 hover:text-white transition text-xl bg-white/10 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" onclick="toggleTradingFavorite('${matchId}'); event.stopPropagation();">
-             <i class="${isFlagged ? 'fa-solid text-emerald-300' : 'fa-regular'} fa-bookmark"></i>
+             <i class="${isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular'} fa-star"></i>
            </button>`
         : `<button data-match-id="${matchId}" class="flag-btn ${isFlagged ? 'flagged text-yellow-300' : 'text-white/60'} hover:text-yellow-300 transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
              ${isFlagged ? '<i class="fa-solid fa-star drop-shadow-md"></i>' : '<i class="fa-regular fa-star"></i>'}
@@ -307,7 +307,33 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 };
 
 // ==================== TRADING LOGIC ====================
+let tradingFilterState = 'all'; // all, live, favs
+let lastTradingPicksCache = [];
+
 window.initTradingPage = function () {
+    // Filter Listeners
+    const filters = {
+        'filter-trading-all': 'all',
+        'filter-trading-live': 'live',
+        'filter-trading-favs': 'favs'
+    };
+
+    Object.entries(filters).forEach(([id, state]) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.onclick = () => {
+            tradingFilterState = state;
+            // UI Update
+            Object.keys(filters).forEach(k => {
+                const b = document.getElementById(k);
+                b.className = (k === id)
+                    ? 'flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all bg-gray-800 text-white shadow-lg'
+                    : 'flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all bg-transparent text-gray-500 hover:bg-gray-800 flex items-center justify-center gap-1';
+            });
+            window.renderTradingCards(lastTradingPicksCache);
+        };
+    });
+
     // Navigation Listeners
     document.getElementById('trading-date-prev').addEventListener('click', () => {
         const d = new Date(currentTradingDate);
@@ -410,6 +436,7 @@ window.loadTradingPicks = function (date) {
 };
 
 function renderTradingCards(picks) {
+    lastTradingPicksCache = picks;
     const container = document.getElementById('trading-cards-container');
     container.innerHTML = '';
 
@@ -418,12 +445,50 @@ function renderTradingCards(picks) {
         return;
     }
 
+    // 1. Filter
+    let filtered = [...picks];
+    if (tradingFilterState === 'live') {
+        filtered = picks.filter(p => (p.liveData?.elapsed || p.liveData?.minute || 0) > 0);
+    } else if (tradingFilterState === 'favs') {
+        filtered = picks.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita)));
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="text-center py-10 text-gray-500 italic">Nessuna partita in questa categoria.</div>`;
+        return;
+    }
+
+    // 2. Smart Sorting
+    // Group 1: Fav + Live
+    // Group 2: Live
+    // Group 3: Fav
+    // Group 4: Others
+    const getPriority = (p) => {
+        const isFav = (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita));
+        const isLive = (p.liveData?.elapsed || p.liveData?.minute || 0) > 0;
+        if (isFav && isLive) return 1;
+        if (isLive) return 2;
+        if (isFav) return 3;
+        return 4;
+    };
+
+    filtered.sort((a, b) => getPriority(a) - getPriority(b));
+
     document.getElementById('trading-empty').classList.add('hidden');
 
-    picks.forEach(pick => {
-        // Pass "detailedTrading: true" to ensure live header is rendered
-        // The merged object 'pick' now contains liveData from trading_signals!
+    filtered.forEach(pick => {
+        const isFav = (window.tradingFavorites || []).includes(window.getTradingPickId(pick.partita));
+        const isLive = (pick.liveData?.elapsed || pick.liveData?.minute || 0) > 0;
+
         const card = window.createUniversalCard(pick, 0, null, { isTrading: true, detailedTrading: true });
+
+        // Final Polish: If it's the "Royal Tie" (Fav + Live), add a special border
+        if (isFav && isLive) {
+            card.classList.add('ring-2', 'ring-emerald-400', 'shadow-lg', 'shadow-emerald-500/20');
+        } else if (isLive) {
+            card.classList.add('border-l-4', 'border-l-red-500');
+        }
+
         container.appendChild(card);
     });
 }
@@ -470,134 +535,35 @@ window.toggleTradingFavorite = async function (matchId) {
         console.log('[Trading] Added to favorites:', matchId);
     }
 
-    // Update UI immediately (Optimistic)
-    const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
-    btns.forEach(b => {
-        const icon = b.querySelector('i');
-        if (icon) {
-            // If we just removed it (idx >= 0), it's no longer favorited -> regular
-            // If we just added it (idx < 0), it IS favorited -> solid
-            const isFav = idx === -1; // -1 means it wasn't there, so we added it
-            icon.className = isFav ? 'fa-solid fa-bookmark text-emerald-300' : 'fa-regular fa-bookmark';
-        }
-    });
+    // Sync state
+    window.tradingFavorites = tradingFavorites;
 
-    // Re-render star tab if active to update the list and active count
-    if (window.renderTradingFavoritesInStarTab) {
-        await window.renderTradingFavoritesInStarTab();
+    // Trigger re-render to update Smart Sorting & Count
+    if (window.renderTradingCards && lastTradingPicksCache.length > 0) {
+        window.renderTradingCards(lastTradingPicksCache);
     }
-    window.updateMyMatchesCount();
+
+    if (window.renderTradingFavoritesInStarTab) {
+        window.renderTradingFavoritesInStarTab();
+    }
 
     try {
         await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
             tradingPicks: tradingFavorites,
             updatedAt: new Date().toISOString()
         }, { merge: true });
-    } catch (e) { alert("Errore salvataggio"); }
+    } catch (e) { console.error("Error saving favorites:", e); }
 };
 
-window.renderTradingFavoritesInStarTab = async function () {
+window.renderTradingFavoritesInStarTab = function () {
+    const picks = lastTradingPicksCache || [];
+    const activeFavs = picks.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita)));
+    window.activeTradingFavoritesCount = activeFavs.length;
+    window.updateMyMatchesCount();
+
+    // Clean up container just in case
     const container = document.getElementById('trading-favorites-container');
-    const emptyState = document.getElementById('trading-favorites-empty');
-    if (!container) return;
-
-    container.innerHTML = '';
-
-    try {
-        if (!window.currentUser) {
-            if (emptyState) emptyState.classList.remove('hidden');
-            window.activeTradingFavoritesCount = 0;
-            window.updateMyMatchesCount();
-            return;
-        }
-
-        // Fetch user's trading favorites
-        const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
-        if (!favDoc.exists() || !favDoc.data().tradingPicks || favDoc.data().tradingPicks.length === 0) {
-            if (emptyState) emptyState.classList.remove('hidden');
-            window.activeTradingFavoritesCount = 0;
-            window.updateMyMatchesCount();
-            return;
-        }
-
-        const tradingPickIds = favDoc.data().tradingPicks || [];
-
-        // Get daily picks for today to filter favorites
-        const today = new Date().toISOString().split('T')[0];
-        const tradingDailyDoc = await getDoc(doc(db, "daily_trading_picks", today));
-        let dailyPicksForDate = [];
-        if (tradingDailyDoc.exists()) {
-            dailyPicksForDate = tradingDailyDoc.data().picks || [];
-        }
-
-        if (dailyPicksForDate.length === 0) {
-            console.log('[TradingFavorites] No trading picks for today');
-            if (emptyState) emptyState.classList.remove('hidden');
-            window.activeTradingFavoritesCount = 0;
-            window.updateMyMatchesCount();
-            return;
-        }
-
-        // Get the IDs of the matches for today
-        const dailyPickIds = dailyPicksForDate.map(p => window.getTradingPickId(p.partita));
-
-        // Filter user's global favorites by what is active TODAY
-        const activeFavoriteIds = tradingPickIds.filter(id => dailyPickIds.includes(id));
-
-        // UPDATE GLOBAL COUNT
-        window.activeTradingFavoritesCount = activeFavoriteIds.length;
-        window.updateMyMatchesCount();
-
-        if (activeFavoriteIds.length === 0) {
-            console.log('[TradingFavorites] None of user favorites are active today');
-            if (emptyState) emptyState.classList.remove('hidden');
-            return;
-        }
-
-        if (emptyState) emptyState.classList.add('hidden');
-
-        // Fetch Live Signals
-        const signalsSnapshot = await getDocs(collection(db, "trading_signals"));
-        const signalsMap = {};
-        signalsSnapshot.forEach(doc => {
-            signalsMap[doc.id] = doc.data();
-        });
-
-        // Render favorited trading picks using daily picks data merged with signals
-        activeFavoriteIds.forEach(favId => {
-            // Find the matching pick from daily picks
-            let pick = dailyPicksForDate.find(p => window.getTradingPickId(p.partita) === favId);
-            if (!pick) return;
-
-            // Merge with live signal if available
-            let sig = signalsMap[favId] || signalsMap[`trading_${favId}`] || signalsMap[favId.replace('trading_', '')];
-            if (!sig) {
-                // Fallback fuzzy match
-                const cleanName = pick.partita.toLowerCase().replace(/[^a-z]/g, "");
-                for (const sid in signalsMap) {
-                    if (sid.includes(cleanName)) {
-                        sig = signalsMap[sid];
-                        break;
-                    }
-                }
-            }
-            if (sig) {
-                pick = { ...pick, ...sig };
-            }
-
-            // Create card with detailedTrading option to show live header
-            const card = window.createUniversalCard(pick, 0, null, { isTrading: true, detailedTrading: true });
-            container.appendChild(card);
-        });
-
-        console.log(`[TradingFavorites] Rendered ${activeFavoriteIds.length} favorites`);
-
-    } catch (e) {
-        console.error('[TradingFavorites] Error loading:', e);
-        if (emptyState) emptyState.classList.remove('hidden');
-        window.activeTradingFavoritesCount = 0; // Reset on error
-        window.updateMyMatchesCount();
-    }
+    if (container) container.innerHTML = '';
 };
 
 // ==================== MAIN FUNCTIONS ====================
