@@ -33,6 +33,7 @@ let warningStats = null;
 let tradingFavorites = []; // IDs of favorite trading picks
 let currentTradingDate = new Date().toISOString().split('T')[0];
 let tradingUnsubscribe = null; // For real-time updates
+let strategiesUnsubscribe = null; // For real-time betting updates
 
 // Auth Persistence
 setPersistence(auth, browserLocalPersistence).catch(err => console.error('[Auth] Persistence error:', err));
@@ -386,7 +387,7 @@ window.loadTradingPicks = function (date) {
     // 1. Listen for Daily Picks
     tradingUnsubscribe = onSnapshot(doc(db, "daily_trading_picks", date), (docSnap) => {
         if (!docSnap.exists()) {
-            renderTradingCards([], {});
+            window.renderTradingCards([], {});
             document.getElementById('trading-date-indicator').textContent = 'Nessuna partita';
             return;
         }
@@ -433,7 +434,7 @@ window.loadTradingPicks = function (date) {
                 return { ...pick, id: pickId };
             });
 
-            renderTradingCards(mergedPicks);
+            window.renderTradingCards(mergedPicks);
 
             if (mergedPicks.length > 0) {
                 document.getElementById('trading-date-indicator').textContent = `${mergedPicks.length} opportunità`;
@@ -451,7 +452,7 @@ window.loadTradingPicks = function (date) {
     });
 };
 
-function renderTradingCards(picks) {
+window.renderTradingCards = function (picks) {
     lastTradingPicksCache = picks;
     const container = document.getElementById('trading-cards-container');
     container.innerHTML = '';
@@ -683,32 +684,51 @@ async function loadUserProfile(uid) {
 async function loadData(dateToLoad = null) {
     const targetDate = dateToLoad || new Date().toISOString().split('T')[0];
 
+    if (strategiesUnsubscribe) {
+        strategiesUnsubscribe();
+        strategiesUnsubscribe = null;
+    }
+
     try {
-        let strategiesDoc = await getDoc(doc(db, "daily_strategies", targetDate));
+        // Use onSnapshot for real-time betting strategies update
+        strategiesUnsubscribe = onSnapshot(doc(db, "daily_strategies", targetDate), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                const rawStrategies = data.strategies || data;
+                const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'over_2_5_ai'];
 
-        if (!strategiesDoc.exists()) {
-            strategiesDoc = await getDoc(doc(db, "system", "strategy_results")); // Fallback
-        }
+                window.strategiesData = {};
+                Object.entries(rawStrategies).forEach(([id, strat]) => {
+                    if (strat && strat.name && (approved.includes(id) || id.includes('magia') || (strat.method === 'poisson'))) {
+                        window.strategiesData[id] = strat;
+                    }
+                });
 
-        if (strategiesDoc.exists()) {
-            const data = strategiesDoc.data();
-            const rawStrategies = data.strategies || data;
+                renderStrategies();
+                if (window.updateDateDisplay) window.updateDateDisplay(targetDate, true);
 
-            const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'over_2_5_ai'];
-            window.strategiesData = {};
-
-            Object.entries(rawStrategies).forEach(([id, strat]) => {
-                if (strat && strat.name && (approved.includes(id) || id.includes('magia') || (strat.method === 'poisson'))) {
-                    window.strategiesData[id] = strat;
+                // RE-RENDER PAGES IF ACTIVE
+                if (currentStrategyId && document.getElementById('page-ranking')?.classList.contains('active')) {
+                    window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
                 }
-            });
+                if (document.getElementById('page-my-matches')?.classList.contains('active')) {
+                    window.showMyMatches(currentSortMode);
+                }
+            } else {
+                console.warn("No data for date:", targetDate);
+                // Try fallback logic only if it's the first load
+                if (!dateToLoad) {
+                    getDoc(doc(db, "system", "strategy_results")).then(fallbackSnap => {
+                        if (fallbackSnap.exists()) {
+                            window.strategiesData = fallbackSnap.data();
+                            renderStrategies();
+                        }
+                    });
+                }
+            }
+        });
 
-            renderStrategies();
-            if (window.updateDateDisplay) window.updateDateDisplay(targetDate, true);
-        } else {
-            console.warn("No data for date");
-        }
-
+        // Load Favorites (One-time or on change could be better, but staying consistent)
         if (!dateToLoad && window.currentUser) {
             const userMatches = await getDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"));
             if (userMatches.exists()) {
@@ -991,6 +1011,61 @@ window.showMyMatches = function (sortMode = 'score') {
     if (!container) return;
 
     container.innerHTML = '';
+
+    // 1. Refresh scores from current strategiesData (if available)
+    if (window.strategiesData) {
+        window.selectedMatches = window.selectedMatches.map(sm => {
+            const smId = sm.id || `${sm.data}_${sm.partita}`;
+            let latestMatch = null;
+
+            // STRATEGY-AWARE LOOKUP
+            // 1. If it's a "Magia" strategy (any variation), check that specific list first/only to preserve its unique Tips.
+            // 2. Otherwise, check 'all' (Source of Truth for standard matches).
+
+            let sourceStrat = null;
+            const isMagiaPick = sm.strategyId && sm.strategyId.toLowerCase().includes('magia');
+
+            if (isMagiaPick) {
+                // Try to find the exact Magia strategy loaded (could be ___magia_ai, magic_ai, etc.)
+                // We search for a key in strategiesData that matches the saved ID or contains 'magia'
+                sourceStrat = window.strategiesData[sm.strategyId] ||
+                    Object.values(window.strategiesData).find(s => s.name && s.name.toLowerCase().includes('magia'));
+            } else {
+                sourceStrat = window.strategiesData['all'];
+            }
+
+            if (sourceStrat && sourceStrat.matches) {
+                // Try Exact ID Match
+                let found = sourceStrat.matches.find(m => (m.id || `${m.data}_${m.partita}`) === smId);
+
+                // Fallback: Fuzzy Name Match
+                if (!found) {
+                    found = sourceStrat.matches.find(m => m.partita === sm.partita && m.data === sm.data);
+                }
+
+                if (found) {
+                    latestMatch = found;
+                }
+            } else if (!isMagiaPick && window.strategiesData['all']) {
+                // Double safety: if intended strategy not found, fallback to ALL for standard picks
+                let found = window.strategiesData['all'].matches?.find(m => (m.id || `${m.data}_${m.partita}`) === smId);
+                if (found) latestMatch = found;
+            }
+
+            if (latestMatch) {
+                // Merge everything relevant for live status
+                return {
+                    ...sm,
+                    risultato: latestMatch.risultato,
+                    esito: latestMatch.esito,
+                    liveData: latestMatch.liveData,
+                    liveStats: latestMatch.liveStats,
+                    minute: latestMatch.minute || latestMatch.liveData?.minute
+                };
+            }
+            return sm;
+        });
+    }
 
     const bettingMatches = window.selectedMatches || [];
 
