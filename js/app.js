@@ -762,11 +762,26 @@ window.showPage = function (pageId) {
 };
 
 window.updateMyMatchesCount = function () {
-    const badge = document.getElementById('my-matches-badge');
-    const count = (window.selectedMatches || []).length;
-    if (badge) {
-        badge.textContent = count;
-        badge.classList.toggle('hidden', count === 0);
+    const navBtn = document.querySelector('[data-page="star"]') || document.querySelector('[data-page="my-matches"]');
+    if (!navBtn) return;
+
+    let countBadge = navBtn.querySelector('.count-badge');
+
+    // Total = Betting favorites + Trading favorites  
+    const bettingCount = (window.selectedMatches || []).length;
+    const tradingCount = (tradingFavorites || []).length;
+    const totalCount = bettingCount + tradingCount;
+
+    if (totalCount > 0) {
+        if (!countBadge) {
+            countBadge = document.createElement('span');
+            countBadge.className = 'count-badge absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold z-50';
+            navBtn.style.position = 'relative';
+            navBtn.appendChild(countBadge);
+        }
+        countBadge.textContent = totalCount;
+    } else if (countBadge) {
+        countBadge.remove();
     }
 };
 
@@ -776,48 +791,100 @@ window.showMyMatches = function (sortMode = 'score') {
 
     container.innerHTML = '';
 
-    if (!window.selectedMatches || window.selectedMatches.length === 0) {
+    const bettingMatches = window.selectedMatches || [];
+    const tradingIds = tradingFavorites || [];
+
+    // If both empty, show message
+    if (bettingMatches.length === 0 && tradingIds.length === 0) {
         container.innerHTML = '<div class="text-center text-gray-300 py-12">Nessuna partita selezionata ⭐</div>';
         return;
     }
 
-    console.log('[showMyMatches] Rendering', window.selectedMatches.length, 'matches');
+    // === BETTING FAVORITES SECTION ===
+    if (bettingMatches.length > 0) {
+        const sectionHeader = document.createElement('div');
+        sectionHeader.className = 'mb-4';
+        sectionHeader.innerHTML = '<div class="text-sm font-bold text-purple-300 flex items-center gap-2">⭐ PRONOSTICI SALVATI <span class="bg-purple-600 px-2 py-0.5 rounded text-xs">' + bettingMatches.length + '</span></div>';
+        container.appendChild(sectionHeader);
 
-    // Clone and sort
-    let sortedMatches = [...window.selectedMatches];
+        let sortedMatches = [...bettingMatches];
+        if (sortMode === 'time') {
+            sortedMatches.sort((a, b) => {
+                if (!a.ora && !b.ora) return 0;
+                if (!a.ora) return 1;
+                if (!b.ora) return -1;
+                return a.ora.localeCompare(b.ora);
+            });
+        } else {
+            sortedMatches.sort((a, b) => (b.score || 0) - (a.score || 0));
+        }
 
-    if (sortMode === 'time') {
-        sortedMatches.sort((a, b) => {
-            if (!a.ora && !b.ora) return 0;
-            if (!a.ora) return 1;
-            if (!b.ora) return -1;
-            return a.ora.localeCompare(b.ora);
+        sortedMatches.forEach((m, idx) => {
+            try {
+                const card = window.createUniversalCard(m, idx, m.strategyId || null);
+
+                // Replace flag button with delete button
+                const flagBtn = card.querySelector('.flag-btn, button[data-match-id]');
+                if (flagBtn) {
+                    const matchId = m.id || `${m.data}_${m.partita}`;
+                    flagBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+                    flagBtn.className = 'text-red-400 hover:text-red-600 transition text-xl ml-2';
+                    flagBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        window.removeMatch(matchId);
+                    };
+                }
+
+                container.appendChild(card);
+            } catch (e) {
+                console.error('[showMyMatches] Error creating card:', e, m);
+            }
         });
-    } else {
-        sortedMatches.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
 
-    sortedMatches.forEach((m, idx) => {
-        try {
-            const card = window.createUniversalCard(m, idx, m.strategyId || null);
+    // === TRADING FAVORITES SECTION ===
+    if (tradingIds.length > 0) {
+        const tradingSectionHeader = document.createElement('div');
+        tradingSectionHeader.className = 'mt-6 mb-4';
+        tradingSectionHeader.innerHTML = '<div class="text-sm font-bold text-orange-300 flex items-center gap-2">📈 TRADING SALVATI <span class="bg-orange-600 px-2 py-0.5 rounded text-xs">' + tradingIds.length + '</span></div>';
+        container.appendChild(tradingSectionHeader);
 
-            // Replace flag button with delete button
-            const flagBtn = card.querySelector('.flag-btn, button[data-match-id]');
-            if (flagBtn) {
-                const matchId = m.id || `${m.data}_${m.partita}`;
-                flagBtn.innerHTML = '<i class="fa-solid fa-trash text-red-400"></i>';
-                flagBtn.className = 'text-red-400 hover:text-red-600 transition text-xl ml-2';
-                flagBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    window.removeMatch(matchId);
-                };
-            }
-
+        tradingIds.forEach(pickId => {
+            const card = document.createElement('div');
+            card.className = 'bg-gradient-to-r from-orange-500/20 to-amber-500/20 rounded-xl p-4 border border-orange-400/30 mb-3 flex justify-between items-center';
+            const displayName = pickId.replace('trading_', '').replace(/_/g, ' ').toUpperCase();
+            card.innerHTML = `
+                <div>
+                    <span class="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold">📈 TRADING</span>
+                    <div class="text-white font-bold mt-2">${displayName}</div>
+                </div>
+                <button class="text-red-400 hover:text-red-600 transition text-xl" onclick="window.removeTradingFavorite('${pickId}'); event.stopPropagation();">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            `;
             container.appendChild(card);
-        } catch (e) {
-            console.error('[showMyMatches] Error creating card:', e, m);
+        });
+    }
+};
+
+window.removeTradingFavorite = async function (pickId) {
+    const idx = tradingFavorites.indexOf(pickId);
+    if (idx >= 0) {
+        tradingFavorites.splice(idx, 1);
+        window.updateMyMatchesCount();
+        window.showMyMatches();
+
+        if (window.currentUser) {
+            try {
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "trading_favorites"), {
+                    ids: tradingFavorites,
+                    updated: Date.now()
+                });
+            } catch (e) {
+                console.error("Error removing trading favorite:", e);
+            }
         }
-    });
+    }
 };
 
 window.removeMatch = async function (matchId) {
