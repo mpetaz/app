@@ -420,65 +420,26 @@ window.getTradingPickId = function (partita) {
     return `trading_${cleanName}`;
 };
 
-// Helper to clean up old trading favorites from DB (Root Cause Fix)
-async function cleanupOldTradingFavorites(allFavorites) {
-    if (!allFavorites || allFavorites.length === 0) return allFavorites;
-
-    const today = new Date().toISOString().split('T')[0];
-    try {
-        const tradingDailyDoc = await getDoc(doc(db, "daily_trading_picks", today));
-        if (!tradingDailyDoc.exists()) {
-            // If no daily picks for today, we can't really validate, so keep safe
-            return allFavorites;
-        }
-
-        const dailyPicks = tradingDailyDoc.data().picks || [];
-        const dailyIds = dailyPicks.map(p => window.getTradingPickId(p.partita));
-
-        // Filter: Keep only favorites that exist in TODAY's daily picks
-        // This effectively removes "dead" favorites from past days
-        const activeFavorites = allFavorites.filter(id => dailyIds.includes(id));
-
-        const removedCount = allFavorites.length - activeFavorites.length;
-
-        if (removedCount > 0) {
-            console.log(`[Trading Cleanup] Removing ${removedCount} old/inactive favorites from DB.`);
-
-            // Update Real Database
-            await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
-                tradingPicks: activeFavorites,
-                updatedAt: new Date().toISOString()
-            }, { merge: true });
-
-            return activeFavorites;
-        }
-    } catch (e) {
-        console.error("[Trading Cleanup] Error:", e);
-    }
-    return allFavorites;
-}
-
 window.loadTradingFavorites = async function () {
     if (!window.currentUser) return;
     try {
         const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
         if (favDoc.exists()) {
-            let rawFavorites = favDoc.data().tradingPicks || [];
+            const rawFavorites = favDoc.data().tradingPicks || [];
+            window.tradingFavorites = [...new Set(rawFavorites)];
 
-            // 1. Remove duplicates locally
-            rawFavorites = [...new Set(rawFavorites)];
+            console.log('[Trading] Favorites loaded (Total History):', window.tradingFavorites.length);
 
-            // 2. Perform DB Cleanup (The "Source" Fix)
-            // We only want to keep favorites that are valid for TODAY.
-            // Everything else is trash/history.
-            const cleanFavorites = await cleanupOldTradingFavorites(rawFavorites);
-
-            window.tradingFavorites = cleanFavorites;
-            // Since we cleaned the DB, "active" count is just the length
-            window.activeTradingFavoritesCount = window.tradingFavorites.length;
-
-            console.log('[Trading] Favorites loaded & cleaned:', window.tradingFavorites.length);
-            window.updateMyMatchesCount();
+            // We do NOT update the count here yet, because we don't know how many are active today.
+            // activeTradingFavoritesCount will be set by renderTradingFavoritesInStarTab when it runs.
+            // But we can trigger a render if we are on the star tab.
+            if (document.getElementById('page-my-matches')?.classList.contains('active')) {
+                window.renderTradingFavoritesInStarTab();
+            } else {
+                // Initial fallback: treat all as active until proven otherwise, OR 0.
+                // Better to wait for render.
+                window.updateMyMatchesCount();
+            }
         }
     } catch (e) { console.error("Load Trading Favs Error", e); }
 };
@@ -495,16 +456,23 @@ window.toggleTradingFavorite = async function (matchId) {
         console.log('[Trading] Added to favorites:', matchId);
     }
 
-    window.tradingFavorites = tradingFavorites; // Sync
-
-    // Optimistic UI Update
+    // Update UI immediately (Optimistic)
     const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
     btns.forEach(b => {
         const icon = b.querySelector('i');
         if (icon) {
-            icon.className = idx >= 0 ? 'fa-regular fa-bookmark' : 'fa-solid fa-bookmark text-emerald-300';
+            // If we just removed it (idx >= 0), it's no longer favorited -> regular
+            // If we just added it (idx < 0), it IS favorited -> solid
+            const isFav = idx === -1; // -1 means it wasn't there, so we added it
+            icon.className = isFav ? 'fa-solid fa-bookmark text-emerald-300' : 'fa-regular fa-bookmark';
         }
     });
+
+    // Re-render star tab if active to update the list and active count
+    if (window.renderTradingFavoritesInStarTab) {
+        await window.renderTradingFavoritesInStarTab();
+    }
+    window.updateMyMatchesCount();
 
     try {
         await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
@@ -512,8 +480,6 @@ window.toggleTradingFavorite = async function (matchId) {
             updatedAt: new Date().toISOString()
         }, { merge: true });
     } catch (e) { alert("Errore salvataggio"); }
-
-    window.updateMyMatchesCount();
 };
 
 window.renderTradingFavoritesInStarTab = async function () {
@@ -526,6 +492,8 @@ window.renderTradingFavoritesInStarTab = async function () {
     try {
         if (!window.currentUser) {
             if (emptyState) emptyState.classList.remove('hidden');
+            window.activeTradingFavoritesCount = 0;
+            window.updateMyMatchesCount();
             return;
         }
 
@@ -533,6 +501,8 @@ window.renderTradingFavoritesInStarTab = async function () {
         const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
         if (!favDoc.exists() || !favDoc.data().tradingPicks || favDoc.data().tradingPicks.length === 0) {
             if (emptyState) emptyState.classList.remove('hidden');
+            window.activeTradingFavoritesCount = 0;
+            window.updateMyMatchesCount();
             return;
         }
 
@@ -549,6 +519,8 @@ window.renderTradingFavoritesInStarTab = async function () {
         if (dailyPicksForDate.length === 0) {
             console.log('[TradingFavorites] No trading picks for today');
             if (emptyState) emptyState.classList.remove('hidden');
+            window.activeTradingFavoritesCount = 0;
+            window.updateMyMatchesCount();
             return;
         }
 
@@ -557,6 +529,10 @@ window.renderTradingFavoritesInStarTab = async function () {
 
         // Filter user's global favorites by what is active TODAY
         const activeFavoriteIds = tradingPickIds.filter(id => dailyPickIds.includes(id));
+
+        // UPDATE GLOBAL COUNT
+        window.activeTradingFavoritesCount = activeFavoriteIds.length;
+        window.updateMyMatchesCount();
 
         if (activeFavoriteIds.length === 0) {
             console.log('[TradingFavorites] None of user favorites are active today');
@@ -597,22 +573,6 @@ window.renderTradingFavoritesInStarTab = async function () {
 
             // Create card with detailedTrading option to show live header
             const card = window.createUniversalCard(pick, 0, null, { isTrading: true, detailedTrading: true });
-
-            // Add custom delete button for favorites view
-            // Note: createUniversalCard already adds a favorite button. 
-            // We want to override/replace it with a trash can or ensure it works as delete.
-            // But createUniversalCard logic for 'isFlagged' might be tricky if checked against different list.
-            // Let's just append a delete button or rely on the one generated?
-            // The generated one calls toggleTradingFavorite, which removes it. Ideally that's fine.
-            // But user asked for "Trash" icon in favorites usually.
-
-            // Let's force replace the action button if needed, or better, stick to the consistent card.
-            // However, previous implementation used a simpler custom card. 
-            // The user liked the "live" cards. So using createUniversalCard is better.
-            // We just need to ensure the "bookmark" button shows as "active" (solid).
-            // Logic in createUniversalCard: const isFlagged = ... tradingFavorites.includes(matchId);
-            // So it should be solid. Clicking it toggles (removes). That is acceptable.
-
             container.appendChild(card);
         });
 
@@ -621,6 +581,8 @@ window.renderTradingFavoritesInStarTab = async function () {
     } catch (e) {
         console.error('[TradingFavorites] Error loading:', e);
         if (emptyState) emptyState.classList.remove('hidden');
+        window.activeTradingFavoritesCount = 0; // Reset on error
+        window.updateMyMatchesCount();
     }
 };
 
@@ -1002,11 +964,14 @@ window.updateMyMatchesCount = function () {
 
     let countBadge = navBtn.querySelector('.count-badge');
 
-    // Total = Betting favorites + Active Trading Favorites (fallback to all if not calculated yet)
+    // Total = Betting favorites + Trading favorites  
     const bettingCount = (window.selectedMatches || []).length;
-    // Use the active count if defined (filtered by date), otherwise fallback to total
-    const tradingCount = typeof window.activeTradingFavoritesCount !== 'undefined' ?
-        window.activeTradingFavoritesCount : (tradingFavorites || []).length;
+    // Use active count calculated by render function if available, otherwise 0 or raw length if preferred
+    // The backup used activeTradingFavoritesCount || 0. We stick to that.
+    const tradingCount = window.activeTradingFavoritesCount || 0;
+
+    // Fallback: If 0 but we have favorites and haven't rendered yet, it might be confusing.
+    // But since we trigger render on load if on page, or show 0 until viewed, this is safer than showing 19.
 
     const totalCount = bettingCount + tradingCount;
 
