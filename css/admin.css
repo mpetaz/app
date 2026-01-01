@@ -1,0 +1,142 @@
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+.noUi-connect {
+    background: #3b82f6;
+}
+
+.noUi-handle {
+    border-radius: 9999px;
+}
+
+.page {
+    display: none;
+}
+
+.page.active {
+    display: block;
+}
+
+/* E anche sulla pagina Dashboard che ha py-8 */
+#page-dashboard {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 4px;
+}
+
+.tip-button.active {
+    background-color: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+    font-weight: 600;
+}
+
+.sortable-header {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.sortable-header:hover {
+    background-color: #e5e7eb;
+}
+
+.sort-icon {
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.sortable-header.active .sort-icon {
+    opacity: 1;
+    color: #3b82f6;
+}
+
+.favorite-star {
+    cursor: pointer;
+    color: #d1d5db;
+    transition: color 0.2s, transform 0.2s;
+}
+
+.favorite-star.is-favorite {
+    color: #f59e0b;
+}
+
+.favorite-star:hover {
+    transform: scale(1.2);
+}
+
+.team-green {
+    color: #10b981;
+    font-weight: 600;
+}
+
+.team-yellow {
+    color: #f59e0b;
+    font-weight: 600;
+}
+
+.team-red {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+.team-gray {
+    color: #9ca3af;
+    font-weight: 500;
+}
+
+.team-black {
+    color: #374151;
+}
+
+.score-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: bold;
+}
+
+.ht-badge-high {
+    background-color: #10b981;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.ht-badge-medium {
+    background-color: #f59e0b;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.ht-badge-low {
+    background-color: #9ca3af;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.ht-badge-none {
+    color: #d1d5db;
+    font-size: 0.7rem;
+}
