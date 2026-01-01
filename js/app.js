@@ -871,17 +871,22 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
 
 window.toggleFlag = async function (matchId) {
     let foundMatch = null;
+    let sourceStrategyId = null;
 
-    // Search in all loaded strategies
+    // Search in all loaded strategies and track which one provided the match
     if (window.strategiesData) {
-        Object.values(window.strategiesData).forEach(s => {
-            const matches = s.matches || (Array.isArray(s) ? s : []); // Handle different structures
+        for (const [stratId, strat] of Object.entries(window.strategiesData)) {
+            const matches = strat.matches || (Array.isArray(strat) ? strat : []);
             const m = matches.find(x => {
                 const id = x.id || `${x.data}_${x.partita}`;
                 return id === matchId;
             });
-            if (m) foundMatch = m;
-        });
+            if (m) {
+                foundMatch = m;
+                sourceStrategyId = stratId;
+                break; // Stop searching once found
+            }
+        }
     }
 
     // Fallback: Check if already in selectedMatches
@@ -900,10 +905,13 @@ window.toggleFlag = async function (matchId) {
 
         if (idx >= 0) {
             window.selectedMatches.splice(idx, 1);
-            // Removed alert("Removed from Favorites");
         } else {
-            window.selectedMatches.push({ ...foundMatch, id: consistentId });
-            // Removed alert("Added to Favorites");
+            // CRITICAL: Save strategyId for proper live sync later
+            window.selectedMatches.push({
+                ...foundMatch,
+                id: consistentId,
+                strategyId: sourceStrategyId || currentStrategyId || 'all'
+            });
         }
 
         if (window.updateMyMatchesCount) window.updateMyMatchesCount();
