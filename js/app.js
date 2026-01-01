@@ -80,7 +80,12 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     }
 
     const card = document.createElement('div');
-    card.className = `match-card rounded-xl shadow-lg fade-in mb-3 overflow-hidden bg-white border border-gray-100 relative ${isFlagged && isTrading ? 'ring-2 ring-emerald-500' : ''}`;
+    // Color coding based on result
+    let esitoClass = '';
+    if (match.esito === 'Vinto') esitoClass = 'bg-green-50/80 border-green-200 ring-1 ring-green-100';
+    else if (match.esito === 'Perso') esitoClass = 'bg-red-50/80 border-red-200 ring-1 ring-red-100';
+
+    card.className = `match-card rounded-xl shadow-lg fade-in mb-3 overflow-hidden bg-white border border-gray-100 relative ${esitoClass} ${isFlagged && isTrading ? 'ring-2 ring-emerald-500' : ''}`;
 
     // --- Footer ---
     // Moved Flag Button to Header
@@ -130,9 +135,20 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // --- Teams & Score ---
     const currentScore = match.liveData?.score || (match.liveData ? `${match.liveData.homeScore || 0} - ${match.liveData.awayScore || 0}` : null);
+
+    // Status Badge (HT / FT)
+    let statusBadge = '';
+    if (match.risultato) {
+        if (match.risultato.includes('HT')) statusBadge = '<span class="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-bold">HT</span>';
+        else if (match.risultato.includes('FT') || match.esito) statusBadge = '<span class="bg-gray-800 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">FT</span>';
+    }
+
     const scoreDisplay = (isTrading && options.detailedTrading && currentScore)
         ? `<div class="mt-1 text-2xl font-black text-gray-900 tracking-widest">${currentScore}</div>`
-        : (match.risultato ? `<div class="mt-1 text-xl font-black text-gray-900">${match.risultato}</div>` : '');
+        : (match.risultato ? `<div class="mt-1 flex flex-col items-center gap-1">
+                                <div class="text-xl font-black text-gray-900">${match.risultato.replace('HT', '').replace('FT', '').trim()}</div>
+                                ${statusBadge}
+                             </div>` : '');
 
     const teamsHTML = `
         <div class="p-4 pb-2 text-center">
@@ -1022,6 +1038,26 @@ window.showMyMatches = function (sortMode = 'score') {
         });
     }
 };
+
+// Initialize listeners for sorting in my-matches page
+const initMyMatchesListeners = () => {
+    const btnScore = document.getElementById('my-matches-sort-score');
+    const btnTime = document.getElementById('my-matches-sort-time');
+
+    if (btnScore && btnTime) {
+        btnScore.onclick = () => {
+            btnScore.className = 'flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg font-semibold text-sm';
+            btnTime.className = 'flex-1 bg-gray-700 text-gray-300 py-2 px-4 rounded-lg font-semibold text-sm';
+            window.showMyMatches('score');
+        };
+        btnTime.onclick = () => {
+            btnTime.className = 'flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg font-semibold text-sm';
+            btnScore.className = 'flex-1 bg-gray-700 text-gray-300 py-2 px-4 rounded-lg font-semibold text-sm';
+            window.showMyMatches('time');
+        };
+    }
+};
+initMyMatchesListeners();
 
 window.removeTradingFavorite = async function (pickId) {
     const idx = tradingFavorites.indexOf(pickId);
