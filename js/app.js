@@ -59,6 +59,76 @@ window.chatWithGemini = async (payload) => {
     }
 };
 
+// ==================== TRADING 2.0 UTILS ====================
+function calculateGoalCookingPressure(stats, minute) {
+    if (!stats || !minute || minute < 1) return 0;
+
+    const parsePair = (str) => {
+        if (!str || typeof str !== 'string') return [0, 0];
+        const parts = str.split('-').map(p => parseInt(p.trim()) || 0);
+        return parts.length === 2 ? parts : [0, 0];
+    };
+
+    const [hDA, aDA] = parsePair(stats.dangerousAttacks);
+    const [hSOG, aSOG] = parsePair(stats.shotsOnGoal);
+
+    const daPerMin = (hDA + aDA) / minute;
+    const sogPerMin = (hSOG + aSOG) / minute;
+
+    // Heat formula: Weighted combination of dangerous attacks and shots on goal frequency
+    // Normalized to 0-100 scale
+    let pressure = (daPerMin * 45) + (sogPerMin * 180);
+
+    // Bonus for high xG
+    if (stats.xg) {
+        const totalXG = parseFloat(stats.xg.home || 0) + parseFloat(stats.xg.away || 0);
+        pressure += (totalXG / minute) * 100;
+    }
+
+    return Math.min(100, Math.round(pressure));
+}
+
+window.getLiveTradingAnalysis = async function (matchId) {
+    // Find match data
+    let match = null;
+    if (window.selectedMatches) {
+        match = window.selectedMatches.find(m => (m.id || `${m.data}_${m.partita}`) === matchId);
+    }
+
+    if (!match) {
+        // Search in trading results if not in favorites
+        const today = new Date().toISOString().split('T')[0];
+        // This is a bit complex since trading picks are usually in currentTradingPicks state
+        // Let's assume for now it's in a window variable or we find it in the UI
+        alert("Analizzando i dati live... euGENIO sta elaborando. 🧞‍♂️");
+    }
+
+    const elapsed = match?.liveData?.elapsed || 0;
+    const score = match?.liveData?.score || "0-0";
+    const stats = match?.liveStats || {};
+
+    const prompt = `Analizza questo match LIVE per un'operazione di TRADING SPORTIVO:
+- Match: ${match?.partita}
+- Minuto: ${elapsed}'
+- Risultato: ${score}
+- Strategia Originale: ${match?.strategy} ${match?.tip}
+- Statistiche Live: DA:${stats.dangerousAttacks}, SOG:${stats.shotsOnGoal}, xG: ${stats.xg?.home}-${stats.xg?.away}
+
+Dammi un consiglio breve (max 3 righe) e professionale sull'operatività (Entra/Resta/Cashout) usando un tono da esperto trading.`;
+
+    // Open chat and send prompt
+    const chatBtn = document.getElementById('toggle-chat-btn');
+    if (chatBtn) chatBtn.click();
+
+    // We need to wait for chat to open or just use the global function
+    const input = document.getElementById('chat-input');
+    const form = document.getElementById('chat-form');
+    if (input && form) {
+        input.value = prompt;
+        form.dispatchEvent(new Event('submit'));
+    }
+};
+
 // ==================== UNIVERSAL CARD RENDERER ====================
 window.createUniversalCard = function (match, index, stratId, options = {}) {
     // 0. LIVE HUB SYNC: Check if we have real-time score/status for this match-tip
@@ -142,6 +212,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     </div>
                     ${flagBtnHTML}
                 </div>
+                <!-- Goal Cooking Bar (UI 2.0) -->
+                ${isLive ? `
+                <div class="absolute bottom-0 left-0 h-1 bg-white/20 w-full overflow-hidden">
+                    <div class="h-full bg-yellow-400 goal-cooking-bar" style="width: ${calculateGoalCookingPressure(match.liveStats, elapsed)}%"></div>
+                </div>` : ''}
             </div>
         `;
     } else {
@@ -234,21 +309,40 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // --- Insights / detailedTrading ---
     let insightsHTML = '';
 
-    // TRADING: Live Stats
+    // TRADING: Live Stats & Sniper Trigger
     if (isTrading && options.detailedTrading && match.liveStats) {
         const pos = typeof match.liveStats.possession === 'object'
             ? `${match.liveStats.possession.home}% - ${match.liveStats.possession.away}%`
             : (match.liveStats.possession || '0% - 0%');
 
+        const pressure = calculateGoalCookingPressure(match.liveStats, match.liveData?.elapsed || match.liveData?.minute || 0);
+        const isSniperTrigger = (match.strategy === 'HT_SNIPER' && (match.liveData?.elapsed >= 15 && match.liveData?.elapsed <= 25) && (match.liveData?.score === '0-0'));
+
         insightsHTML += `
             <div class="px-4 mb-3">
+                ${isSniperTrigger ? `
+                <div class="bg-red-600 text-white text-[10px] font-black p-2 rounded-lg mb-2 flex items-center justify-between animate-pulse">
+                    <span>🎯 SNIPER TRIGGER: QUOTA DI VALORE ORA!</span>
+                    <i class="fa-solid fa-crosshairs"></i>
+                </div>` : ''}
+
+                <div class="bg-gray-900 rounded-xl p-3 border border-gray-800 mb-2">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[9px] font-bold text-gray-500 uppercase">Goal Cooking Indicator</span>
+                        <span class="text-[10px] font-black ${pressure > 70 ? 'text-orange-400' : 'text-blue-400'}">${pressure}%</span>
+                    </div>
+                    <div class="h-2 bg-gray-800 rounded-full overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-blue-500 via-yellow-400 to-red-500 goal-cooking-fill" style="width: ${pressure}%"></div>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-3 gap-2 text-center text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
                      <div>
                         <div class="text-[10px] text-gray-400 font-bold uppercase">Possesso</div>
                         <div class="font-black text-gray-800 text-xs">${pos}</div>
                      </div>
                      <div>
-                        <div class="text-[10px] text-gray-400 font-bold uppercase">Tiri</div>
+                        <div class="text-[10px] text-gray-400 font-bold uppercase">Tiri (Porta)</div>
                         <div class="font-black text-gray-800 text-xs">${match.liveStats.shotsOnGoal || (match.liveStats.shots ? `${match.liveStats.shots.home}-${match.liveStats.shots.away}` : '0-0')}</div>
                      </div>
                      <div>
@@ -256,6 +350,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                         <div class="font-black text-gray-800 text-xs">${match.liveStats.xg?.home || 0} - ${match.liveStats.xg?.away || 0}</div>
                      </div>
                 </div>
+                
+                <!-- Live Insight Button -->
+                <button onclick="window.getLiveTradingAnalysis('${matchId}')" class="w-full mt-2 bg-indigo-100 text-indigo-700 py-2 rounded-lg text-xs font-bold hover:bg-indigo-200 transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-brain"></i> euGENIO LIVE INSIGHT
+                </button>
             </div>
         `;
     }
@@ -1304,8 +1403,18 @@ const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
         const strategyDefinitions = {
             'magia_ai': 'Studiata in TEMPO REALE dall\'AI (analisi LLM). Analizza pattern complessi e asimmetrie di quota.',
             'special_ai': 'Selezione ultra-precisa basata su algoritmi proprietari ad alta affidabilità.',
-            'winrate_80': 'Solo partite con storico vittorie superiore all\'80%.'
+            'winrate_80': 'Solo partite con storico vittorie superiore all\'80%.',
+            'ht_sniper': 'Trading professionale su Over 0.5 HT. Ingresso al minuto 20 se 0-0 con quota alta.',
+            'lay_the_draw': 'Trading Exchange: Bancata del pareggio in match con alta probabilità di vittoria di una delle due squadre.',
+            'back_over_25': 'Trading su Over 2.5: Ingresso pre-match con uscita al primo gol.'
         };
+
+        const liveTradingPersona = `Sei un esperto di TRADING SPORTIVO PROFESSIONALE.
+Quando analizzi dati live (DA, SOG, xG), focalizzati su:
+1. Pressione offensiva (Goal Cooking).
+2. Valore della quota rispetto al tempo rimanente.
+3. Consigli operativi secchi (Entra, Resta, Cashout).
+Mantieni un tono calmo, analitico e autorevole.`;
 
         let strategiesText = Object.entries(strategies)
             .map(([id, s]) => {
@@ -1314,20 +1423,26 @@ const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
             })
             .join('\n') || "Nessuna strategia caricata.";
 
-        let prompt = `Sei **euGENIO 🧞‍♂️**, l'assistente AI di Tipster-AI.
-Parla in prima persona singolare. Il tuo interlocutore è **${userName}**.
+        const basePrompt = eugenioPromptCache?.prompt ||
+            `Ciao! Sono euGENIO, il tuo assistente AI esperto in scommesse e trading sportivo.
+${liveTradingPersona}
 
-**DEFINIZIONI CRUCIALI:**
-- **MAGIA AI 🔮**: NON è una semplice selezione. È lo studio in TEMPO REALE dei match fatto dall'AI. Cerca il valore (Value Bet) e pattern invisibili.
-- **SPECIAL AI ✨**: È la selezione puramente statistica più PRECISA dell'app, curata dai nostri algoritmi storici.
+Utilizzo modelli matematici (Poisson, Monte Carlo, Dixon-Coles) per trovare valore dove gli altri non lo vedono.
+Ti chiami ${userName}.
 
-**STATISTICHE GLOBALI:**
-- Totale: ${stats.total} | Vinte: ${stats.wins} | Winrate: ${stats.winrate}%
-
-**STRATEGIE OGGI:**
+ECCO IL CONTESTO ATTUALE DELL'APP:
+- Performance globale: ${stats.total} match analizzati, Winrate ${stats.winrate}%
+- Strategie attive oggi:
 ${strategiesText}
 
-**KNOWLEDGE BASE (ADMIN):**
+DEFINIZIONI STRATEGIE:
+${Object.entries(strategyDefinitions).map(([k, v]) => `- ${k.toUpperCase()}: ${v}`).join('\n')}
+
+IMPORTANTE: Se vedi il "Goal Cooking Indicator" sopra il 70%, significa che il gol è imminente statisticamente!
+Sii sempre sincero: se un match non ha valore, dillo chiaramente.`;
+
+        let prompt = `${basePrompt}
+
 ${eugenioPromptCache?.customInstructions || ''}
 ${eugenioPromptCache?.additionalContext || ''}
 ${eugenioPromptCache?.tradingKnowledge || ''}

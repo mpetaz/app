@@ -711,57 +711,71 @@ function createBackOver25Strategy(match, htProb, allMatches) {
     };
 }
 
-// Helper: Crea strategia LAY THE DRAW
-function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate, convergent = false) {
-    // ==================== LIQUIDITY CHECK ====================
+// Helper: Crea strategia HT SNIPER (0.5 HT Live)
+function createHTSniperStrategy(match, htProb) {
     const liquidity = checkLiquidity(match.lega);
-    if (liquidity.skip) {
-        return null; // Skip low liquidity leagues for trading
-    }
-    // =========================================================
-
-    const prob = match.probabilita;
-    const magicDraw = match.magicStats?.drawProb || 0;
-
-    // Range ingresso: 2.50 - 3.90
-    const entryRange = ['2.50', '3.90'];
-
-    // ANALISI DETTAGLIATA PER REASONING
-    let reasoning = [];
-
-    // Magia AI Intelligence
-    reasoning.push(`RISCHIO PAREGGIO AI: ${magicDraw}% (Soglia Elite: <18%)`);
-
-    // Analisi dettagliata pareggi storici
-    if (avgDrawRate <= 18) {
-        reasoning.push(`Storico squadre: solo ${avgDrawRate.toFixed(0)}% pareggi`);
-    }
-
-    // Diamond / Elite Badge
-    let badgeText = 'Trading Lay The Draw';
-    let badgeColor = 'bg-blue-100 text-blue-700 border-blue-300';
-    if (convergent && magicDraw < 15) {
-        badgeText = '💎 ELITE LAY DRAW';
-        badgeColor = 'bg-indigo-600 text-white border-indigo-700 shadow-sm';
-        reasoning.push('⚡ CONVERGENZA TOTALE AI + TREND');
-    }
+    if (liquidity.skip) return null;
 
     return {
         ...match,
-        _originalTip: match.tip,
-        _originalQuota: match.quota,
-        strategy: 'LAY_THE_DRAW',
+        strategy: 'HT_SNIPER',
         tradingInstruction: {
-            action: 'Lay The Draw',
-            entryRange: entryRange,
-            exitTarget: 'Dopo 1° gol o minuto 70',
-            timing: 'Primi 10 minuti di gioco'
+            action: 'Back Over 0.5 HT',
+            entryRange: ['1.50', '2.00'],
+            exitTarget: 'Immediato dopo gol nel 1°T',
+            timing: 'Entrare al minuto 15-20 se ancora 0-0'
         },
-        confidence: Math.round(100 - magicDraw),
-        reasoning: reasoning.join(' | ') + ` | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
+        confidence: Math.round(htProb),
+        reasoning: `ALTA PROBABILITÀ GOL 1°T (${htProb}%). Se 0-0 al minuto 20, la quota diventa di estremo valore. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
         badge: {
-            text: badgeText,
-            color: badgeColor
+            text: '🎯 HT SNIPER',
+            color: 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse'
+        }
+    };
+}
+
+// Helper: Crea strategia SECOND HALF SURGE (0.5 ST)
+function createSecondHalfSurgeStrategy(match, allMatches) {
+    const liquidity = checkLiquidity(match.lega);
+    if (liquidity.skip) return null;
+
+    return {
+        ...match,
+        strategy: 'SECOND_HALF_SURGE',
+        tradingInstruction: {
+            action: 'Back Over 0.5 ST',
+            entryRange: ['1.60', '2.10'],
+            exitTarget: 'Gol nel secondo tempo',
+            timing: 'Entrare al minuto 60-65 se partita bloccata'
+        },
+        confidence: Math.min(95, (match.score || 70) + 5),
+        reasoning: `Match ad alta intensità statistica. Ottimo per sfruttare il calo delle quote nel secondo tempo tra il minuto 60 e 80. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
+        badge: {
+            text: '🔥 2ND HALF SURGE',
+            color: 'bg-orange-600 text-white border-orange-700 shadow-sm'
+        }
+    };
+}
+
+// Helper: Crea strategia UNDER 3.5 TRADING (Scalping)
+function createUnder35TradingStrategy(match) {
+    const liquidity = checkLiquidity(match.lega);
+    if (liquidity.skip) return null;
+
+    return {
+        ...match,
+        strategy: 'UNDER_35_SCALPING',
+        tradingInstruction: {
+            action: 'Back Under 3.5 / Lay Over 3.5',
+            entryRange: ['1.30', '1.60'],
+            exitTarget: 'Scalping 10-15 tick o dopo 20 min',
+            timing: 'Pre-match o primi 5 min'
+        },
+        confidence: Math.round(100 - (match.probabilita / 1.5)), // Inversa della probabilità over
+        reasoning: `Match previsto "chiuso" con basso volume di tiri. Ideale per scaricare il rischio dopo i primi 15-20 minuti. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
+        badge: {
+            text: '🛡️ UNDER SCALPING',
+            color: 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
         }
     };
 }
@@ -786,6 +800,21 @@ function transformToTradingStrategy(match, allMatches) {
     // CASO 2: Over 2.5 diretto con alta probabilità
     if (tip === '+2.5' && prob >= 65) {
         return createBackOver25Strategy(match, htProb, allMatches);
+    }
+
+    // CASO HT SNIPER: Molto probabile gol nel primo tempo
+    if (htProb >= 80) {
+        return createHTSniperStrategy(match, htProb);
+    }
+
+    // CASO 2ND HALF SURGE: Match da Over con probabilità medio-alta
+    if (prob >= 60 && prob < 75 && match.score >= 60) {
+        return createSecondHalfSurgeStrategy(match, allMatches);
+    }
+
+    // CASO UNDER 3.5 SCALPING: Match molto "chiusi" (es. -2.5 con prob > 70%)
+    if (tip === '-2.5' && prob >= 70) {
+        return createUnder35TradingStrategy(match);
     }
 
     // CASO 3 (ELITE): LAY THE DRAW basato su Magia AI (Replaces tipster-based trigger)
