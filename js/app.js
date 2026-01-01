@@ -318,40 +318,101 @@ window.initTradingPage = function () {
 window.loadTradingPicks = function (date) {
     if (tradingUnsubscribe) tradingUnsubscribe();
 
+    // Also unsubscribe from signals if active
+    if (window.signalsUnsubscribe) {
+        window.signalsUnsubscribe();
+        window.signalsUnsubscribe = null;
+    }
+
     // Update Date Display
     document.getElementById('trading-selected-date-display').textContent = formatDateLong(date);
     document.getElementById('trading-date-indicator').textContent = 'Caricamento...';
 
-    // Listen for Realtime Updates
+    // 1. Listen for Daily Picks
     tradingUnsubscribe = onSnapshot(doc(db, "daily_trading_picks", date), (docSnap) => {
-        const container = document.getElementById('trading-cards-container');
-        const emptyState = document.getElementById('trading-empty');
-        container.innerHTML = '';
-
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            const picks = data.picks || [];
-
-            if (picks.length > 0) {
-                emptyState.classList.add('hidden');
-                document.getElementById('trading-date-indicator').textContent = `${picks.length} opportunità`;
-
-                picks.forEach(pick => {
-                    const card = window.createUniversalCard(pick, 0, null, { isTrading: true, detailedTrading: true });
-                    container.appendChild(card);
-                });
-            } else {
-                emptyState.classList.remove('hidden');
-                document.getElementById('trading-date-indicator').textContent = 'Nessuna partita';
-            }
-        } else {
-            emptyState.classList.remove('hidden');
+        if (!docSnap.exists()) {
+            renderTradingCards([], {});
             document.getElementById('trading-date-indicator').textContent = 'Nessuna partita';
+            return;
         }
+
+        const data = docSnap.data();
+        const picks = data.picks || [];
+
+        // 2. Fetch Live Signals (Realtime)
+        // We listen to the entire collection or query by date if possible. 
+        // For simplicity and to match old logic, we'll listen to the collection but filtered could be better.
+        // However, the ID matching happens on client.
+
+        if (window.signalsUnsubscribe) window.signalsUnsubscribe();
+
+        window.signalsUnsubscribe = onSnapshot(collection(db, "trading_signals"), (signalsSnap) => {
+            const signalsMap = {};
+            signalsSnap.forEach(doc => {
+                signalsMap[doc.id] = doc.data();
+            });
+
+            // Merge functionality
+            const mergedPicks = picks.map(pick => {
+                const pickId = window.getTradingPickId(pick.partita);
+                // Try direct match or fuzzy match logic if needed, but ID should be consistent now
+                // Also try "trading_" + clean name
+                let sig = signalsMap[pickId];
+
+                // Fallback matching if ID format differs slightly
+                if (!sig) {
+                    // Try to find by partial match on name
+                    const cleanPickName = pick.partita.toLowerCase().replace(/[^a-z]/g, "");
+                    for (const sid in signalsMap) {
+                        if (sid.includes(cleanPickName)) {
+                            sig = signalsMap[sid];
+                            break;
+                        }
+                    }
+                }
+
+                if (sig) {
+                    return { ...pick, ...sig, id: pickId }; // Merge signal data (live, currentSignal, etc)
+                }
+                return { ...pick, id: pickId };
+            });
+
+            renderTradingCards(mergedPicks);
+
+            if (mergedPicks.length > 0) {
+                document.getElementById('trading-date-indicator').textContent = `${mergedPicks.length} opportunità`;
+                document.getElementById('trading-empty').classList.add('hidden');
+            } else {
+                document.getElementById('trading-date-indicator').textContent = 'Nessuna partita';
+                document.getElementById('trading-empty').classList.remove('hidden');
+            }
+
+        });
+
     }, (error) => {
         console.error("Trading Live Error", error);
+        document.getElementById('trading-date-indicator').textContent = 'Errore caricamento';
     });
 };
+
+function renderTradingCards(picks) {
+    const container = document.getElementById('trading-cards-container');
+    container.innerHTML = '';
+
+    if (picks.length === 0) {
+        document.getElementById('trading-empty').classList.remove('hidden');
+        return;
+    }
+
+    document.getElementById('trading-empty').classList.add('hidden');
+
+    picks.forEach(pick => {
+        // Pass "detailedTrading: true" to ensure live header is rendered
+        // The merged object 'pick' now contains liveData from trading_signals!
+        const card = window.createUniversalCard(pick, 0, null, { isTrading: true, detailedTrading: true });
+        container.appendChild(card);
+    });
+}
 
 // Helper to generate consistent Trading Pick IDs (Matches backend logic)
 window.getTradingPickId = function (partita) {
@@ -828,6 +889,24 @@ window.toggleFlag = async function (matchId) {
     }
 };
 
+// Live Refresh Loop
+let tradingLiveInterval = null;
+
+function startTradingLiveRefresh() {
+    if (tradingLiveInterval) clearInterval(tradingLiveInterval);
+    tradingLiveInterval = setInterval(() => {
+        // If we are on trading page, refresh main list
+        if (document.getElementById('page-trading')?.classList.contains('active')) {
+            if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
+        }
+        // If we are on star page, refresh favorites
+        if (document.getElementById('page-my-matches')?.classList.contains('active') ||
+            document.getElementById('page-star')?.classList.contains('active')) {
+            if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
+        }
+    }, 60000);
+}
+
 window.showPage = function (pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(`page-${pageId}`).classList.add('active');
@@ -836,6 +915,12 @@ window.showPage = function (pageId) {
     // Render My Matches when navigating to star tab
     if (pageId === 'star' || pageId === 'my-matches') {
         window.showMyMatches();
+        if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
+        startTradingLiveRefresh();
+    } else if (pageId === 'trading') {
+        startTradingLiveRefresh();
+    } else {
+        if (tradingLiveInterval) clearInterval(tradingLiveInterval);
     }
 };
 
@@ -863,6 +948,7 @@ window.updateMyMatchesCount = function () {
     }
 };
 
+// Only renders Betting Favorites
 window.showMyMatches = function (sortMode = 'score') {
     const container = document.getElementById('my-matches-container');
     if (!container) return;
@@ -870,16 +956,11 @@ window.showMyMatches = function (sortMode = 'score') {
     container.innerHTML = '';
 
     const bettingMatches = window.selectedMatches || [];
-    const tradingIds = tradingFavorites || [];
 
-    // If both empty, show message
-    if (bettingMatches.length === 0 && tradingIds.length === 0) {
-        container.innerHTML = '<div class="text-center text-gray-300 py-12">Nessuna partita selezionata ⭐</div>';
-        return;
-    }
-
-    // === BETTING FAVORITES SECTION ===
-    if (bettingMatches.length > 0) {
+    // Betting Favorites Section
+    if (bettingMatches.length === 0) {
+        container.innerHTML = '<div class="text-center text-gray-300 py-4 opacity-50">Nessun pronostico salvato</div>';
+    } else {
         const sectionHeader = document.createElement('div');
         sectionHeader.className = 'mb-4';
         sectionHeader.innerHTML = '<div class="text-sm font-bold text-purple-300 flex items-center gap-2">⭐ PRONOSTICI SALVATI <span class="bg-purple-600 px-2 py-0.5 rounded text-xs">' + bettingMatches.length + '</span></div>';
@@ -919,30 +1000,6 @@ window.showMyMatches = function (sortMode = 'score') {
             }
         });
     }
-
-    // === TRADING FAVORITES SECTION ===
-    if (tradingIds.length > 0) {
-        const tradingSectionHeader = document.createElement('div');
-        tradingSectionHeader.className = 'mt-6 mb-4';
-        tradingSectionHeader.innerHTML = '<div class="text-sm font-bold text-orange-300 flex items-center gap-2">📈 TRADING SALVATI <span class="bg-orange-600 px-2 py-0.5 rounded text-xs">' + tradingIds.length + '</span></div>';
-        container.appendChild(tradingSectionHeader);
-
-        tradingIds.forEach(pickId => {
-            const card = document.createElement('div');
-            card.className = 'bg-gradient-to-r from-orange-500/20 to-amber-500/20 rounded-xl p-4 border border-orange-400/30 mb-3 flex justify-between items-center';
-            const displayName = pickId.replace('trading_', '').replace(/_/g, ' ').toUpperCase();
-            card.innerHTML = `
-                <div>
-                    <span class="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold">📈 TRADING</span>
-                    <div class="text-white font-bold mt-2">${displayName}</div>
-                </div>
-                <button class="text-red-400 hover:text-red-600 transition text-xl" onclick="window.removeTradingFavorite('${pickId}'); event.stopPropagation();">
-                    <i class="fa-solid fa-trash"></i>
-                </button>
-            `;
-            container.appendChild(card);
-        });
-    }
 };
 
 window.removeTradingFavorite = async function (pickId) {
@@ -951,7 +1008,7 @@ window.removeTradingFavorite = async function (pickId) {
         tradingFavorites.splice(idx, 1);
         window.tradingFavorites = tradingFavorites; // Keep in sync
         window.updateMyMatchesCount();
-        window.showMyMatches();
+        if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
 
         if (window.currentUser) {
             try {
