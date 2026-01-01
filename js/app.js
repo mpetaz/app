@@ -87,10 +87,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // Header Generation with Star
     const flagBtnHTML = isTrading
-        ? `<button class="text-white/70 hover:text-white transition text-xl bg-white/10 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" onclick="toggleTradingFavorite('${matchId}'); event.stopPropagation();">
+        ? `<button data-match-id="${matchId}" class="text-white/70 hover:text-white transition text-xl bg-white/10 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" onclick="toggleTradingFavorite('${matchId}'); event.stopPropagation();">
              <i class="${isFlagged ? 'fa-solid text-emerald-300' : 'fa-regular'} fa-bookmark"></i>
            </button>`
-        : `<button class="flag-btn ${isFlagged ? 'flagged text-yellow-300' : 'text-white/60'} hover:text-yellow-300 transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
+        : `<button data-match-id="${matchId}" class="flag-btn ${isFlagged ? 'flagged text-yellow-300' : 'text-white/60'} hover:text-yellow-300 transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
              ${isFlagged ? '<i class="fa-solid fa-star drop-shadow-md"></i>' : '<i class="fa-regular fa-star"></i>'}
            </button>`;
 
@@ -372,10 +372,13 @@ window.toggleTradingFavorite = async function (matchId) {
     if (idx >= 0) tradingFavorites.splice(idx, 1);
     else tradingFavorites.push(matchId);
 
-    // Optimistic UI Update
-    const btns = document.querySelectorAll(`button[onclick="toggleTradingFavorite('${matchId}')"] i`);
-    btns.forEach(i => {
-        i.className = idx >= 0 ? 'fa-regular fa-bookmark' : 'fa-solid fa-bookmark text-emerald-500';
+    // Optimistic UI Update using data attribute for robustness
+    const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
+    btns.forEach(b => {
+        const icon = b.querySelector('i');
+        if (icon) {
+            icon.className = idx >= 0 ? 'fa-regular fa-bookmark' : 'fa-solid fa-bookmark text-emerald-300';
+        }
     });
 
     try {
@@ -385,7 +388,6 @@ window.toggleTradingFavorite = async function (matchId) {
         });
     } catch (e) { alert("Errore salvataggio"); }
 
-    // Also update "My Matches" > Trading section if visible
     if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
 };
 
@@ -729,19 +731,18 @@ window.toggleFlag = async function (matchId) {
             alert("Accedi per salvare i preferiti!");
         }
 
-        // Update UI buttons immediately
-        const btns = document.querySelectorAll(`button[onclick="toggleFlag('${matchId}')"]`);
+        // Update UI using data attribute
+        const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
         btns.forEach(b => {
             // Reset classes
-            b.className = "flag-btn transition hover:text-yellow-400 text-xl";
+            b.className = "flag-btn transition hover:text-yellow-300 text-xl ml-2";
+
             if (idx >= 0) {
-                // It was removed -> now inactive
-                b.classList.add("text-gray-400");
+                b.classList.add("text-white/60");
                 b.innerHTML = '<i class="fa-regular fa-star"></i>';
             } else {
-                // It was added -> now active
-                b.classList.add("flagged", "text-yellow-400");
-                b.innerHTML = '<i class="fa-solid fa-star"></i>';
+                b.classList.add("flagged", "text-yellow-300");
+                b.innerHTML = '<i class="fa-solid fa-star drop-shadow-md"></i>';
             }
         });
     } else {
