@@ -34,6 +34,8 @@ let tradingFavorites = []; // IDs of favorite trading picks
 let currentTradingDate = new Date().toISOString().split('T')[0];
 let tradingUnsubscribe = null; // For real-time updates
 let strategiesUnsubscribe = null; // For real-time betting updates
+let liveHubUnsubscribe = null; // For unified live scores hub
+window.liveScoresHub = {}; // Global store for live updates
 
 // Auth Persistence
 setPersistence(auth, browserLocalPersistence).catch(err => console.error('[Auth] Persistence error:', err));
@@ -58,6 +60,28 @@ window.chatWithGemini = async (payload) => {
 
 // ==================== UNIVERSAL CARD RENDERER ====================
 window.createUniversalCard = function (match, index, stratId, options = {}) {
+    // 0. LIVE HUB SYNC: Check if we have real-time score/status for this match-tip
+    const mName = match.partita || "";
+    const mTip = match.tip || "";
+    const hubId = `${mName.toLowerCase().replace(/[^a-z0-9]/g, "")}_${mTip.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+    const liveHubData = window.liveScoresHub[hubId];
+
+    if (liveHubData) {
+        match = {
+            ...match,
+            risultato: liveHubData.score,
+            status: liveHubData.status,
+            minute: liveHubData.elapsed,
+            esito: liveHubData.evaluation,
+            liveData: {
+                ...match.liveData,
+                score: liveHubData.score,
+                elapsed: liveHubData.elapsed,
+                status: liveHubData.status
+            }
+        };
+    }
+
     // Detect Type
     const isMagia = (match.magicStats !== undefined) || (stratId && stratId.toLowerCase().includes('magia'));
     const isTrading = (match.strategy === 'LAY_DRAW' || match.strategy === 'BACK_OVER_25') || options.isTrading;
@@ -741,6 +765,9 @@ async function loadData(dateToLoad = null) {
         const wStats = await getDoc(doc(db, "system", "warning_stats"));
         if (wStats.exists()) warningStats = wStats.data();
 
+        // START LIVE HUB LISTENER
+        initLiveHubListener();
+
         await renderStats();
 
     } catch (e) {
@@ -787,6 +814,34 @@ async function renderStats() {
         document.getElementById('stat-winrate').textContent = '0%';
         document.getElementById('last-update').textContent = formatDateLong(new Date().toISOString().split('T')[0]);
     }
+}
+
+function initLiveHubListener() {
+    if (liveHubUnsubscribe) liveHubUnsubscribe();
+
+    console.log('[LiveHub] Initializing real-time listener...');
+    liveHubUnsubscribe = onSnapshot(collection(db, "live_scores_hub"), (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+            const data = change.doc.data();
+            const id = change.doc.id;
+
+            if (change.type === "removed") {
+                delete window.liveScoresHub[id];
+            } else {
+                window.liveScoresHub[id] = data;
+            }
+        });
+
+        console.log(`[LiveHub] Sync complete. ${Object.keys(window.liveScoresHub).length} active updates.`);
+
+        // Trigger dynamic re-renders of active pages
+        if (document.getElementById('page-ranking')?.classList.contains('active')) {
+            window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
+        }
+        if (document.getElementById('page-my-matches')?.classList.contains('active')) {
+            window.showMyMatches();
+        }
+    });
 }
 
 function renderStrategies() {
@@ -1021,9 +1076,13 @@ window.showMyMatches = function (sortMode = 'score') {
     container.innerHTML = '';
 
     // 1. Refresh scores from current strategiesData (if available)
+    console.log('[DEBUG] showMyMatches - strategiesData available:', !!window.strategiesData);
+    console.log('[DEBUG] showMyMatches - selectedMatches count:', window.selectedMatches.length);
     if (window.strategiesData) {
+        console.log('[DEBUG] Available strategies:', Object.keys(window.strategiesData));
         window.selectedMatches = window.selectedMatches.map(sm => {
             const smId = sm.id || `${sm.data}_${sm.partita}`;
+            console.log('[DEBUG] Processing favorite:', sm.partita, 'ID:', smId, 'StrategyId:', sm.strategyId);
             let latestMatch = null;
 
             // STRATEGY-AWARE LOOKUP
