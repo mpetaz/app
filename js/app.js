@@ -946,13 +946,14 @@ window.showPage = function (pageId) {
     document.getElementById(`page-${pageId}`).classList.add('active');
     window.scrollTo(0, 0);
 
-    // Render My Matches when navigating to star tab
     if (pageId === 'star' || pageId === 'my-matches') {
         window.showMyMatches();
         if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
         startTradingLiveRefresh();
     } else if (pageId === 'trading') {
         startTradingLiveRefresh();
+    } else if (pageId === 'history') {
+        window.loadHistory();
     } else {
         if (tradingLiveInterval) clearInterval(tradingLiveInterval);
     }
@@ -1271,5 +1272,231 @@ Regole comportamentali:
         }
     });
 })();
+
+
+// ==================== HISTORY (7 DAYS) LOGIC ====================
+window.loadHistory = async function () {
+    const container = document.getElementById('history-list');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center text-gray-400 py-8">Caricamento storico...</div>';
+
+    try {
+        const today = new Date();
+        const dates = [];
+
+        // Last 7 COMPLETE days
+        for (let i = 1; i <= 8; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            dates.push(date.toISOString().split('T')[0]);
+        }
+
+        const dateData = [];
+        for (const date of dates) {
+            try {
+                const docSnap = await getDoc(doc(db, "daily_strategies", date));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const strategies = data.strategies || {};
+                    let totalWins = 0, totalLosses = 0, totalPending = 0;
+
+                    Object.values(strategies).forEach(strat => {
+                        (strat.matches || []).forEach(m => {
+                            if (m.esito === 'Vinto') totalWins++;
+                            else if (m.esito === 'Perso') totalLosses++;
+                            else totalPending++;
+                        });
+                    });
+
+                    dateData.push({ date, strategies, totalWins, totalLosses, totalPending, hasData: true });
+                } else {
+                    dateData.push({ date, hasData: false });
+                }
+            } catch (e) {
+                console.error(`Error loading history for ${date}:`, e);
+                dateData.push({ date, hasData: false });
+            }
+        }
+
+        if (dateData.length === 0) {
+            container.innerHTML = '<div class="text-center text-gray-400 py-8">Nessuno storico disponibile</div>';
+            return;
+        }
+
+        container.innerHTML = dateData.map((data, index) => createHistoryDateCard(data, index)).join('');
+
+        // Listeners for expand/collapse
+        dateData.forEach((data, index) => {
+            if (data.hasData) {
+                const card = container.querySelector(`[data-date="${data.date}"]`);
+                card.addEventListener('click', () => toggleDateDetails(data.date, data.strategies, card));
+            }
+        });
+
+    } catch (e) {
+        console.error('[History] Error:', e);
+        container.innerHTML = '<div class="text-center text-red-400 py-8">Errore storico</div>';
+    }
+};
+
+function createHistoryDateCard(data, index) {
+    const { date, totalWins, totalLosses, totalPending, hasData } = data;
+    const dateObj = new Date(date + 'T12:00:00');
+    const dayName = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'][dateObj.getDay()];
+    const dayNum = dateObj.getDate();
+    const monthName = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'][dateObj.getMonth()];
+
+    if (!hasData) {
+        return `<div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3"><div class="flex justify-between"><div><div class="text-sm text-gray-500">${dayName}, ${dayNum} ${monthName}</div></div><div class="text-sm text-gray-500">Nessun dato</div></div></div>`;
+    }
+
+    const totalMatches = totalWins + totalLosses;
+    const winrate = totalMatches > 0 ? Math.round((totalWins / totalMatches) * 100) : 0;
+    let winrateColor = winrate >= 70 ? 'text-green-400' : (winrate >= 50 ? 'text-yellow-400' : 'text-red-400');
+
+    return `
+        <div data-date="${date}" class="bg-gradient-to-r from-blue-900/50 to-purple-900/50 rounded-xl p-4 cursor-pointer hover:scale-[1.02] transition-transform mb-3">
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-lg font-bold">${dayName}, ${dayNum} ${monthName}</div>
+                <div class="text-right">
+                    <div class="text-2xl font-black ${winrateColor}">${winrate}%</div>
+                    <div class="text-[10px] text-gray-400 uppercase">winrate</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-4 text-sm font-bold">
+                <span class="text-green-400">🟢 ${totalWins}V</span>
+                <span class="text-red-400">🔴 ${totalLosses}P</span>
+                ${totalPending > 0 ? `<span class="text-gray-400">⏳ ${totalPending}</span>` : ''}
+            </div>
+            <div id="details-${date}" class="hidden mt-4 pt-4 border-t border-white/20"></div>
+        </div>
+    `;
+}
+
+function toggleDateDetails(date, strategies, card) {
+    const container = card.querySelector(`#details-${date}`);
+    if (!container.classList.contains('hidden')) { container.classList.add('hidden'); return; }
+
+    container.innerHTML = Object.entries(strategies).map(([id, strat]) => {
+        const matches = strat.matches || [];
+        const closed = matches.filter(m => m.risultato);
+        if (closed.length === 0) return '';
+
+        let wins = 0, losses = 0;
+        closed.forEach(m => { m.esito === 'Vinto' ? wins++ : losses++; });
+        const wr = Math.round((wins / (wins + losses)) * 100);
+        let wrColor = wr >= 70 ? 'text-green-400' : (wr >= 50 ? 'text-yellow-400' : 'text-red-400');
+
+        return `
+            <div class="strategy-card bg-white/10 rounded-lg p-3 mb-2" data-strategy="${id}" data-date="${date}">
+                <div class="flex justify-between items-center cursor-pointer" onclick="event.stopPropagation(); window.toggleStrategyMatchesHistory('${id}', '${date}', this)">
+                    <div>
+                        <div class="font-bold text-purple-300">${strat.name || id}</div>
+                        <div class="text-[10px] text-gray-400">${wins}V - ${losses}P</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xl font-black ${wrColor}">${wr}%</div>
+                    </div>
+                </div>
+                <div id="matches-${id}-${date}" class="hidden mt-3 pt-3 border-t border-white/10 space-y-2">
+                    ${closed.map(m => `
+                        <div class="${m.esito === 'Vinto' ? 'bg-green-600/30' : 'bg-red-600/30'} p-2 rounded text-xs flex justify-between items-center">
+                            <div><div class="font-bold">${m.partita}</div><div class="opacity-70">${m.tip} (@${m.quota || '-'})</div></div>
+                            <div class="text-right font-black">${m.risultato} ${m.esito === 'Vinto' ? '✅' : '❌'}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+    }).join('');
+    container.classList.remove('hidden');
+}
+
+window.toggleStrategyMatchesHistory = function (id, date, el) {
+    const container = el.parentElement.querySelector(`#matches-${id}-${date}`);
+    container.classList.toggle('hidden');
+};
+
+window.loadTradingHistory = async function () {
+    const container = document.getElementById('trading-history-list');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center text-gray-400 py-8">Caricamento trading...</div>';
+
+    try {
+        const today = new Date();
+        const dates = [];
+        for (let i = 0; i <= 7; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            dates.push(date.toISOString().split('T')[0]);
+        }
+
+        const dateData = [];
+        for (const date of dates) {
+            const docSnap = await getDoc(doc(db, "daily_trading_picks", date));
+            if (docSnap.exists()) {
+                const picks = docSnap.data().picks || [];
+                let v = 0, c = 0, s = 0, p = 0;
+                picks.forEach(x => {
+                    if (x.esitoColor === 'green') v++;
+                    else if (x.esitoColor === 'yellow') c++;
+                    else if (x.esitoColor === 'red') s++;
+                    else p++;
+                });
+                dateData.push({ date, picks, v, c, s, p, hasData: true });
+            } else {
+                dateData.push({ date, hasData: false });
+            }
+        }
+
+        container.innerHTML = dateData.map(d => {
+            if (!d.hasData || d.picks.length === 0) return `<div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3 text-sm text-gray-500">${d.date}: Nessun dato</div>`;
+            return `
+                <div class="bg-gradient-to-r from-orange-900/40 to-red-900/40 border border-orange-500/20 rounded-xl p-4 mb-3 cursor-pointer" onclick="this.querySelector('.details').classList.toggle('hidden')">
+                    <div class="flex justify-between items-center">
+                        <div class="font-bold">${d.date}</div>
+                        <div class="flex gap-1">
+                            ${'🟢'.repeat(d.v)}${'🟡'.repeat(d.c)}${'🔴'.repeat(d.s)}
+                        </div>
+                    </div>
+                    <div class="details hidden mt-4 space-y-2">
+                        ${d.picks.map(x => `
+                            <div class="bg-white/5 p-2 rounded text-xs flex justify-between">
+                                <div><div class="font-bold">${x.partita}</div><div>${x.strategy} - ${x.tip}</div></div>
+                                <div class="text-right uppercase font-bold text-gray-400">${x.risultato || '-'}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+        }).join('');
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = 'Errore caricamento.';
+    }
+};
+
+// Event Listeners for History Tabs
+const initHistoryTabs = () => {
+    const tabPronostici = document.getElementById('history-tab-pronostici');
+    const tabTrading = document.getElementById('history-tab-trading');
+    const listPronostici = document.getElementById('history-list');
+    const listTrading = document.getElementById('trading-history-list');
+
+    if (tabPronostici && tabTrading) {
+        tabPronostici.onclick = () => {
+            tabPronostici.className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg';
+            tabTrading.className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600';
+            listPronostici.classList.remove('hidden');
+            listTrading.classList.add('hidden');
+        };
+        tabTrading.onclick = () => {
+            tabTrading.className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg';
+            tabPronostici.className = 'flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600';
+            listTrading.classList.remove('hidden');
+            listPronostici.classList.add('hidden');
+            window.loadTradingHistory();
+        };
+    }
+};
+initHistoryTabs();
 
 console.log('[App] Logic Initialized.');
