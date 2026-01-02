@@ -223,6 +223,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     else if (match.esito === 'Perso') esitoClass = 'bg-gradient-to-b from-red-50 to-red-100/50 border-red-200 ring-1 ring-red-100';
     else if (match.esito === 'CASH_OUT') esitoClass = 'bg-gradient-to-b from-yellow-50 to-yellow-100/50 border-yellow-200 ring-1 ring-yellow-100';
     else if (match.esito === 'PUSH') esitoClass = 'bg-gradient-to-b from-gray-50 to-gray-100/50 border-gray-200 ring-1 ring-gray-100';
+    // DEBUG: Log esito and esitoClass for FT matches
+    if (match.status === 'FT' || liveHubData?.status === 'FT') {
+        console.log(`[EsitoDebug] ${mName} | evaluation: ${liveHubData?.evaluation} | esito: ${match.esito} | esitoClass: ${esitoClass ? 'SET' : 'EMPTY'}`);
+    }
 
     card.className = `match-card rounded-xl shadow-lg fade-in mb-3 overflow-hidden bg-white border border-gray-100 relative ${esitoClass} ${isFlagged && isTrading ? 'ring-2 ring-emerald-500' : ''}`;
 
