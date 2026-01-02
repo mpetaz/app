@@ -162,6 +162,48 @@ function renderEventIcon(type, detail) {
     return '⏱️';
 }
 
+// ==================== LOCAL OUTCOME EVALUATOR (Fallback for non-API matches) ====================
+function evaluateTipLocally(tip, risultato) {
+    if (!tip || !risultato) return null;
+    const parts = risultato.split('-').map(s => parseInt(s.trim()));
+    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+
+    const gH = parts[0];
+    const gA = parts[1];
+    const total = gH + gA;
+    const t = String(tip).toLowerCase().trim();
+
+    // Over/Under logic
+    if (t.includes("+0.5") || t.includes("over 0.5") || t.match(/\bo\s?0\.5/)) return total >= 1 ? 'Vinto' : 'Perso';
+    if (t.includes("+1.5") || t.includes("over 1.5") || t.match(/\bo\s?1\.5/)) return total >= 2 ? 'Vinto' : 'Perso';
+    if (t.includes("+2.5") || t.includes("over 2.5") || t.match(/\bo\s?2\.5/)) return total >= 3 ? 'Vinto' : 'Perso';
+    if (t.includes("+3.5") || t.includes("over 3.5") || t.match(/\bo\s?3\.5/)) return total >= 4 ? 'Vinto' : 'Perso';
+    if (t.includes("-0.5") || t.includes("under 0.5") || t.match(/\bu\s?0\.5/)) return total < 1 ? 'Vinto' : 'Perso';
+    if (t.includes("-1.5") || t.includes("under 1.5") || t.match(/\bu\s?1\.5/)) return total < 2 ? 'Vinto' : 'Perso';
+    if (t.includes("-2.5") || t.includes("under 2.5") || t.match(/\bu\s?2\.5/)) return total < 3 ? 'Vinto' : 'Perso';
+    if (t.includes("-3.5") || t.includes("under 3.5") || t.match(/\bu\s?3\.5/)) return total < 4 ? 'Vinto' : 'Perso';
+
+    // BTTS / No Goal
+    if (t === "gg" || t.includes("btts") || t === "gol" || t === "goal") return (gH > 0 && gA > 0) ? 'Vinto' : 'Perso';
+    if (t === "ng" || t === "no gol" || t === "no goal" || t.includes("no goal")) return (gH === 0 || gA === 0) ? 'Vinto' : 'Perso';
+
+    // 1X2 / Double Chance
+    const cleanT = t.replace(/[^a-z0-9]/g, "");
+    if (cleanT === "1") return gH > gA ? 'Vinto' : 'Perso';
+    if (cleanT === "2") return gA > gH ? 'Vinto' : 'Perso';
+    if (cleanT === "x") return gH === gA ? 'Vinto' : 'Perso';
+    if (cleanT === "1x" || cleanT === "x1") return gH >= gA ? 'Vinto' : 'Perso';
+    if (cleanT === "x2" || cleanT === "2x") return gA >= gH ? 'Vinto' : 'Perso';
+    if (cleanT === "12" || cleanT === "21") return gH !== gA ? 'Vinto' : 'Perso';
+
+    // Trading: Lay The Draw
+    if (t.includes("lay the draw") || t.includes("lay draw") || t.includes("laythedraw")) return gH !== gA ? 'Vinto' : 'Perso';
+    // Trading: Back Over 2.5
+    if (t.includes("back over") || t.includes("backover")) return total >= 3 ? 'Vinto' : 'Perso';
+
+    return null;
+}
+
 // ==================== UNIVERSAL CARD RENDERER ====================
 window.createUniversalCard = function (match, index, stratId, options = {}) {
     // 0. LIVE HUB SYNC: Check if we have real-time score/status for this match-tip
@@ -192,6 +234,14 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             liveStats: liveHubData.liveStats || match.liveStats,
             events: liveHubData.events || match.events
         };
+    } else if (match.risultato && match.risultato.includes('-')) {
+        // FALLBACK: Match has a result in local data but not in Hub (API didn't match it)
+        // Calculate esito locally using the same logic as Backend
+        const localEsito = evaluateTipLocally(mTip, match.risultato);
+        if (localEsito) {
+            match = { ...match, esito: localEsito, status: 'FT' };
+            console.log(`[CardDebug] LOCAL FALLBACK: ${mName} | tip: ${mTip} | risultato: ${match.risultato} -> esito: ${localEsito}`);
+        }
     }
 
     // Detect Type
@@ -1186,7 +1236,8 @@ function startTradingLiveRefresh() {
 
 window.showPage = function (pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(`page-${pageId}`).classList.add('active');
+    const pageEl = document.getElementById(`page-${pageId}`);
+    if (pageEl) pageEl.classList.add('active');
     window.scrollTo(0, 0);
 
     if (pageId === 'star' || pageId === 'my-matches') {
