@@ -167,7 +167,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // 0. LIVE HUB SYNC: Check if we have real-time score/status for this match-tip
     const mName = match.partita || "";
     const mTip = match.tip || "";
-    const hubId = `${mName.toLowerCase().replace(/[^a-z0-9]/g, "")}_${mTip.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+    // DEEP NORMALIZATION (Same as Backend)
+    const mKey = mName.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
+    const tKey = mTip.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
+    const hubId = `${mKey}_${tKey}`;
     const liveHubData = window.liveScoresHub[hubId];
 
     if (liveHubData) {
