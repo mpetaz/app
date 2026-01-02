@@ -822,6 +822,7 @@ async function loadUserProfile(uid) {
 
 async function loadData(dateToLoad = null) {
     const targetDate = dateToLoad || new Date().toISOString().split('T')[0];
+    window.currentAppDate = targetDate; // Set global date for filtering
 
     if (strategiesUnsubscribe) {
         strategiesUnsubscribe();
@@ -1242,7 +1243,13 @@ window.showMyMatches = function (sortMode = 'score') {
         });
     }
 
-    const bettingMatches = window.selectedMatches || [];
+    // 2. Filter Betting Matches by DATE (New Fix)
+    // Only show matches that belong to the currently viewed date (window.currentAppDate)
+    const bettingMatches = (window.selectedMatches || []).filter(m => {
+        // Assume m.data is "YYYY-MM-DD". If missing, we might show it or hide it.
+        // Better to hide if we want strict date sync.
+        return m.data === window.currentAppDate;
+    });
 
     // Betting Favorites Section
     if (bettingMatches.length === 0) {
