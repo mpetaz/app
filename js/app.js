@@ -173,8 +173,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const tKey = mTip.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const hubId = `${mKey}_${tKey}`;
     const liveHubData = window.liveScoresHub[hubId];
-    // DEBUG: Uncomment to trace hubId lookups
-    // console.log(`[CardDebug] Looking for hubId: "${hubId}" | Found: ${!!liveHubData} | HubKeys: ${Object.keys(window.liveScoresHub).slice(0,5).join(', ')}`);
+    // DEBUG: Active to trace hubId lookups
+    console.log(`[CardDebug] Looking for hubId: "${hubId}" | Found: ${!!liveHubData} | HubSize: ${Object.keys(window.liveScoresHub).length}`);
 
     if (liveHubData) {
         match = {
