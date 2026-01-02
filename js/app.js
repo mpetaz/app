@@ -103,18 +103,28 @@ window.getLiveTradingAnalysis = async function (matchId) {
         alert("Analizzando i dati live... euGENIO sta elaborando. 🧞‍♂️");
     }
 
-    const elapsed = match?.liveData?.elapsed || 0;
-    const score = match?.liveData?.score || "0-0";
+    const elapsed = (match?.liveData?.elapsed || match?.minute || 0).toString().replace("'", "");
+    const score = match?.liveData?.score || match?.risultato || "0-0";
     const stats = match?.liveStats || {};
+
+    // Build stats string properly
+    const da = stats.dangerousAttacks || "N/A";
+    const sog = stats.shotsOnGoal || "N/A";
+    const xg = stats.xg ? `${stats.xg.home} - ${stats.xg.away}` : "N/A";
+    const pos = stats.possession || "N/A";
 
     const prompt = `Analizza questo match LIVE per un'operazione di TRADING SPORTIVO:
 - Match: ${match?.partita}
 - Minuto: ${elapsed}'
 - Risultato: ${score}
 - Strategia Originale: ${match?.strategy} ${match?.tip}
-- Statistiche Live: DA:${stats.dangerousAttacks}, SOG:${stats.shotsOnGoal}, xG: ${stats.xg?.home}-${stats.xg?.away}
+- Statistiche Pro: DA:${da}, SOG:${sog}, xG:${xg}, Possesso:${pos}
 
-Dammi un consiglio breve (max 3 righe) e professionale sull'operatività (Entra/Resta/Cashout) usando un tono da esperto trading.`;
+Fornisci un'analisi professionale in max 3-4 righe. Usa termini tecnici da Pro Trader (es. liquidity, exposure, weight on market). Concludi con un consiglio chiaro tra:
+🚀 ENTRA (Se le condizioni sono ottimali)
+✋ RESTA (Se sei già dentro, aspetta ancora)
+💰 CASHOUT (Se è il momento di prendere i profitti o limitare i danni)
+❌ NO ENTRY (Se il match è troppo stabile)`;
 
     // Open chat and send prompt
     const chatBtn = document.getElementById('toggle-chat-btn');

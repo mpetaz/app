@@ -472,7 +472,75 @@ function calculateScore05HT(partita, dbCompleto) {
         teamBonus: score,
         totalScore: Math.min(100, score),
         quotaValid: true,
-        htProb: htProb
+    };
+}
+
+/**
+ * Crea una strategia Lay The Draw (LTD) professionale
+ * @param {object} match - Dati della partita
+ * @param {number} avgDrawRate - Tasso pareggi medio (storico)
+ * @param {object} homeDrawRate - Dettagli pareggi casa
+ * @param {object} awayDrawRate - Dettagli pareggi trasferta
+ * @param {boolean} isConvergent - Se AI e Storico concordano (Diamond Signal)
+ */
+function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate, isConvergent = false) {
+    // ==================== LIQUIDITY CHECK ====================
+    const liquidity = checkLiquidity(match.lega);
+    if (liquidity.skip) {
+        return null; // Skip low liquidity leagues for trading
+    }
+    // =========================================================
+
+    const prob = match.probabilita;
+    const tip = match.tip;
+
+    // Range ingresso: 2.50 - 4.50 (allargato per maggiore copertura)
+    const entryRange = ['2.50', '4.50'];
+
+    // ANALISI DETTAGLIATA PER REASONING
+    let reasoning = [];
+
+    // Base: segno probabile
+    const tipLabel = tip === '1' ? `vittoria ${match.partita.split(' - ')[0]}` :
+        tip === '2' ? `vittoria ${match.partita.split(' - ')[1]}` :
+            'segno (no pareggio)';
+
+    if (isConvergent) {
+        reasoning.push(`🔥 <strong>DIAMOND SIGNAL</strong>: Convergenza AI + Storico Squadre`);
+    } else {
+        reasoning.push(`Alta probabilità ${tipLabel} (${prob}%)`);
+    }
+
+    // Analisi dettagliata pareggi
+    if (avgDrawRate <= 15) {
+        reasoning.push(`squadre che pareggiano raramente (solo ${avgDrawRate.toFixed(0)}% dei match)`);
+    } else if (avgDrawRate <= 22) {
+        reasoning.push(`basso tasso pareggi storico (${avgDrawRate.toFixed(0)}%)`);
+    }
+
+    // Info lega se rilevante
+    const legaNorm = normalizeLega(match.lega).toLowerCase();
+    if (legaNorm.includes('premier') || legaNorm.includes('bundesliga') || legaNorm.includes('serie a')) {
+        reasoning.push('top campionato con pochi pareggi tattici');
+    }
+
+    return {
+        ...match,
+        _originalTip: match.tip,
+        _originalQuota: match.quota,
+        strategy: 'LAY_THE_DRAW',
+        tradingInstruction: {
+            action: 'Lay The Draw',
+            entryRange: entryRange,
+            exitTarget: 'Dopo 1° gol o minuto 70',
+            timing: 'Primi 10 minuti di gioco'
+        },
+        confidence: Math.min(95, (match.score || 70) + (isConvergent ? 10 : 3)),
+        reasoning: reasoning.join(' + ') + ` | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
+        badge: {
+            text: 'Trading Lay The Draw',
+            color: 'bg-blue-100 text-blue-700 border-blue-300'
+        }
     };
 }
 
@@ -798,7 +866,7 @@ function transformToTradingStrategy(match, allMatches) {
     }
 
     // CASO 2: Over 2.5 diretto con alta probabilità
-    if (tip === '+2.5' && prob >= 65) {
+    if (tip === '+2.5' && (prob >= 65 || (magicData && magicData.over25Prob >= 60 && match.score >= 60))) {
         return createBackOver25Strategy(match, htProb, allMatches);
     }
 
@@ -817,18 +885,22 @@ function transformToTradingStrategy(match, allMatches) {
         return createUnder35TradingStrategy(match);
     }
 
-    // CASO 3 (ELITE): LAY THE DRAW basato su Magia AI (Replaces tipster-based trigger)
-    // Se la simulazione Dixon-Coles dice che il pareggio è < 18%, attiviamo LTD
-    if (magicData && magicData.drawProb < 18) {
-        const teams = match.partita.split(' - ');
-        if (teams.length === 2) {
-            const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
-            const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
-            const avgRate = (homeDrawRate.rate + awayDrawRate.rate) / 2;
+    // CASO 3 (HYBRID): LAY THE DRAW basato su Magia AI + Storico
+    const teams = match.partita.split(' - ');
+    if (teams.length === 2) {
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
+        const avgRate = (homeDrawRate.rate + awayDrawRate.rate) / 2;
 
-            // Diamond Signal: Convergenza AI + Tipster (se il tipster dice 1, 2 o 12)
-            const convergent = ['1', '2', '12'].includes(tip);
+        // Trigger 1: Magia AI Elite (Pareggio improbabile Dixon-Coles)
+        const aiLowDraw = magicData && magicData.drawProb < 20;
 
+        // Trigger 2: Storico Solido (Tasso pareggi basso)
+        const histLowDraw = avgRate < 24 && prob >= 75;
+
+        if (aiLowDraw || histLowDraw) {
+            // Se entrambi i sistemi concordano -> Diamond Signal
+            const convergent = aiLowDraw && histLowDraw;
             return createLayTheDrawStrategy(match, avgRate, homeDrawRate, awayDrawRate, convergent);
         }
     }
@@ -1214,6 +1286,77 @@ function generateMagiaAI(matches, allMatchesHistory) {
 }
 
 
+/**
+ * Calcola i parametri Magia AI (Dixon-Coles) per una singola partita
+ * Versione "viva" per trading ohne filtri di soglia confidence
+ */
+function getMagiaStats(match, allMatchesHistory) {
+    const teams = parseTeams(match.partita);
+    if (!teams) return null;
+
+    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory);
+    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory);
+
+    if (homeStats.currForm.matchCount < 3 || awayStats.currForm.matchCount < 3) return null;
+
+    // League Goal Factor
+    const leagueNorm = (match.lega || '').toLowerCase();
+    let goalFactor = 1.0;
+    for (const [l, factor] of Object.entries(LEAGUE_GOAL_FACTORS)) {
+        if (leagueNorm.includes(l)) {
+            goalFactor = factor;
+            break;
+        }
+    }
+
+    const lambdaHome = ((homeStats.currForm.avgScored * 0.6 + homeStats.season.avgScored * 0.4 +
+        awayStats.currForm.avgConceded * 0.6 + awayStats.season.avgConceded * 0.4) / 2) * goalFactor;
+    const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
+        homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
+
+    const sim = simulateMatch(lambdaHome, lambdaAway, 5000);
+
+    // Hybrid refinement (Draw Penalty)
+    const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
+    const histAwayDraw = (awayStats.season.draws / awayStats.season.matches) * 100 || 25;
+    const avgHistDraw = (histHomeDraw + histAwayDraw) / 2;
+    let hybridDraw = (sim.draw * 0.7) + (avgHistDraw * 0.3);
+
+    const dbTip = (match.tip || '').trim();
+    if (dbTip === '1' || dbTip === '2') {
+        hybridDraw = hybridDraw * 0.90;
+    }
+
+    // Normalize
+    const remainder = 100 - hybridDraw;
+    const ratio = remainder / (sim.winHome + sim.winAway);
+    sim.draw = hybridDraw;
+    sim.winHome = sim.winHome * ratio;
+    sim.winAway = sim.winAway * ratio;
+
+    const allSignals = [
+        { label: '1', prob: sim.winHome, type: '1X2' },
+        { label: 'X', prob: sim.draw, type: '1X2' },
+        { label: '2', prob: sim.winAway, type: '1X2' },
+        { label: 'Over 2.5', prob: sim.over25, type: 'GOALS' }
+    ].sort((a, b) => b.prob - a.prob);
+
+    return {
+        drawProb: sim.draw,
+        winHomeProb: sim.winHome,
+        winAwayProb: sim.winAway,
+        over25Prob: sim.over25,
+        aiSignal: allSignals[0].label,
+        confidence: allSignals[0].prob
+    };
+}
+
+const parseTeams = (partita) => {
+    const parts = partita.split(' - ');
+    if (parts.length < 2) return null;
+    return { home: parts[0].trim(), away: parts[1].trim() };
+};
+
 // Export functions
 window.calculateStrategyRankings = null; // Will be defined in admin logic, not here
 window.engine = {
@@ -1223,5 +1366,6 @@ window.engine = {
     generateTradingBadge,
     checkLiquidity,
     simulateMatch,
+    getMagiaStats,
     generateMagiaAI
 };
