@@ -37,13 +37,6 @@ let strategiesUnsubscribe = null; // For real-time betting updates
 let liveHubUnsubscribe = null; // For unified live scores hub
 let serieARefreshInterval = null; // Refresh for Serie A section
 window.liveScoresHub = {}; // Global store for live updates
-const HIGH_LIQUIDITY_LEAGUES = [
-    "Serie A", "Serie B", "Premier League", "Championship", "League One",
-    "La Liga", "Bundesliga", "Ligue 1", "Eredivisie", "Primeira Liga",
-    "Super League", "Bundesliga (AUT)", "Pro League",
-    "Champions League", "Europa League", "Conference League",
-    "Coppa Italia", "FA Cup", "Copa del Rey"
-];
 
 // Auth Persistence
 setPersistence(auth, browserLocalPersistence).catch(err => console.error('[Auth] Persistence error:', err));
