@@ -239,9 +239,12 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         // Calculate esito locally using the same logic as Backend
         const localEsito = evaluateTipLocally(mTip, match.risultato);
         if (localEsito) {
-            match = { ...match, esito: localEsito, status: 'FT' };
+            match = { ...match, esito: localEsito, status: 'FT', isNotMonitored: true };
             console.log(`[CardDebug] LOCAL FALLBACK: ${mName} | tip: ${mTip} | risultato: ${match.risultato} -> esito: ${localEsito}`);
         }
+    } else if (!liveHubData && !match.risultato) {
+        // No Hub data AND no local result = Not monitored by API
+        match = { ...match, isNotMonitored: true };
     }
 
     // Detect Type
@@ -267,12 +270,13 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     }
 
     const card = document.createElement('div');
-    // Color coding based on result
+    // Color coding based on result (DARKER/VIVID colors) - ONLY for FINISHED matches
     let esitoClass = '';
-    if (match.esito === 'Vinto') esitoClass = 'bg-gradient-to-b from-green-50 to-green-100/50 border-green-200 ring-1 ring-green-100';
-    else if (match.esito === 'Perso') esitoClass = 'bg-gradient-to-b from-red-50 to-red-100/50 border-red-200 ring-1 ring-red-100';
-    else if (match.esito === 'CASH_OUT') esitoClass = 'bg-gradient-to-b from-yellow-50 to-yellow-100/50 border-yellow-200 ring-1 ring-yellow-100';
-    else if (match.esito === 'PUSH') esitoClass = 'bg-gradient-to-b from-gray-50 to-gray-100/50 border-gray-200 ring-1 ring-gray-100';
+    const isFinished = match.status === 'FT' || match.status === 'AET' || match.status === 'PEN';
+    if (isFinished && match.esito === 'Vinto') esitoClass = 'bg-gradient-to-b from-green-200 to-green-300 border-green-400 ring-2 ring-green-300';
+    else if (isFinished && match.esito === 'Perso') esitoClass = 'bg-gradient-to-b from-red-200 to-red-300 border-red-400 ring-2 ring-red-300';
+    else if (isFinished && match.esito === 'CASH_OUT') esitoClass = 'bg-gradient-to-b from-yellow-200 to-yellow-300 border-yellow-400 ring-2 ring-yellow-300';
+    else if (isFinished && match.esito === 'PUSH') esitoClass = 'bg-gradient-to-b from-gray-200 to-gray-300 border-gray-400 ring-2 ring-gray-300';
     // DEBUG: Log esito and esitoClass for FT matches
     if (match.status === 'FT' || liveHubData?.status === 'FT') {
         console.log(`[EsitoDebug] ${mName} | evaluation: ${liveHubData?.evaluation} | esito: ${match.esito} | esitoClass: ${esitoClass ? 'SET' : 'EMPTY'}`);
@@ -338,11 +342,19 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // --- Teams & Score ---
     const currentScore = match.liveData?.score || (match.liveData ? `${match.liveData.homeScore || 0} - ${match.liveData.awayScore || 0}` : null);
 
-    // Status Badge (HT / FT)
+    // Status Badge (Minute / HT / FT) - Show minute when LIVE
     let statusBadge = '';
-    if (match.risultato) {
-        if (match.risultato.includes('HT')) statusBadge = '<span class="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-bold">HT</span>';
-        else if (match.risultato.includes('FT') || match.esito) statusBadge = '<span class="bg-gray-800 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">FT</span>';
+    if (match.status === 'FT' || match.status === 'AET' || match.status === 'PEN') {
+        statusBadge = '<span class="bg-gray-800 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">FT</span>';
+    } else if (match.status === 'HT') {
+        statusBadge = '<span class="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-bold">HT</span>';
+    } else if (match.minute || match.liveData?.elapsed) {
+        const minute = match.minute || match.liveData.elapsed;
+        statusBadge = `<span class="bg-blue-500 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">${minute}'</span>`;
+    } else if (match.risultato?.includes('HT')) {
+        statusBadge = '<span class="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-bold">HT</span>';
+    } else if (match.risultato?.includes('FT')) {
+        statusBadge = '<span class="bg-gray-800 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">FT</span>';
     }
 
     const scoreDisplay = (isTrading && options.detailedTrading && currentScore)
@@ -541,9 +553,12 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         }
     }
 
-    // --- Footer is now simpler without the Flag Button ---
+    // --- Footer with Not Monitored badge ---
+    const notMonitoredBadge = match.isNotMonitored ?
+        '<span class="text-[9px] font-bold text-orange-500 uppercase tracking-widest bg-orange-100 px-2 py-0.5 rounded-full">⚠️ Non monitorata</span>' : '';
     const footerHTML = `
-        <div class="bg-gray-50 p-2 border-t border-gray-100 flex justify-end items-center px-4">
+        <div class="bg-gray-50 p-2 border-t border-gray-100 flex justify-between items-center px-4">
+              ${notMonitoredBadge}
               ${isTrading ? '<span class="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Trading Pick</span>' : '<span class="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Standard Pick</span>'}
         </div>
     `;
