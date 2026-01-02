@@ -973,16 +973,45 @@ function generateTradingBadge(match, is05HT = false, team1Stats = null, team2Sta
 // ==================== MONTE CARLO ENGINE ====================
 
 /**
- * Generates a random number based on Poisson distribution
- * (Knuth's algorithm)
+ * Seeded Random Number Generator (Mulberry32)
+ * Ensures deterministic results for the same match/seed.
  */
-function poissonRandom(lambda) {
+class SeededRandom {
+    constructor(seedString) {
+        // Create a hash from the string to use as numeric seed
+        let h = 0x811c9dc5;
+        if (seedString) {
+            for (let i = 0; i < seedString.length; i++) {
+                h ^= seedString.charCodeAt(i);
+                h = Math.imul(h, 0x01000193);
+            }
+        } else {
+            h = Math.floor(Math.random() * 0xFFFFFFFF);
+        }
+        this.state = h >>> 0;
+    }
+
+    // Returns a float between 0 and 1
+    next() {
+        let t = (this.state += 0x6D2B79F5);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        this.state = t >>> 0; // update state
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+}
+
+/**
+ * Generates a random number based on Poisson distribution
+ * (Knuth's algorithm) - Now accepts a custom RNG
+ */
+function poissonRandom(lambda, rng = null) {
     const L = Math.exp(-lambda);
     let k = 0;
     let p = 1;
     do {
         k++;
-        p *= Math.random();
+        p *= rng ? rng.next() : Math.random();
     } while (p > L);
     return k - 1;
 }
@@ -1019,7 +1048,10 @@ function dixonColesCorrection(hg, ag, rho, lambdaHome, lambdaAway) {
  * Runs a TRUE Monte Carlo simulation for a match
  * Returns raw data for density analysis
  */
-function simulateMatch(lambdaHome, lambdaAway, iterations = 5000) {
+function simulateMatch(lambdaHome, lambdaAway, iterations = 5000, seedString = "") {
+    // Determine seed for reproducible results
+    // If no seed provided, utilize Math.random via SeededRandom wrapper or just null to use fallback
+    const rng = seedString ? new SeededRandom(seedString) : null;
     const results = {
         homeWins: 0, draws: 0, awayWins: 0,
         dc1X: 0, dcX2: 0, dc12: 0,
@@ -1033,8 +1065,8 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 5000) {
     const rho = DIXON_COLES_RHO || -0.11;
 
     for (let i = 0; i < iterations; i++) {
-        const hg = poissonRandom(lambdaHome);
-        const ag = poissonRandom(lambdaAway);
+        const hg = poissonRandom(lambdaHome, rng);
+        const ag = poissonRandom(lambdaAway, rng);
 
         // Apply Dixon-Coles weighting via rejection sampling or basic correction
         // For Monte Carlo, we weight the count by the correction factor
@@ -1174,7 +1206,7 @@ function generateMagiaAI(matches, allMatchesHistory) {
             const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
                 homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
 
-            sim = simulateMatch(lambdaHome, lambdaAway, 5000);
+            sim = simulateMatch(lambdaHome, lambdaAway, 5000, match.partita);
 
             // =====================================================================
             // HYBRID PROBABILITY REFINEMENT (User Feedback: "Draws are too high")
@@ -1314,7 +1346,7 @@ function getMagiaStats(match, allMatchesHistory) {
     const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
         homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
 
-    const sim = simulateMatch(lambdaHome, lambdaAway, 5000);
+    const sim = simulateMatch(lambdaHome, lambdaAway, 5000, match.partita);
 
     // Hybrid refinement (Draw Penalty)
     const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
