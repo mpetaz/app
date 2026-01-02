@@ -166,12 +166,15 @@ function renderEventIcon(type, detail) {
 window.createUniversalCard = function (match, index, stratId, options = {}) {
     // 0. LIVE HUB SYNC: Check if we have real-time score/status for this match-tip
     const mName = match.partita || "";
-    const mTip = match.tip || "";
+    // CRITICAL: Use tradingInstruction.action if available (same as Backend)
+    const mTip = match.tradingInstruction?.action || match.tip || "";
     // DEEP NORMALIZATION (Same as Backend)
     const mKey = mName.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const tKey = mTip.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const hubId = `${mKey}_${tKey}`;
     const liveHubData = window.liveScoresHub[hubId];
+    // DEBUG: Uncomment to trace hubId lookups
+    // console.log(`[CardDebug] Looking for hubId: "${hubId}" | Found: ${!!liveHubData} | HubKeys: ${Object.keys(window.liveScoresHub).slice(0,5).join(', ')}`);
 
     if (liveHubData) {
         match = {
@@ -990,6 +993,13 @@ function initLiveHubListener() {
         }
         if (document.getElementById('page-my-matches')?.classList.contains('active')) {
             window.showMyMatches();
+        }
+        // Also re-render Trading and Star pages
+        if (document.getElementById('page-trading')?.classList.contains('active')) {
+            if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
+        }
+        if (document.getElementById('page-star')?.classList.contains('active')) {
+            if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
         }
     });
 }
