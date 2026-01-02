@@ -1165,8 +1165,8 @@ window.updateMyMatchesCount = function () {
 
     let countBadge = navBtn.querySelector('.count-badge');
 
-    // Only count Betting favorites (including Magia AI)
-    const bettingCount = (window.selectedMatches || []).length;
+    // Only count Betting favorites (including Magia AI) filtered by DATE
+    const bettingCount = (window.selectedMatches || []).filter(m => m.data === window.currentAppDate).length;
     const totalCount = bettingCount;
 
     if (totalCount > 0) {
@@ -1808,6 +1808,37 @@ async function loadSerieAMatches() {
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
+            console.warn('[Serie A] No specialized matches found, trying fallback from strategies...');
+            const fallbackResults = [];
+            const seen = new Set();
+
+            if (window.strategiesData) {
+                Object.values(window.strategiesData).forEach(strat => {
+                    if (strat.matches && Array.isArray(strat.matches)) {
+                        strat.matches.forEach(m => {
+                            const lega = (m.lega || "").toLowerCase();
+                            if ((lega.includes('italy') && lega.includes('serie a')) || (lega === 'serie a')) {
+                                const key = `${m.partita}_${m.ora}`;
+                                if (!seen.has(key)) {
+                                    seen.add(key);
+                                    fallbackResults.push(m);
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            if (fallbackResults.length > 0) {
+                console.log(`[Serie A] Found ${fallbackResults.length} matches in fallback.`);
+                let fallbackHTML = '';
+                fallbackResults.forEach(m => {
+                    fallbackHTML += renderFallbackSerieACard(m);
+                });
+                container.innerHTML = fallbackHTML;
+                return;
+            }
+
             container.innerHTML = `
                 <div class="text-center py-12 text-gray-300">
                     <i class="fa-solid fa-calendar-xmark text-5xl mb-4 opacity-50"></i>
@@ -1959,6 +1990,33 @@ function calcTipResult(tip, score) {
 function formatFormLast5(form, isHome) {
     if (!form || form === "-----") return "-----";
     return form.slice(-5).split('').map(c => c === 'W' ? '🟢' : c === 'D' ? '🟡' : '🔴').join('');
+}
+
+function renderFallbackSerieACard(match) {
+    return `
+        <div class="bg-white/10 rounded-2xl p-5 border border-white/20 mb-4 text-white">
+            <div class="flex items-center justify-between mb-4">
+                <span class="bg-gray-600 px-3 py-1 rounded-full text-[10px] font-bold">FALLBACK</span>
+                <span class="text-xs font-bold">⏰ ${match.ora || '?'}</span>
+            </div>
+            <div class="text-center mb-4">
+                <h3 class="text-lg font-bold">${match.partita}</h3>
+                <p class="text-[10px] text-gray-400 mt-1 uppercase">🏆 ${match.lega}</p>
+            </div>
+            <div class="flex justify-center gap-4">
+                <div class="bg-white/5 rounded-lg p-3 text-center min-w-[100px]">
+                    <p class="text-[10px] text-gray-400 mb-1">TIP</p>
+                    <p class="font-bold text-yellow-400">${match.tip || '-'}</p>
+                </div>
+                <div class="bg-white/5 rounded-lg p-3 text-center min-w-[100px]">
+                    <p class="text-[10px] text-gray-400 mb-1">PROB</p>
+                    <p class="font-bold text-cyan-400">${match.probabilita || '-'}%</p>
+                </div>
+            </div>
+            <div class="mt-4 text-center">
+                <p class="text-[10px] text-gray-500 italic">Dati specializzati Serie A non disponibili temporaneamente.</p>
+            </div>
+        </div>`;
 }
 
 console.log('[App] Logic Initialized.');
