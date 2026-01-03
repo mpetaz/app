@@ -108,40 +108,40 @@
             </div>
         </div>
 
-        <!-- Stats Dashboard -->
-        <div id="stats-dashboard" class="container mx-auto px-4 py-6">
-            <!-- Riga 1: Box grande totale -->
-            <div class="stat-card rounded-xl p-4 text-center mb-3">
-                <div class="text-gray-700 text-xs font-semibold mb-1">Pronostici da agosto 2025</div>
-                <div id="stat-total" class="text-3xl font-black text-blue-800">-</div>
-            </div>
-
-            <!-- Riga 2: 3 box piccoli -->
-            <div class="grid grid-cols-3 gap-3 mb-4">
-                <div class="stat-card rounded-xl p-3 text-center">
-                    <div class="text-gray-700 text-[10px] font-semibold mb-1">Pronostici<br>VINTI</div>
-                    <div id="stat-wins" class="text-xl font-black text-green-600">-</div>
-                </div>
-                <div class="stat-card rounded-xl p-3 text-center">
-                    <div class="text-gray-700 text-[10px] font-semibold mb-1">Pronostici<br>PERSI</div>
-                    <div id="stat-losses" class="text-xl font-black text-red-600">-</div>
-                </div>
-                <div class="stat-card rounded-xl p-3 text-center">
-                    <div class="text-gray-700 text-[10px] font-semibold mb-1">WINRATE</div>
-                    <div id="stat-winrate" class="text-xl font-black text-green-600">-</div>
-                </div>
-            </div>
-
-            <div class="stat-card rounded-lg px-4 py-2 text-center">
-                <div class="text-gray-600 text-xs">
-                    <i class="fa-solid fa-sparkles mr-1"></i>
-                    Aggiornata per nuovi Pronostici: <span id="last-update" class="font-semibold">-</span>
-                </div>
-            </div>
-        </div>
-
         <!-- Strategies Page -->
         <div id="page-strategies" class="page active container mx-auto px-4 pb-24">
+            <!-- Stats Dashboard (Moved inside strategies page) -->
+            <div id="stats-dashboard" class="mb-6">
+                <!-- Riga 1: Box grande totale -->
+                <div class="stat-card rounded-xl p-4 text-center mb-3">
+                    <div class="text-gray-700 text-xs font-semibold mb-1">Pronostici da agosto 2025</div>
+                    <div id="stat-total" class="text-3xl font-black text-blue-800">-</div>
+                </div>
+
+                <!-- Riga 2: 3 box piccoli -->
+                <div class="grid grid-cols-3 gap-3 mb-4">
+                    <div class="stat-card rounded-xl p-3 text-center">
+                        <div class="text-gray-700 text-[10px] font-semibold mb-1">Pronostici<br>VINTI</div>
+                        <div id="stat-wins" class="text-xl font-black text-green-600">-</div>
+                    </div>
+                    <div class="stat-card rounded-xl p-3 text-center">
+                        <div class="text-gray-700 text-[10px] font-semibold mb-1">Pronostici<br>PERSI</div>
+                        <div id="stat-losses" class="text-xl font-black text-red-600">-</div>
+                    </div>
+                    <div class="stat-card rounded-xl p-3 text-center">
+                        <div class="text-gray-700 text-[10px] font-semibold mb-1">WINRATE</div>
+                        <div id="stat-winrate" class="text-xl font-black text-green-600">-</div>
+                    </div>
+                </div>
+
+                <div class="stat-card rounded-lg px-4 py-2 text-center">
+                    <div class="text-gray-600 text-xs">
+                        <i class="fa-solid fa-sparkles mr-1"></i>
+                        Aggiornata per nuovi Pronostici: <span id="last-update" class="font-semibold">-</span>
+                    </div>
+                </div>
+            </div>
+
             <h2 class="text-2xl font-bold mb-4 text-center">📊 Seleziona una Strategia</h2>
             <div id="strategies-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <!-- Populated dynamically -->
@@ -176,7 +176,7 @@
 
 
         <!-- History Page (7-Day Track Record) -->
-        <div id="page-history" class="page hidden container mx-auto px-4 pb-24">
+        <div id="page-history" class="page container mx-auto px-4 pb-24">
             <div class="mb-6">
                 <h2 class="text-3xl font-bold mb-2">📅 Ultimi 7 Giorni</h2>
                 <p class="text-gray-400 text-sm">Track record completo delle performance</p>
@@ -233,7 +233,7 @@
         </div>
 
         <!-- Account Page -->
-        <div id="account-page" class="hidden container mx-auto px-4 py-6 pb-24">
+        <div id="account-page" class="page container mx-auto px-4 py-6 pb-24">
             <h2 class="text-2xl font-bold mb-6 text-white">Il Mio Account</h2>
 
             <!-- Profile Card -->
@@ -508,7 +508,7 @@
         </button>
     </div>
 
-    <script type="module" src="js/app.js?v=3.5.6"></script>
+    <script type="module" src="js/app.js?v=3.5.7"></script>
     <script src="js/pwa.js?v=3.5.3"></script>
 </body>
 
