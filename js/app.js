@@ -2191,14 +2191,14 @@ window.injectAccountPage = function () {
         <h2 class="text-2xl font-bold mb-6 text-white">Il Mio Account</h2>
         <div class="stat-card rounded-xl p-6 mb-4">
              <div class="flex items-center gap-4 mb-6">
-                 <div id="account-avatar" class="bg-gradient-to-br from-purple-600 to-blue-600 w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-black">?</div>
+                 <div id="user-profile-avatar" class="bg-gradient-to-br from-purple-600 to-blue-600 w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-black">?</div>
                  <div>
-                     <h3 class="text-xl font-bold text-gray-800" id="account-name">-</h3>
-                     <p class="text-gray-600 text-sm" id="account-email">-</p>
+                     <h3 class="text-xl font-bold text-gray-800" id="user-profile-name">-</h3>
+                     <p class="text-gray-600 text-sm" id="user-profile-email">-</p>
                  </div>
              </div>
              <div class="mb-4">
-                 <p class="text-xs text-gray-500 mt-1">Registrato il <span id="account-created">-</span></p>
+                 <p class="text-xs text-gray-500 mt-1">Registrato il <span id="user-profile-created">-</span></p>
              </div>
         </div>
 
@@ -2264,17 +2264,17 @@ window.populateAccountPage = function () {
     const name = p.name || u.displayName || u.email?.split('@')[0] || 'Utente';
     const email = p.email || u.email || '-';
 
-    const elName = document.getElementById('account-name');
-    console.log('[Account] Finding account-name element:', elName, 'Setting to:', name);
+    const elName = document.getElementById('user-profile-name');
+    console.log('[Account] Finding user-profile-name element:', elName);
     if (elName) elName.textContent = name;
 
-    const elEmail = document.getElementById('account-email');
+    const elEmail = document.getElementById('user-profile-email');
     if (elEmail) elEmail.textContent = email;
 
-    const elAvatar = document.getElementById('account-avatar');
+    const elAvatar = document.getElementById('user-profile-avatar');
     if (elAvatar) elAvatar.textContent = name.charAt(0).toUpperCase();
 
-    const elCreated = document.getElementById('account-created');
+    const elCreated = document.getElementById('user-profile-created');
     // Try multiple date fields and handle Firestore Timestamp
     const createdTimestamp = p.createdAt || p.registeredAt || u.metadata?.creationTime;
     if (elCreated && createdTimestamp) {
