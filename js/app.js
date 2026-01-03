@@ -102,6 +102,18 @@ function getRankingColor(score) {
     return 'red-500';
 }
 
+const isMatchStale = (m) => {
+    if (!m.isNotMonitored || m.risultato || (m.liveData && m.liveData.score)) return false;
+    const now = new Date();
+    const mDate = m.data || now.toISOString().split('T')[0];
+    const mTime = m.ora || '00:00';
+    try {
+        const mDateTime = new Date(`${mDate}T${mTime}:00`);
+        const diffMs = now - mDateTime;
+        return diffMs > (100 * 60 * 1000); // 100 minutes
+    } catch (e) { return false; }
+};
+
 window.getLiveTradingAnalysis = async function (matchId) {
     const normalizedId = matchId.replace('trading_', '');
 
@@ -816,11 +828,11 @@ window.renderTradingCards = function (picks) {
     }
 
     // 1. Filter
-    let filtered = [...picks];
+    let filtered = picks.filter(p => !isMatchStale(p));
     if (tradingFilterState === 'live') {
-        filtered = picks.filter(p => (p.liveData?.elapsed || p.liveData?.minute || 0) > 0);
+        filtered = filtered.filter(p => (p.liveData?.elapsed || p.liveData?.minute || 0) > 0);
     } else if (tradingFilterState === 'favs') {
-        filtered = picks.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita)));
+        filtered = filtered.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita)));
     }
 
     if (filtered.length === 0) {
@@ -847,21 +859,22 @@ window.renderTradingCards = function (picks) {
 
     document.getElementById('trading-empty').classList.add('hidden');
 
-    filtered.forEach(pick => {
+    const cards = filtered.map(pick => {
         const isFav = (window.tradingFavorites || []).includes(window.getTradingPickId(pick.partita));
         const isLive = (pick.liveData?.elapsed || pick.liveData?.minute || 0) > 0;
 
         const card = window.createUniversalCard(pick, 0, null, { isTrading: true, detailedTrading: true });
 
-        // Final Polish: If it's the "Royal Tie" (Fav + Live), add a special border
+        // Final Polish
         if (isFav && isLive) {
             card.classList.add('ring-2', 'ring-emerald-400', 'shadow-lg', 'shadow-emerald-500/20');
         } else if (isLive) {
             card.classList.add('border-l-4', 'border-l-red-500');
         }
-
-        container.appendChild(card);
+        return card;
     });
+
+    container.replaceChildren(...cards);
 }
 
 // Helper to generate consistent Trading Pick IDs (Matches backend logic)
@@ -1287,21 +1300,25 @@ function renderStrategies() {
         else premium.push({ id, strat });
     });
 
+    const children = [];
+
     if (premium.length) {
         const sec = document.createElement('div');
         sec.className = 'col-span-full mb-2';
         sec.innerHTML = '<div class="text-sm font-bold text-purple-300">✨ Strategie AI</div>';
-        container.appendChild(sec);
-        premium.forEach(x => container.appendChild(createStrategyBtn(x.id, x.strat, true)));
+        children.push(sec);
+        premium.forEach(x => children.push(createStrategyBtn(x.id, x.strat, true)));
     }
 
     if (standard.length) {
         const sec = document.createElement('div');
         sec.className = 'col-span-full mt-4 mb-2';
         sec.innerHTML = '<div class="text-sm font-bold text-blue-300">📂 Strategie Fisse</div>';
-        container.appendChild(sec);
-        standard.forEach(x => container.appendChild(createStrategyBtn(x.id, x.strat, false)));
+        children.push(sec);
+        standard.forEach(x => children.push(createStrategyBtn(x.id, x.strat, false)));
     }
+
+    container.replaceChildren(...children);
 }
 
 function createStrategyBtn(id, strat, isPremium) {
@@ -1333,14 +1350,14 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
     if (!strat.matches || strat.matches.length === 0) {
         container.innerHTML = '<div class="text-center py-10 text-gray-400">Nessuna partita.</div>';
     } else {
-        const sorted = [...strat.matches].sort((a, b) => {
+        const filtered = strat.matches.filter(m => !isMatchStale(m));
+        const sorted = [...filtered].sort((a, b) => {
             // ALWAYS sort by time as per user request to avoid UI instability
             return (a.ora || '').localeCompare(b.ora || '');
         });
 
-        sorted.forEach((m, idx) => {
-            container.appendChild(window.createUniversalCard(m, idx, stratId));
-        });
+        const cards = sorted.map((m, idx) => window.createUniversalCard(m, idx, stratId));
+        container.replaceChildren(...cards);
     }
 
     window.showPage('ranking');
@@ -1566,12 +1583,9 @@ window.showMyMatches = function (sortMode = 'score') {
         });
     }
 
-    // 2. Filter Betting Matches by DATE (New Fix)
-    // Only show matches that belong to the currently viewed date (window.currentAppDate)
+    // 2. Filter Betting Matches by DATE & STALENESS
     const bettingMatches = (window.selectedMatches || []).filter(m => {
-        // Assume m.data is "YYYY-MM-DD". If missing, we might show it or hide it.
-        // Better to hide if we want strict date sync.
-        return m.data === window.currentAppDate;
+        return m.data === window.currentAppDate && !isMatchStale(m);
     });
 
     // Betting Favorites Section
@@ -1591,7 +1605,7 @@ window.showMyMatches = function (sortMode = 'score') {
             return a.ora.localeCompare(b.ora);
         });
 
-        sortedMatches.forEach((m, idx) => {
+        const cards = sortedMatches.map((m, idx) => {
             try {
                 const card = window.createUniversalCard(m, idx, m.strategyId || null, { detailedTrading: !!m.liveStats });
 
@@ -1606,12 +1620,14 @@ window.showMyMatches = function (sortMode = 'score') {
                         window.removeMatch(matchId);
                     };
                 }
-
-                container.appendChild(card);
+                return card;
             } catch (e) {
                 console.error('[showMyMatches] Error creating card:', e, m);
+                return null;
             }
-        });
+        }).filter(c => c !== null);
+
+        container.replaceChildren(sectionHeader, ...cards);
     }
 };
 
