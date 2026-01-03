@@ -596,8 +596,23 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     }
 
     // --- Footer with Not Monitored badge ---
-    const notMonitoredBadge = match.isNotMonitored ?
-        '<span class="text-[9px] font-bold text-orange-500 uppercase tracking-widest bg-orange-100 px-2 py-0.5 rounded-full">⚠️ Non monitorata</span>' : '';
+    let notMonitoredBadge = '';
+    if (match.isNotMonitored) {
+        // Check if future or live
+        const now = new Date();
+        const matchDateStr = match.data || now.toISOString().split('T')[0];
+        const matchTimeStr = match.ora || '00:00';
+        const matchDateTime = new Date(`${matchDateStr}T${matchTimeStr}:00`);
+
+        // Add 2 hours buffer for "live" window (approx duration of match)
+        const isFuture = matchDateTime > now;
+
+        if (isFuture) {
+            notMonitoredBadge = '<span class="text-[9px] font-bold text-blue-400 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-regular fa-clock"></i> In Attesa</span>';
+        } else {
+            notMonitoredBadge = '<span class="text-[9px] font-bold text-orange-500 uppercase tracking-widest bg-orange-100 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-solid fa-satellite-dish"></i> Connessione...</span>';
+        }
+    }
     const footerHTML = `
         <div class="bg-gray-50 p-2 border-t border-gray-100 flex justify-between items-center px-4">
               ${notMonitoredBadge}

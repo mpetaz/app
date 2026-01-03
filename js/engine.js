@@ -856,67 +856,78 @@ function createUnder35TradingStrategy(match) {
 
 // Funzione principale: Trasforma partita in strategia trading
 function transformToTradingStrategy(match, allMatches) {
-    // 1. Dati base e normalizzazione resiliente (es. '+1.5', 'Over 1.5', 'over 1.5')
-    const rawTip = (match.tip || "").toLowerCase().trim();
+    // 1. Dati base e normalizzazione resiliente
+    // Handles: "over 2.5", "o 2.5", "+2.5", "over2.5", "+ 2.5", "o2.5"
+    const rawTip = (match.tip || "").toLowerCase().replace(/\s+/g, ' ').trim();
     const quota = match.quota;
     const prob = match.probabilita;
     const htProb = extractHTProb(match.info_ht);
-
-    // 2. MAGIA AI CHECK (New Elite Trigger)
     const magicData = match.magicStats;
 
-    // CASO 1: Over 1.5 MOLTO probabile (quota bassa) → BACK OVER 2.5
-    if ((rawTip.includes('1.5') && rawTip.includes('over')) || rawTip === '+1.5') {
-        if (quota <= 1.30 && prob >= 75) {
+    // DETECT INTENT (Regex Based) - Supports dot and comma (2.5 / 2,5)
+    const isOver25Tip = /over\s*2[.,]5/.test(rawTip) || /\+\s*2[.,]5/.test(rawTip) || /^o\s*2[.,]5/.test(rawTip) || rawTip.includes('o2.5') || rawTip.includes('o2,5');
+    const isUnder35Tip = /under\s*3[.,]5/.test(rawTip) || /\-\s*3[.,]5/.test(rawTip) || /^u\s*3[.,]5/.test(rawTip) || rawTip.includes('u3.5') || rawTip.includes('u3,5');
+    const isOver15Tip = /over\s*1[.,]5/.test(rawTip) || /\+\s*1[.,]5/.test(rawTip);
+
+    // --- PRIORITY 1: STRICT TIP MATCHING ---
+
+    // CASO BACK OVER 2.5 (Priorità assoluta se il tip è Over 2.5)
+    if (isOver25Tip) {
+        // Criteri morbidi perché l'intento è già dichiarato dal tipster
+        if (prob >= 60 || (magicData && magicData.over25Prob >= 60) || match.score >= 60) {
+            return createBackOver25Strategy(match, htProb, allMatches);
+        }
+        // Fallback: Se prob < 60 ma è un Over 2.5, proviamo Second Half Surge
+        if (match.score >= 55) return createSecondHalfSurgeStrategy(match, allMatches);
+
+        // Se fallisce anche Surge, NON farlo diventare HT Sniper a meno che non sia clamoroso
+        if (htProb < 85) return null;
+    }
+
+    // CASO OVER 1.5 VALUE (diventa BO25 se strong)
+    if (isOver15Tip) {
+        if (quota <= 1.35 && prob >= 70) {
             return createBackOver25Strategy(match, htProb, allMatches);
         }
     }
 
-    // CASO 2: Over 2.5 diretto con alta probabilità
-    if ((rawTip.includes('2.5') && (rawTip.includes('over') || rawTip.startsWith('o '))) || rawTip === '+2.5') {
-        if (prob >= 60 || (magicData && magicData.over25Prob >= 60)) {
-            return createBackOver25Strategy(match, htProb, allMatches);
-        }
+    // CASO UNDER 3.5 SCALPING
+    if (isUnder35Tip) {
+        if (prob >= 65) return createUnder35TradingStrategy(match);
     }
+
+    // --- PRIORITY 2: STATISTICAL OPPORTUNITIES (Se il tip è neutro o diverso) ---
 
     // CASO HT SNIPER: Molto probabile gol nel primo tempo
-    if (htProb >= 72 || (magicData && magicData.htGoalProb >= 70)) {
+    // Alziamo la soglia per evitare che mangi tutto (cannibalizzazione)
+    // Richiede stats da Sniper VERO (80%+) o Magia AI conferma
+    if (htProb >= 80 || (magicData && magicData.htGoalProb >= 75)) {
         return createHTSniperStrategy(match, htProb);
     }
 
-    // CASO 2ND HALF SURGE: Match da Over con probabilità medio-alta
-    if (prob >= 60 && prob < 75 && match.score >= 60) {
+    // CASO 2ND HALF SURGE (Puro statistico)
+    if (prob >= 65 && prob < 80 && match.score >= 65) {
         return createSecondHalfSurgeStrategy(match, allMatches);
     }
 
-    // CASO UNDER 3.5 SCALPING: Match molto "chiusi" (es. -2.5 con prob > 70%)
-    if ((rawTip.includes('2.5') && rawTip.includes('under')) || rawTip === '-2.5') {
-        if (prob >= 70) {
-            return createUnder35TradingStrategy(match);
-        }
-    }
-
-    // CASO 3 (HYBRID): LAY THE DRAW basato su Magia AI + Storico
+    // CASO 3 (HYBRID): LAY THE DRAW
     const teams = match.partita.split(' - ');
     if (teams.length === 2) {
         const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
         const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
         const avgRate = (homeDrawRate.rate + awayDrawRate.rate) / 2;
 
-        // Trigger 1: Magia AI Elite (Pareggio improbabile Dixon-Coles)
+        // Trigger 1: Magia AI Elite
         const aiLowDraw = magicData && magicData.drawProb < 20;
-
-        // Trigger 2: Storico Solido (Tasso pareggi basso)
-        const histLowDraw = avgRate < 24 && prob >= 75;
+        // Trigger 2: Storico Solido
+        const histLowDraw = avgRate < 25 && prob >= 70;
 
         if (aiLowDraw || histLowDraw) {
-            // Se entrambi i sistemi concordano -> Diamond Signal
             const convergent = aiLowDraw && histLowDraw;
             return createLayTheDrawStrategy(match, avgRate, homeDrawRate, awayDrawRate, convergent);
         }
     }
 
-    // Altrimenti SKIP
     return null;
 }
 
