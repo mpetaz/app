@@ -1,6 +1,6 @@
 // TipsterAI Service Worker v3.5.2 - Force Cache Root
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.5.9';
+const VERSION = '3.5.11';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
