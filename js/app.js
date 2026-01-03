@@ -119,46 +119,8 @@ function getRankingColor(score) {
 }
 
 const isMatchStale = (m) => {
-    if (!m) return false;
-
-    // Se ha un risultato, tienilo sempre
-    if (m.risultato || (m.liveData && m.liveData.score)) {
-        return false;
-    }
-
-    const now = new Date();
-    let mDate = m.data || now.toISOString().split('T')[0];
-    const mTime = m.ora || '00:00';
-
-    // Normalize DD/MM/YYYY or similar to YYYY-MM-DD for Date constructor
-    if (mDate.includes('/') || mDate.includes('-')) {
-        const sep = mDate.includes('/') ? '/' : '-';
-        const pts = mDate.split(sep);
-        // If DD/MM/YYYY
-        if (pts[0].length <= 2 && pts[2].length === 4) {
-            mDate = `${pts[2]}-${pts[1]}-${pts[0]}`;
-        } else if (pts[0].length === 4) {
-            mDate = `${pts[0]}-${pts[1]}-${pts[2]}`;
-        }
-    }
-
-    try {
-        const mDateTime = new Date(`${mDate.replace(/\//g, '-')}T${mTime}:00`);
-        if (isNaN(mDateTime.getTime())) {
-            console.log(`[Ghost Check] ❌ ${matchInfo} - Invalid date: ${mDate}`);
-            return false;
-        }
-        const diffMs = now - mDateTime;
-        const diffMin = Math.floor(diffMs / (60 * 1000));
-        const isStale = diffMs > (100 * 60 * 1000);
-
-        if (isStale) {
-            console.log(`[Ghost] 🗑️ ${m.partita} (${m.ora}) - ${diffMin}min ago, no result`);
-        }
-        return isStale;
-    } catch (e) {
-        return false;
-    }
+    // DISABILITATO SU RICHIESTA UTENTE PER RIPRISTINARE VISIBILITÀ TOTALE
+    return false;
 };
 
 window.getLiveTradingAnalysis = async function (matchId) {
@@ -306,9 +268,46 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const mKey = mName.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const tKey = mTip.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const hubId = `${mKey}_${tKey}`;
-    const liveHubData = window.liveScoresHub[hubId];
+    let liveHubData = window.liveScoresHub[hubId];
+
+    // FUZZY FALLBACK: If exact ID not found, try to find by fuzzy matching name
+    if (!liveHubData) {
+        // Only try fuzzy if we have a substantial name (len > 3)
+        if (mKey.length > 3) {
+            const hubKeys = Object.keys(window.liveScoresHub);
+            // 1. Try "contains" check first (faster)
+            let bestKey = hubKeys.find(k => k.startsWith(mKey) || (k.includes(mKey) && k.includes(tKey)));
+
+            // 2. If still nothing, use Levenshtein (if available from utils)
+            if (!bestKey && typeof window.levenshteinDistance === 'function') {
+                let bestDist = Infinity;
+                hubKeys.forEach(k => {
+                    // Check if tip matches first
+                    if (!k.includes(tKey)) return;
+
+                    const kMatchPart = k.split('_')[0]; // Extract match part
+                    const dist = window.levenshteinDistance(mKey, kMatchPart);
+                    // Match length for normalization
+                    const maxLen = Math.max(mKey.length, kMatchPart.length);
+                    // Only accept if similarity > 80% (dist < 20% of length)
+                    if (dist < maxLen * 0.2 && dist < bestDist) {
+                        bestDist = dist;
+                        bestKey = k;
+                    }
+                });
+            }
+
+            if (bestKey) {
+                liveHubData = window.liveScoresHub[bestKey];
+                console.log(`[LiveHub] 🔦 Fuzzy Match Found: "${hubId}" -> "${bestKey}"`);
+            }
+        }
+    }
+
     // DEBUG: Active to trace hubId lookups
-    console.log(`[CardDebug] Looking for hubId: "${hubId}" | Found: ${!!liveHubData} | HubSize: ${Object.keys(window.liveScoresHub).length}`);
+    if (!liveHubData && index < 5) { // Limit logs
+        console.log(`[CardDebug] ❌ Missed: "${hubId}" (Size: ${Object.keys(window.liveScoresHub).length})`);
+    }
 
     if (liveHubData) {
         match = {
