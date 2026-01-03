@@ -564,16 +564,20 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         </div>
     `;
 
-    // 05 HT Logic (Restored)
+    // 05 HT Logic (Restored with Probability)
     const htHTML = match.info_ht && match.info_ht.trim() !== '' ? (() => {
         const htMatch = match.info_ht.match(/(\d+)%.*?@?([\d.,]+)/);
+        const htProb = htMatch ? htMatch[1] : '';
         const htQuota = htMatch ? htMatch[2] : '';
 
         return `
             <div class="mx-4 mb-3 bg-purple-50 border border-purple-200 rounded-lg p-2">
                 <div class="text-[10px] font-bold text-purple-700 flex justify-between items-center">
                     <span>⚽ Gol nel Primo Tempo (0.5 HT)</span>
-                    ${htQuota ? `<span class="bg-purple-100 px-2 py-0.5 rounded text-purple-900 font-black">@${htQuota}</span>` : ''}
+                    <div class="flex items-center gap-2">
+                        ${htProb ? `<span class="bg-purple-200 px-2 py-0.5 rounded text-purple-800 font-black">${htProb}%</span>` : ''}
+                        ${htQuota ? `<span class="bg-purple-100 px-2 py-0.5 rounded text-purple-900 font-black">@${htQuota}</span>` : ''}
+                    </div>
                 </div>
             </div>`;
     })() : '';
@@ -2243,20 +2247,39 @@ window.injectAccountPage = function () {
 };
 
 window.populateAccountPage = function () {
-    if (!window.currentUserProfile) return;
-    const p = window.currentUserProfile;
+    // Use currentUserProfile if available, fallback to currentUser (auth object)
+    const p = window.currentUserProfile || {};
+    const u = window.currentUser || {};
+
+    const name = p.name || u.displayName || u.email?.split('@')[0] || 'Utente';
+    const email = p.email || u.email || '-';
+
     const elName = document.getElementById('account-name');
-    if (elName) elName.textContent = p.name || 'Utente';
+    if (elName) elName.textContent = name;
 
     const elEmail = document.getElementById('account-email');
-    if (elEmail) elEmail.textContent = p.email || window.currentUser?.email || '-';
+    if (elEmail) elEmail.textContent = email;
 
     const elAvatar = document.getElementById('account-avatar');
-    if (elAvatar) elAvatar.textContent = (p.name || 'U').charAt(0).toUpperCase();
+    if (elAvatar) elAvatar.textContent = name.charAt(0).toUpperCase();
 
     const elCreated = document.getElementById('account-created');
-    if (elCreated && p.createdAt) {
-        elCreated.textContent = new Date(p.createdAt).toLocaleDateString('it-IT');
+    // Try multiple date fields and handle Firestore Timestamp
+    const createdTimestamp = p.createdAt || p.registeredAt || u.metadata?.creationTime;
+    if (elCreated && createdTimestamp) {
+        try {
+            let d;
+            if (typeof createdTimestamp === 'string') {
+                d = new Date(createdTimestamp);
+            } else if (createdTimestamp.toDate) {
+                d = createdTimestamp.toDate(); // Firestore Timestamp
+            } else {
+                d = new Date(createdTimestamp);
+            }
+            elCreated.textContent = d.toLocaleDateString('it-IT');
+        } catch (e) {
+            elCreated.textContent = '-';
+        }
     }
 
     if (p.telegramLinked) {
