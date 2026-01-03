@@ -27,7 +27,23 @@ window.aiKnowledge = {};
 window.globalStats = { total: 0, wins: 0, losses: 0, winrate: 0 };
 
 let currentStrategyId = null;
-let currentSortMode = 'time'; // Forced to 'time' as per user request to avoid UI instability
+let currentSortMode = 'time';
+
+// ANTI-FLICKER CACHE: Remember last rendered data to avoid re-renders
+let _lastRenderCache = {
+    rankingHash: null,
+    myMatchesHash: null,
+    tradingHash: null
+};
+
+function getDataHash(data) {
+    if (!data) return null;
+    try {
+        return JSON.stringify(data);
+    } catch (e) {
+        return Math.random().toString(); // Force render on error
+    }
+} // Forced to 'time' as per user request to avoid UI instability
 let isRegisterMode = false;
 let warningStats = null;
 let tradingFavorites = []; // IDs of favorite trading picks
@@ -860,6 +876,14 @@ window.renderTradingCards = function (picks) {
     const container = document.getElementById('trading-cards-container');
     if (!container) return;
 
+    // ANTI-FLICKER: Skip render if data hasn't changed
+    const dataHash = getDataHash(picks);
+    if (_lastRenderCache.tradingHash === dataHash) {
+        console.log('[Trading Render] ⏭️ SKIPPED (data unchanged)');
+        return;
+    }
+    _lastRenderCache.tradingHash = dataHash;
+
     if (picks.length === 0) {
         document.getElementById('trading-empty').classList.remove('hidden');
         return;
@@ -1395,6 +1419,14 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
     if (!container) return;
     document.getElementById('strategy-title').textContent = strat.name;
 
+    // ANTI-FLICKER: Skip render if data hasn't changed
+    const dataHash = getDataHash(strat.matches);
+    if (_lastRenderCache.rankingHash === dataHash) {
+        console.log('[Ranking Render] ⏭️ SKIPPED (data unchanged)');
+        return;
+    }
+    _lastRenderCache.rankingHash = dataHash;
+
     if (!strat.matches || strat.matches.length === 0) {
         container.replaceChildren();
         const msg = document.createElement('div');
@@ -1582,6 +1614,14 @@ window.updateMyMatchesCount = function () {
 window.showMyMatches = function (sortMode = 'score') {
     const container = document.getElementById('my-matches-container');
     if (!container) return;
+
+    // ANTI-FLICKER: Skip render if data hasn't changed
+    const dataHash = getDataHash(window.selectedMatches);
+    if (_lastRenderCache.myMatchesHash === dataHash) {
+        console.log('[MyMatches Render] ⏭️ SKIPPED (data unchanged)');
+        return;
+    }
+    _lastRenderCache.myMatchesHash = dataHash;
 
     // 1. Refresh scores from current strategiesData (if available)
     if (window.strategiesData) {
