@@ -370,6 +370,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 <div class="flex items-center gap-2">
                     ${headerIcon}
                     <span class="font-bold text-sm tracking-wider uppercase">${headerTitle}</span>
+                    ${isTrading && match.confidence ? `<span class="bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold ml-2">${Math.round(match.confidence)}</span>` : ''}
                     ${isRealTimeMatch && isLive ? '<span class="bg-blue-500/80 text-[9px] px-2 py-0.5 rounded-full font-black ml-1">🕒 REAL TIME</span>' : ''}
                 </div>
                 <div class="flex items-center gap-2">

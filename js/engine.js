@@ -535,7 +535,8 @@ function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate
             exitTarget: 'Dopo 1° gol o minuto 70',
             timing: 'Primi 10 minuti di gioco'
         },
-        confidence: Math.min(95, (match.score || 70) + (isConvergent ? 10 : 3)),
+        // CONFIDENCE basato su probabilità reale per ranking equilibrato
+        confidence: Math.min(95, (match.probabilita || 70) + (isConvergent ? 10 : 5)),
         reasoning: reasoning.join(' + ') + ` | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
         badge: {
             text: 'Trading Lay The Draw',
@@ -770,7 +771,9 @@ function createBackOver25Strategy(match, htProb, allMatches) {
             exitTarget: '1.50-1.70 dopo 1° gol',
             timing: 'Pre-match'
         },
-        confidence: Math.min(95, match.score + 5),
+        // CONFIDENCE basato su probabilità REALE Over 2.5, non su score generico
+        // Se prob bassa, confidence basso → viene scartato nel sorting (corretto!)
+        confidence: Math.min(95, Math.max(prob, match.score || 0)),
         reasoning: reasoning.join(' + ') + ` | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
         badge: {
             text: 'Trading Back Over 2.5',
@@ -795,7 +798,8 @@ function createHTSniperStrategy(match, htProb) {
             exitTarget: 'Immediato dopo gol nel 1°T',
             timing: 'Entrare al minuto 15-20 se ancora 0-0'
         },
-        confidence: Math.round(htProb),
+        // CONFIDENCE basato su htProb per ranking equilibrato
+        confidence: Math.min(95, htProb),
         reasoning: `ALTA PROBABILITÀ GOL 1°T (${htProb}%). Se 0-0 al minuto 20, la quota diventa di estremo valore. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
         badge: {
             text: '🎯 HT SNIPER',
@@ -820,7 +824,8 @@ function createSecondHalfSurgeStrategy(match, allMatches) {
             exitTarget: 'Gol nel secondo tempo',
             timing: 'Entrare al minuto 60-65 se partita bloccata'
         },
-        confidence: Math.min(95, (match.score || 70) + 5),
+        // CONFIDENCE basato su probabilità per ranking equilibrato
+        confidence: Math.min(95, (match.probabilita || 70) + 5),
         reasoning: `Match ad alta intensità statistica. Ottimo per sfruttare il calo delle quote nel secondo tempo tra il minuto 60 e 80. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
         badge: {
             text: '🔥 2ND HALF SURGE',
@@ -845,7 +850,8 @@ function createUnder35TradingStrategy(match) {
             exitTarget: 'Scalping 10-15 tick o dopo 20 min',
             timing: 'Pre-match o primi 5 min'
         },
-        confidence: Math.round(100 - (match.probabilita / 1.5)), // Inversa della probabilità over
+        // CONFIDENCE basato su probabilità inversa (Under) per ranking equilibrato
+        confidence: Math.min(95, match.probabilita || 70),
         reasoning: `Match previsto "chiuso" con basso volume di tiri. Ideale per scaricare il rischio dopo i primi 15-20 minuti. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
         badge: {
             text: '🛡️ UNDER SCALPING',
@@ -873,15 +879,23 @@ function transformToTradingStrategy(match, allMatches) {
 
     // CASO BACK OVER 2.5 (Priorità assoluta se il tip è Over 2.5)
     if (isOver25Tip) {
+        console.log(`[DEBUG Over 2.5] ${match.partita} | Prob: ${prob}, Score: ${match.score}, MagicOver25: ${magicData?.over25Prob || 'N/A'}, HT: ${htProb}`);
+
         // Criteri morbidi perché l'intento è già dichiarato dal tipster
         if (prob >= 60 || (magicData && magicData.over25Prob >= 60) || match.score >= 60) {
+            console.log(`[DEBUG Over 2.5] ✅ ACCEPTED as BACK_OVER_25`);
             return createBackOver25Strategy(match, htProb, allMatches);
         }
         // Fallback: Se prob < 60 ma è un Over 2.5, proviamo Second Half Surge
-        if (match.score >= 55) return createSecondHalfSurgeStrategy(match, allMatches);
+        if (match.score >= 55) {
+            console.log(`[DEBUG Over 2.5] ✅ ACCEPTED as SURGE (fallback)`);
+            return createSecondHalfSurgeStrategy(match, allMatches);
+        }
 
-        // Se fallisce anche Surge, NON farlo diventare HT Sniper a meno che non sia clamoroso
-        if (htProb < 85) return null;
+        // BUGFIX CRITICO: NON bloccare le Over 2.5 deboli!
+        // Lascia che provino HT Sniper o LTD invece di scartarle
+        console.log(`[DEBUG Over 2.5] ⚠️ WEAK Over 2.5 - Trying other strategies (HT Sniper/LTD)...`);
+        // REMOVED: if (htProb < 85) return null; <-- QUESTO STAVA BUTTANDO VIA LE OVER 2.5!
     }
 
     // CASO OVER 1.5 VALUE (diventa BO25 se strong)
