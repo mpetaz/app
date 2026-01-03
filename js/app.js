@@ -2265,6 +2265,7 @@ window.populateAccountPage = function () {
     const email = p.email || u.email || '-';
 
     const elName = document.getElementById('account-name');
+    console.log('[Account] Finding account-name element:', elName, 'Setting to:', name);
     if (elName) elName.textContent = name;
 
     const elEmail = document.getElementById('account-email');
