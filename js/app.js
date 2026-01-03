@@ -86,6 +86,11 @@ window.chatWithGemini = async (payload) => {
 function calculateGoalCookingPressure(stats, minute) {
     if (!stats || !minute || minute < 1) return 0;
 
+    // Use pre-calculated value from backend if available for maximum consistency
+    if (stats.pressureValue !== undefined) {
+        return Math.round(parseFloat(stats.pressureValue) || 0);
+    }
+
     const parsePair = (str) => {
         if (!str || typeof str !== 'string') return [0, 0];
         const parts = str.split('-').map(p => parseInt(p.trim()) || 0);
@@ -1011,7 +1016,7 @@ window.renderTradingFavoritesInStarTab = function () {
         return;
     }
 
-    const cards = activeFavs.map(pick => window.createUniversalCard(pick, 0, null, { isTrading: true, isFavorite: true }));
+    const cards = activeFavs.map(pick => window.createUniversalCard(pick, 0, null, { isTrading: true, isFavorite: true, detailedTrading: true }));
     container.replaceChildren(...cards);
 };
 
