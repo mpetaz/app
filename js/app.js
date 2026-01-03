@@ -1003,12 +1003,19 @@ if (deleteAllMatchesBtn) {
 }
 
 async function loadUserProfile(uid) {
+    console.log('[Profile] Loading for UID:', uid);
     try {
         const docSnap = await getDoc(doc(db, "users", uid));
         if (docSnap.exists()) {
             window.currentUserProfile = docSnap.data();
             const nick = window.currentUserProfile.name || 'Utente';
-            document.getElementById('user-nickname-header').textContent = `Ciao, ${nick}! 👋`;
+            const elHeader = document.getElementById('user-nickname-header');
+            if (elHeader) elHeader.textContent = `Ciao, ${nick}! 👋`;
+
+            // Auto-populate account page if it's currently visible
+            if (typeof window.populateAccountPage === 'function') {
+                window.populateAccountPage();
+            }
         }
     } catch (e) {
         console.error("Profile Error", e);
@@ -2275,6 +2282,9 @@ window.populateAccountPage = async function () {
     const elEmail = document.getElementById('account-email');
     const elAvatar = document.getElementById('account-avatar');
     const elCreated = document.getElementById('account-created');
+
+    console.log('[Account] UI Elements:', { elName, elEmail, elAvatar, elCreated });
+    console.log('[Account] Data to set:', { name, email, createdTimestamp });
 
     if (elName) elName.textContent = name;
     if (elEmail) elEmail.textContent = email;
