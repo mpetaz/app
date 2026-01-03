@@ -27,7 +27,7 @@ window.aiKnowledge = {};
 window.globalStats = { total: 0, wins: 0, losses: 0, winrate: 0 };
 
 let currentStrategyId = null;
-let currentSortMode = 'time'; // Forced to 'time' as per user request to avoid UI instability
+let currentSortMode = 'score';
 let isRegisterMode = false;
 let warningStats = null;
 let tradingFavorites = []; // IDs of favorite trading picks
@@ -93,13 +93,6 @@ function calculateGoalCookingPressure(stats, minute) {
     }
 
     return Math.min(100, Math.round(pressure));
-}
-
-function getRankingColor(score) {
-    if (!score && score !== 0) return 'gray-400';
-    if (score >= 80) return 'emerald-500';
-    if (score >= 65) return 'yellow-400';
-    return 'red-500';
 }
 
 window.getLiveTradingAnalysis = async function (matchId) {
@@ -273,10 +266,6 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const matchId = match.id || `${match.data}_${match.partita}`;
     const isFlagged = !isTrading ? (window.selectedMatches || []).some(sm => sm.id === matchId) : tradingFavorites.includes(matchId);
 
-    const rankingValue = Math.round(match.confidence || match.score || 0);
-    const rankingColor = getRankingColor(rankingValue);
-    const rankingBadgeHTML = rankingValue > 0 ? `<span class="bg-${rankingColor} text-black px-2 py-0.5 rounded-full text-[10px] font-black ml-2 shadow-sm border border-black/10 transition-transform hover:scale-110">${rankingValue}</span>` : '';
-
     // Style Configuration
     let headerClass = 'bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950';
     let headerIcon = '<i class="fa-solid fa-futbol"></i>';
@@ -359,7 +348,6 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                  <div class="flex items-center gap-2">
                     ${headerIcon}
                     <span class="font-bold text-sm tracking-wider uppercase">${headerTitle}</span>
-                    ${rankingBadgeHTML}
                     ${isRealTimeMatch ? '<span class="bg-blue-500/80 text-[9px] px-2 py-0.5 rounded-full font-black ml-1 animate-pulse">🕒 REAL TIME</span>' : ''}
                 </div>
                 <div class="flex items-center gap-3">
@@ -382,7 +370,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 <div class="flex items-center gap-2">
                     ${headerIcon}
                     <span class="font-bold text-sm tracking-wider uppercase">${headerTitle}</span>
-                    ${rankingBadgeHTML}
+                    ${isTrading && match.confidence ? `<span class="bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold ml-2">${Math.round(match.confidence)}</span>` : ''}
                     ${isRealTimeMatch && isLive ? '<span class="bg-blue-500/80 text-[9px] px-2 py-0.5 rounded-full font-black ml-1">🕒 REAL TIME</span>' : ''}
                 </div>
                 <div class="flex items-center gap-2">
@@ -809,6 +797,10 @@ window.renderTradingCards = function (picks) {
     }
 
     // 2. Smart Sorting
+    // Group 1: Fav + Live
+    // Group 2: Live
+    // Group 3: Fav
+    // Group 4: Others
     const getPriority = (p) => {
         const isFav = (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita));
         const isLive = (p.liveData?.elapsed || p.liveData?.minute || 0) > 0;
@@ -818,12 +810,7 @@ window.renderTradingCards = function (picks) {
         return 4;
     };
 
-    filtered.sort((a, b) => {
-        const pA = getPriority(a);
-        const pB = getPriority(b);
-        if (pA !== pB) return pA - pB;
-        return (a.ora || '').localeCompare(b.ora || '');
-    });
+    filtered.sort((a, b) => getPriority(a) - getPriority(b));
 
     document.getElementById('trading-empty').classList.add('hidden');
 
@@ -1108,11 +1095,9 @@ async function loadData(dateToLoad = null) {
 
                 // RE-RENDER PAGES IF ACTIVE
                 if (currentStrategyId && document.getElementById('page-ranking')?.classList.contains('active')) {
-                    window._prevScrollY = window.scrollY;
                     window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
                 }
                 if (document.getElementById('page-my-matches')?.classList.contains('active')) {
-                    window._prevScrollY = window.scrollY;
                     window.showMyMatches(currentSortMode);
                 }
             } else {
@@ -1156,12 +1141,6 @@ async function loadData(dateToLoad = null) {
         initLiveHubListener();
 
         await renderStats();
-
-        // Restore scroll after initial load or refresh
-        if (window._prevScrollY) {
-            window.scrollTo(0, window._prevScrollY);
-            delete window._prevScrollY;
-        }
 
     } catch (e) {
         console.error("Load Data Error", e);
@@ -1312,8 +1291,8 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
         container.innerHTML = '<div class="text-center py-10 text-gray-400">Nessuna partita.</div>';
     } else {
         const sorted = [...strat.matches].sort((a, b) => {
-            // ALWAYS sort by time as per user request to avoid UI instability
-            return (a.ora || '').localeCompare(b.ora || '');
+            if (sortMode === 'time') return (a.ora || '').localeCompare(b.ora || '');
+            return (b.score || 0) - (a.score || 0);
         });
 
         sorted.forEach((m, idx) => {
@@ -1561,13 +1540,17 @@ window.showMyMatches = function (sortMode = 'score') {
         sectionHeader.innerHTML = '<div class="text-sm font-bold text-purple-300 flex items-center gap-2">⭐ PRONOSTICI SALVATI <span class="bg-purple-600 px-2 py-0.5 rounded text-xs">' + bettingMatches.length + '</span></div>';
         container.appendChild(sectionHeader);
 
-        let sortedMatches = [...bettingMatches].sort((a, b) => {
-            // ALWAYS sort by time as per user request to avoid UI instability
-            if (!a.ora && !b.ora) return 0;
-            if (!a.ora) return 1;
-            if (!b.ora) return -1;
-            return a.ora.localeCompare(b.ora);
-        });
+        let sortedMatches = [...bettingMatches];
+        if (sortMode === 'time') {
+            sortedMatches.sort((a, b) => {
+                if (!a.ora && !b.ora) return 0;
+                if (!a.ora) return 1;
+                if (!b.ora) return -1;
+                return a.ora.localeCompare(b.ora);
+            });
+        } else {
+            sortedMatches.sort((a, b) => (b.score || 0) - (a.score || 0));
+        }
 
         sortedMatches.forEach((m, idx) => {
             try {
@@ -1593,8 +1576,25 @@ window.showMyMatches = function (sortMode = 'score') {
     }
 };
 
-// Redundant sorting listeners removed as per request (Time is now the only sort)
-// initMyMatchesListeners();
+// Initialize listeners for sorting in my-matches page
+const initMyMatchesListeners = () => {
+    const btnScore = document.getElementById('my-matches-sort-score');
+    const btnTime = document.getElementById('my-matches-sort-time');
+
+    if (btnScore && btnTime) {
+        btnScore.onclick = () => {
+            btnScore.className = 'flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg font-semibold text-sm';
+            btnTime.className = 'flex-1 bg-gray-700 text-gray-300 py-2 px-4 rounded-lg font-semibold text-sm';
+            window.showMyMatches('score');
+        };
+        btnTime.onclick = () => {
+            btnTime.className = 'flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg font-semibold text-sm';
+            btnScore.className = 'flex-1 bg-gray-700 text-gray-300 py-2 px-4 rounded-lg font-semibold text-sm';
+            window.showMyMatches('time');
+        };
+    }
+};
+initMyMatchesListeners();
 
 window.removeTradingFavorite = async function (pickId) {
     const idx = tradingFavorites.indexOf(pickId);
