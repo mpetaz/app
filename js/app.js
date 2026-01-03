@@ -2306,6 +2306,7 @@ window.populateAccountPage = async function () {
         if (document.getElementById('notify-kickoff')) document.getElementById('notify-kickoff').checked = p.notifyKickoff !== false;
         if (document.getElementById('notify-goal')) document.getElementById('notify-goal').checked = p.notifyGoal !== false;
         if (document.getElementById('notify-result')) document.getElementById('notify-result').checked = p.notifyResult !== false;
+        if (document.getElementById('notify-live')) document.getElementById('notify-live').checked = p.notifyLive !== false;
     } else {
         elNotLinked?.classList.remove('hidden');
         elLinked?.classList.add('hidden');
@@ -2342,9 +2343,11 @@ window.populateAccountPage = async function () {
     });
 
     // Telegram Notifications Toggle
-    ['notify-kickoff', 'notify-goal', 'notify-result'].forEach(id => {
+    ['notify-kickoff', 'notify-goal', 'notify-result', 'notify-live'].forEach(id => {
         document.getElementById(id)?.addEventListener('change', async (e) => {
-            const dbField = id.includes('kickoff') ? 'notifyKickoff' : (id.includes('goal') ? 'notifyGoal' : 'notifyResult');
+            const dbField = id === 'notify-kickoff' ? 'notifyKickoff' :
+                id === 'notify-goal' ? 'notifyGoal' :
+                    id === 'notify-result' ? 'notifyResult' : 'notifyLive';
             try {
                 await setDoc(doc(db, "users", window.currentUser.uid), { [dbField]: e.target.checked }, { merge: true });
             } catch (err) { console.error(err); }

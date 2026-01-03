@@ -786,6 +786,8 @@ function createHTSniperStrategy(match, htProb) {
 
     return {
         ...match,
+        _originalTip: match.tip || 'N/A',
+        _originalQuota: match.quota || 'N/A',
         strategy: 'HT_SNIPER',
         tradingInstruction: {
             action: 'Back Over 0.5 HT',
@@ -809,6 +811,8 @@ function createSecondHalfSurgeStrategy(match, allMatches) {
 
     return {
         ...match,
+        _originalTip: match.tip || 'N/A',
+        _originalQuota: match.quota || 'N/A',
         strategy: 'SECOND_HALF_SURGE',
         tradingInstruction: {
             action: 'Back Over 0.5 ST',
@@ -832,6 +836,8 @@ function createUnder35TradingStrategy(match) {
 
     return {
         ...match,
+        _originalTip: match.tip || 'N/A',
+        _originalQuota: match.quota || 'N/A',
         strategy: 'UNDER_35_SCALPING',
         tradingInstruction: {
             action: 'Back Under 3.5 / Lay Over 3.5',
