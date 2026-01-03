@@ -982,8 +982,18 @@ async function loadData(dateToLoad = null) {
                 }
             } else {
                 console.warn("No data for date:", targetDate);
-                // Try fallback logic only if it's the first load
-                if (!dateToLoad) {
+
+                // Auto-fallback to yesterday if today has no data
+                const todayStr = new Date().toISOString().split('T')[0];
+                if (targetDate === todayStr && !dateToLoad) {
+                    const yesterdayDate = new Date();
+                    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+                    const yesterday = yesterdayDate.toISOString().split('T')[0];
+                    console.log(`[LoadData] No data for today, falling back to yesterday: ${yesterday}`);
+                    // Recursively call loadData with yesterday
+                    loadData(yesterday);
+                } else {
+                    // Try generic fallback only if it's not a date-specific load
                     getDoc(doc(db, "system", "strategy_results")).then(fallbackSnap => {
                         if (fallbackSnap.exists()) {
                             window.strategiesData = fallbackSnap.data();
@@ -2281,12 +2291,15 @@ window.populateAccountPage = function () {
             elCreated.textContent = '-';
         }
     }
+    // Debug log
+    console.log('[Account] Populating with profile:', JSON.stringify({ name, email, createdTimestamp, telegramChatId: p.telegramChatId, telegramLinked: p.telegramLinked }));
 
-    if (p.telegramLinked) {
+    // Telegram check - use both telegramLinked AND telegramChatId for compatibility
+    if (p.telegramLinked || p.telegramChatId) {
         document.getElementById('telegram-not-linked')?.classList.add('hidden');
         document.getElementById('telegram-linked')?.classList.remove('hidden');
         const elTele = document.getElementById('telegram-username');
-        if (elTele) elTele.textContent = p.telegramUsername ? `@${p.telegramUsername}` : '';
+        if (elTele) elTele.textContent = p.telegramUsername ? `@${p.telegramUsername}` : 'User collegato';
     } else {
         document.getElementById('telegram-not-linked')?.classList.remove('hidden');
         document.getElementById('telegram-linked')?.classList.add('hidden');
