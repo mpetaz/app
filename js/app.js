@@ -541,9 +541,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     }
 
     // Warnings (Standard Only)
+    // isFinished is already defined at top of function
     if (!isMagia && !isTrading && warningStats && STANDARD_STRATEGIES.includes(stratId)) {
         const volatile = warningStats.volatileLeagues?.find(l => l.lega === match.lega);
-        if (volatile) {
+        if (volatile && !isFinished) {
             insightsHTML += `
                 <div class="mx-4 mb-3 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
                     <i class="fa-solid fa-triangle-exclamation text-red-500 text-xs"></i>
@@ -562,6 +563,21 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
               ${isTrading ? '<span class="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Trading Pick</span>' : '<span class="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Standard Pick</span>'}
         </div>
     `;
+
+    // 05 HT Logic (Restored)
+    const htHTML = match.info_ht && match.info_ht.trim() !== '' ? (() => {
+        const htMatch = match.info_ht.match(/(\d+)%.*?@?([\d.,]+)/);
+        const htQuota = htMatch ? htMatch[2] : '';
+
+        return `
+            <div class="mx-4 mb-3 bg-purple-50 border border-purple-200 rounded-lg p-2">
+                <div class="text-[10px] font-bold text-purple-700 flex justify-between items-center">
+                    <span>⚽ Gol nel Primo Tempo (0.5 HT)</span>
+                    ${htQuota ? `<span class="bg-purple-100 px-2 py-0.5 rounded text-purple-900 font-black">@${htQuota}</span>` : ''}
+                </div>
+            </div>`;
+    })() : '';
+    insightsHTML += htHTML;
 
     card.innerHTML = headerHTML + teamsHTML + primarySignalHTML + insightsHTML + footerHTML;
     return card;
@@ -1250,6 +1266,18 @@ function startTradingLiveRefresh() {
 }
 
 window.showPage = function (pageId) {
+    // Account Page Injection Hook
+    if (pageId === 'account') {
+        if (typeof window.injectAccountPage === 'function') window.injectAccountPage();
+        if (typeof window.populateAccountPage === 'function') window.populateAccountPage();
+    }
+
+    // If trying to show ranking without a strategy selected, default to 'all'
+    if (pageId === 'ranking' && !currentStrategyId) {
+        window.showRanking('all', window.strategiesData['all']);
+        return; // Exit to prevent re-showing the page
+    }
+
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     const pageEl = document.getElementById(`page-${pageId}`);
     if (pageEl) pageEl.classList.add('active');
@@ -2134,3 +2162,110 @@ function renderFallbackSerieACard(match) {
 }
 
 console.log('[App] Logic Initialized.');
+
+// ==================== ACCOUNT PAGE INJECTION ====================
+
+window.injectAccountPage = function () {
+    if (document.getElementById('page-account')) return;
+
+    console.log('[Account] Injecting Account Page HTML...');
+    const accountDiv = document.createElement('div');
+    accountDiv.id = 'page-account';
+    accountDiv.className = 'page hidden container mx-auto px-4 py-6 pb-24';
+
+    accountDiv.innerHTML = `
+        <h2 class="text-2xl font-bold mb-6 text-white">Il Mio Account</h2>
+        <div class="stat-card rounded-xl p-6 mb-4">
+             <div class="flex items-center gap-4 mb-6">
+                 <div id="account-avatar" class="bg-gradient-to-br from-purple-600 to-blue-600 w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-black">?</div>
+                 <div>
+                     <h3 class="text-xl font-bold text-gray-800" id="account-name">-</h3>
+                     <p class="text-gray-600 text-sm" id="account-email">-</p>
+                 </div>
+             </div>
+             <div class="mb-4">
+                 <p class="text-xs text-gray-500 mt-1">Registrato il <span id="account-created">-</span></p>
+             </div>
+        </div>
+
+        <div class="stat-card rounded-xl p-6 mt-4">
+             <h3 class="font-bold mb-3 text-lg text-gray-800 flex items-center gap-2">
+                 <i class="fa-brands fa-telegram text-blue-500"></i> Notifiche Telegram
+             </h3>
+             <div id="telegram-not-linked" class="space-y-3">
+                 <p class="text-sm text-gray-600">Collega Telegram per ricevere notifiche sui goal!</p>
+                 <button id="generate-telegram-code-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-600 transition flex items-center gap-2">
+                     <i class="fa-solid fa-link"></i> Genera Codice
+                 </button>
+                 <div id="telegram-code-display" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mt-3">
+                     <p class="text-sm text-gray-700 mb-2">Il tuo codice:</p>
+                     <div class="flex items-center gap-2">
+                         <span id="telegram-link-code" class="text-2xl font-mono font-bold text-blue-600 tracking-wider"></span>
+                     </div>
+                     <p class="text-xs text-gray-500 mt-2">Apri <a href="https://t.me/TipsterAI_Live_Bot" target="_blank" class="text-blue-500 underline">@TipsterAI_Live_Bot</a> e invia: <code class="bg-gray-200 px-1 rounded">/start CODICE</code></p>
+                 </div>
+             </div>
+             <div id="telegram-linked" class="hidden space-y-3">
+                 <div class="flex items-center gap-2 text-green-600"><i class="fa-solid fa-check-circle"></i> <span class="font-semibold">Collegato!</span> <span id="telegram-username"></span></div>
+             </div>
+        </div>
+    `;
+
+    const mainContainer = document.querySelector('main') || document.body;
+    mainContainer.appendChild(accountDiv);
+
+    // Attach Listener: Generate Code
+    document.getElementById('generate-telegram-code-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('generate-telegram-code-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando...';
+        try {
+            // Check if httpsCallable is available via window scope (if imported as module it might not be global)
+            // But we are inside the module here.
+            // Assumption: functions (from import) is available inclosure.
+            // If not, we might need window.firebase functions helper.
+            // But since this code is IN app.js, it has access to top-level vars.
+
+            // To be safe, re-get functions if needed, but 'functions' var is at line 11.
+            const generateFn = httpsCallable(functions, 'generateTelegramLinkCode');
+            const res = await generateFn();
+            const code = res.data.code;
+            document.getElementById('telegram-link-code').textContent = code;
+            document.getElementById('telegram-code-display').classList.remove('hidden');
+        } catch (e) {
+            console.error(e);
+            alert('Errore generazione codice: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-link"></i> Genera Codice';
+        }
+    });
+};
+
+window.populateAccountPage = function () {
+    if (!window.currentUserProfile) return;
+    const p = window.currentUserProfile;
+    const elName = document.getElementById('account-name');
+    if (elName) elName.textContent = p.name || 'Utente';
+
+    const elEmail = document.getElementById('account-email');
+    if (elEmail) elEmail.textContent = p.email || window.currentUser?.email || '-';
+
+    const elAvatar = document.getElementById('account-avatar');
+    if (elAvatar) elAvatar.textContent = (p.name || 'U').charAt(0).toUpperCase();
+
+    const elCreated = document.getElementById('account-created');
+    if (elCreated && p.createdAt) {
+        elCreated.textContent = new Date(p.createdAt).toLocaleDateString('it-IT');
+    }
+
+    if (p.telegramLinked) {
+        document.getElementById('telegram-not-linked')?.classList.add('hidden');
+        document.getElementById('telegram-linked')?.classList.remove('hidden');
+        const elTele = document.getElementById('telegram-username');
+        if (elTele) elTele.textContent = p.telegramUsername ? `@${p.telegramUsername}` : '';
+    } else {
+        document.getElementById('telegram-not-linked')?.classList.remove('hidden');
+        document.getElementById('telegram-linked')?.classList.add('hidden');
+    }
+};
