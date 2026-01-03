@@ -103,18 +103,31 @@ function getRankingColor(score) {
 }
 
 window.getLiveTradingAnalysis = async function (matchId) {
-    // Find match data
-    let match = null;
+    const normalizedId = matchId.replace('trading_', '');
+
+    // 1. Search in Favorites
     if (window.selectedMatches) {
         match = window.selectedMatches.find(m => (m.id || `${m.data}_${m.partita}`) === matchId);
     }
 
+    // 2. Search in Trading Cache
+    if (!match && typeof lastTradingPicksCache !== 'undefined') {
+        match = lastTradingPicksCache.find(p => window.getTradingPickId(p.partita) === matchId || p.id === matchId);
+    }
+
+    // 3. Search in all Strategies
+    if (!match && window.strategiesData) {
+        for (const strat of Object.values(window.strategiesData)) {
+            if (strat.matches) {
+                match = strat.matches.find(m => (m.id || `${m.data}_${m.partita}`) === matchId);
+                if (match) break;
+            }
+        }
+    }
+
     if (!match) {
-        // Search in trading results if not in favorites
-        const today = new Date().toISOString().split('T')[0];
-        // This is a bit complex since trading picks are usually in currentTradingPicks state
-        // Let's assume for now it's in a window variable or we find it in the UI
-        alert("Analizzando i dati live... euGENIO sta elaborando. 🧞‍♂️");
+        console.warn(`[eugenio] Match ${matchId} not found in local memory.`);
+        alert("Dati match non trovati in memoria. Provo comunque a generare un'analisi basica... 🧞‍♂️");
     }
 
     const elapsed = (match?.liveData?.elapsed || match?.minute || 0).toString().replace("'", "");
@@ -128,10 +141,10 @@ window.getLiveTradingAnalysis = async function (matchId) {
     const pos = stats.possession || "N/A";
 
     const prompt = `Analizza questo match LIVE per un'operazione di TRADING SPORTIVO:
-- Match: ${match?.partita}
-- Minuto: ${elapsed}'
+- Match: ${match?.partita || 'Sconosciuto'}
+- Minuto: ${elapsed || 0}'
 - Risultato: ${score}
-- Strategia Originale: ${match?.strategy} ${match?.tip}
+- Strategia Originale: ${match?.strategy || match?.label || 'Trading'} ${match?.tip || ''}
 - Statistiche Pro: DA:${da}, SOG:${sog}, xG:${xg}, Possesso:${pos}
 
 Fornisci un'analisi professionale in max 3-4 righe. Usa termini tecnici da Pro Trader (es. liquidity, exposure, weight on market). Concludi con un consiglio chiaro tra:
@@ -767,7 +780,14 @@ window.loadTradingPicks = function (date) {
                 return { ...pick, id: pickId };
             });
 
+            window._prevScrollY = window.scrollY;
             window.renderTradingCards(mergedPicks);
+
+            // Restore scroll after rendering
+            if (window._prevScrollY) {
+                window.scrollTo(0, window._prevScrollY);
+                delete window._prevScrollY;
+            }
 
             if (mergedPicks.length > 0) {
                 document.getElementById('trading-date-indicator').textContent = `${mergedPicks.length} opportunità`;
@@ -1110,10 +1130,18 @@ async function loadData(dateToLoad = null) {
                 if (currentStrategyId && document.getElementById('page-ranking')?.classList.contains('active')) {
                     window._prevScrollY = window.scrollY;
                     window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
+                    if (window._prevScrollY) {
+                        window.scrollTo(0, window._prevScrollY);
+                        delete window._prevScrollY;
+                    }
                 }
                 if (document.getElementById('page-my-matches')?.classList.contains('active')) {
                     window._prevScrollY = window.scrollY;
                     window.showMyMatches(currentSortMode);
+                    if (window._prevScrollY) {
+                        window.scrollTo(0, window._prevScrollY);
+                        delete window._prevScrollY;
+                    }
                 }
             } else {
                 console.warn("No data for date:", targetDate);
@@ -1156,12 +1184,6 @@ async function loadData(dateToLoad = null) {
         initLiveHubListener();
 
         await renderStats();
-
-        // Restore scroll after initial load or refresh
-        if (window._prevScrollY) {
-            window.scrollTo(0, window._prevScrollY);
-            delete window._prevScrollY;
-        }
 
     } catch (e) {
         console.error("Load Data Error", e);
