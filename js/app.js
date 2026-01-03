@@ -146,6 +146,19 @@ Fornisci un'analisi professionale in max 3-4 righe. Usa termini tecnici da Pro T
     }
 };
 
+window.resetPassword = async function () {
+    const email = prompt('Inserisci la tua email per recuperare la password:');
+    if (!email) return;
+
+    try {
+        await sendPasswordResetEmail(auth, email);
+        alert('✅ Email inviata! Controlla la tua casella di posta per reimpostare la password.');
+    } catch (error) {
+        console.error('[Auth] Password reset error:', error);
+        alert('⚠️ Errore: ' + (error.message || 'Email non valida'));
+    }
+};
+
 // Helper: Rendering icone eventi live (Trading 2.0)
 function renderEventIcon(type, detail) {
     const t = (type || "").toUpperCase();
@@ -910,6 +923,62 @@ if (myMatchesSortScore) {
 }
 
 // Additional Listeners
+document.getElementById('logout-btn')?.addEventListener('click', () => signOut(auth));
+
+// Auth Form Listeners
+document.getElementById('toggle-login')?.addEventListener('click', () => {
+    isRegisterMode = false;
+    document.getElementById('auth-title').textContent = 'Accedi a TipsterAI';
+    document.getElementById('auth-submit-btn').textContent = 'Accedi';
+    document.getElementById('name-field').classList.add('hidden');
+    document.getElementById('toggle-login').classList.add('bg-purple-600', 'text-white');
+    document.getElementById('toggle-login').classList.remove('text-gray-600');
+    document.getElementById('toggle-register').classList.remove('bg-purple-600', 'text-white');
+    document.getElementById('toggle-register').classList.add('text-gray-600');
+    document.getElementById('forgot-password-link').classList.remove('hidden');
+});
+
+document.getElementById('toggle-register')?.addEventListener('click', () => {
+    isRegisterMode = true;
+    document.getElementById('auth-title').textContent = 'Registrati a TipsterAI';
+    document.getElementById('auth-submit-btn').textContent = 'Registrati';
+    document.getElementById('name-field').classList.remove('hidden');
+    document.getElementById('toggle-register').classList.add('bg-purple-600', 'text-white');
+    document.getElementById('toggle-register').classList.remove('text-gray-600');
+    document.getElementById('toggle-login').classList.remove('bg-purple-600', 'text-white');
+    document.getElementById('toggle-login').classList.add('text-gray-600');
+    document.getElementById('forgot-password-link').classList.add('hidden');
+});
+
+document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const emailValue = document.getElementById('email').value;
+    const passwordValue = document.getElementById('password').value;
+    const errorDiv = document.getElementById('auth-error');
+    errorDiv.classList.add('hidden');
+
+    try {
+        if (isRegisterMode) {
+            const userName = document.getElementById('user-name').value.trim();
+            if (!userName) throw new Error('Nickname obbligatorio');
+
+            const userCredential = await createUserWithEmailAndPassword(auth, emailValue, passwordValue);
+            await setDoc(doc(db, "users", userCredential.user.uid), {
+                name: userName,
+                email: emailValue,
+                createdAt: new Date().toISOString(),
+                subscription: "free",
+                telegramLinked: false
+            });
+        } else {
+            await signInWithEmailAndPassword(auth, emailValue, passwordValue);
+        }
+    } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.classList.remove('hidden');
+    }
+});
+
 const deleteAllMatchesBtn = document.getElementById('delete-all-matches-btn');
 if (deleteAllMatchesBtn) {
     deleteAllMatchesBtn.addEventListener('click', async () => {
@@ -1293,7 +1362,11 @@ window.showPage = function (pageId) {
     }
 
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    const pageEl = document.getElementById(`page-${pageId}`);
+
+    // Normalize IDs: account button uses data-page="account", map to index.html ID
+    const domId = pageId === 'account' ? 'account-page' : `page-${pageId}`;
+    const pageEl = document.getElementById(domId);
+
     if (pageEl) pageEl.classList.add('active');
     window.scrollTo(0, 0);
 
@@ -2177,132 +2250,110 @@ function renderFallbackSerieACard(match) {
 
 console.log('[App] Logic Initialized.');
 
-// ==================== ACCOUNT PAGE INJECTION ====================
+// ==================== ACCOUNT PAGE POPULATION ====================
 
-window.injectAccountPage = function () {
-    if (document.getElementById('page-account')) return;
-
-    console.log('[Account] Injecting Account Page HTML...');
-    const accountDiv = document.createElement('div');
-    accountDiv.id = 'page-account';
-    accountDiv.className = 'page hidden container mx-auto px-4 py-6 pb-24';
-
-    accountDiv.innerHTML = `
-        <h2 class="text-2xl font-bold mb-6 text-white">Il Mio Account</h2>
-        <div class="stat-card rounded-xl p-6 mb-4">
-             <div class="flex items-center gap-4 mb-6">
-                 <div id="user-profile-avatar" class="bg-gradient-to-br from-purple-600 to-blue-600 w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-black">?</div>
-                 <div>
-                     <h3 class="text-xl font-bold text-gray-800" id="user-profile-name">-</h3>
-                     <p class="text-gray-600 text-sm" id="user-profile-email">-</p>
-                 </div>
-             </div>
-             <div class="mb-4">
-                 <p class="text-xs text-gray-500 mt-1">Registrato il <span id="user-profile-created">-</span></p>
-             </div>
-        </div>
-
-        <div class="stat-card rounded-xl p-6 mt-4">
-             <h3 class="font-bold mb-3 text-lg text-gray-800 flex items-center gap-2">
-                 <i class="fa-brands fa-telegram text-blue-500"></i> Notifiche Telegram
-             </h3>
-             <div id="telegram-not-linked" class="space-y-3">
-                 <p class="text-sm text-gray-600">Collega Telegram per ricevere notifiche sui goal!</p>
-                 <button id="generate-telegram-code-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-600 transition flex items-center gap-2">
-                     <i class="fa-solid fa-link"></i> Genera Codice
-                 </button>
-                 <div id="telegram-code-display" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mt-3">
-                     <p class="text-sm text-gray-700 mb-2">Il tuo codice:</p>
-                     <div class="flex items-center gap-2">
-                         <span id="telegram-link-code" class="text-2xl font-mono font-bold text-blue-600 tracking-wider"></span>
-                     </div>
-                     <p class="text-xs text-gray-500 mt-2">Apri <a href="https://t.me/TipsterAI_Live_Bot" target="_blank" class="text-blue-500 underline">@TipsterAI_Live_Bot</a> e invia: <code class="bg-gray-200 px-1 rounded">/start CODICE</code></p>
-                 </div>
-             </div>
-             <div id="telegram-linked" class="hidden space-y-3">
-                 <div class="flex items-center gap-2 text-green-600"><i class="fa-solid fa-check-circle"></i> <span class="font-semibold">Collegato!</span> <span id="telegram-username"></span></div>
-             </div>
-        </div>
-    `;
-
-    const mainContainer = document.querySelector('main') || document.body;
-    mainContainer.appendChild(accountDiv);
-
-    // Attach Listener: Generate Code
-    document.getElementById('generate-telegram-code-btn')?.addEventListener('click', async () => {
-        const btn = document.getElementById('generate-telegram-code-btn');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando...';
-        try {
-            // Check if httpsCallable is available via window scope (if imported as module it might not be global)
-            // But we are inside the module here.
-            // Assumption: functions (from import) is available inclosure.
-            // If not, we might need window.firebase functions helper.
-            // But since this code is IN app.js, it has access to top-level vars.
-
-            // To be safe, re-get functions if needed, but 'functions' var is at line 11.
-            const generateFn = httpsCallable(functions, 'generateTelegramLinkCode');
-            const res = await generateFn();
-            const code = res.data.code;
-            document.getElementById('telegram-link-code').textContent = code;
-            document.getElementById('telegram-code-display').classList.remove('hidden');
-        } catch (e) {
-            console.error(e);
-            alert('Errore generazione codice: ' + e.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-link"></i> Genera Codice';
-        }
-    });
-};
-
-window.populateAccountPage = function () {
-    // Use currentUserProfile if available, fallback to currentUser (auth object)
+window.populateAccountPage = async function () {
+    if (!window.currentUser) return;
     const p = window.currentUserProfile || {};
     const u = window.currentUser || {};
 
+    // Profile Baselines
     const name = p.name || u.displayName || u.email?.split('@')[0] || 'Utente';
-    const email = p.email || u.email || '-';
+    const email = u.email || p.email || '-';
 
-    const elName = document.getElementById('user-profile-name');
-    console.log('[Account] Finding user-profile-name element:', elName);
-    if (elName) elName.textContent = name;
-
-    const elEmail = document.getElementById('user-profile-email');
-    if (elEmail) elEmail.textContent = email;
-
-    const elAvatar = document.getElementById('user-profile-avatar');
-    if (elAvatar) elAvatar.textContent = name.charAt(0).toUpperCase();
-
-    const elCreated = document.getElementById('user-profile-created');
-    // Try multiple date fields and handle Firestore Timestamp
-    const createdTimestamp = p.createdAt || p.registeredAt || u.metadata?.creationTime;
-    if (elCreated && createdTimestamp) {
+    let createdTimestamp = '-';
+    const rawCreated = p.createdAt || p.registeredAt || u.metadata?.creationTime;
+    if (rawCreated) {
         try {
-            let d;
-            if (typeof createdTimestamp === 'string') {
-                d = new Date(createdTimestamp);
-            } else if (createdTimestamp.toDate) {
-                d = createdTimestamp.toDate(); // Firestore Timestamp
-            } else {
-                d = new Date(createdTimestamp);
-            }
-            elCreated.textContent = d.toLocaleDateString('it-IT');
-        } catch (e) {
-            elCreated.textContent = '-';
-        }
+            const date = rawCreated.toDate ? rawCreated.toDate() : new Date(rawCreated);
+            createdTimestamp = date.toLocaleDateString('it-IT');
+        } catch (e) { console.warn("Created date error", e); }
     }
-    // Debug log
-    console.log('[Account] Populating with profile:', JSON.stringify({ name, email, createdTimestamp, telegramChatId: p.telegramChatId, telegramLinked: p.telegramLinked }));
 
-    // Telegram check - use both telegramLinked AND telegramChatId for compatibility
-    if (p.telegramLinked || p.telegramChatId) {
-        document.getElementById('telegram-not-linked')?.classList.add('hidden');
-        document.getElementById('telegram-linked')?.classList.remove('hidden');
-        const elTele = document.getElementById('telegram-username');
-        if (elTele) elTele.textContent = p.telegramUsername ? `@${p.telegramUsername}` : 'User collegato';
+    // Populate UI (Targeting IDs from index.html)
+    const elName = document.getElementById('account-name');
+    const elEmail = document.getElementById('account-email');
+    const elAvatar = document.getElementById('account-avatar');
+    const elCreated = document.getElementById('account-created');
+
+    if (elName) elName.textContent = name;
+    if (elEmail) elEmail.textContent = email;
+    if (elAvatar) elAvatar.textContent = name.charAt(0).toUpperCase();
+    if (elCreated) elCreated.textContent = createdTimestamp;
+
+    // Telegram UI
+    const telegramCondition = p.telegramLinked || p.telegramChatId;
+    const elNotLinked = document.getElementById('telegram-not-linked');
+    const elLinked = document.getElementById('telegram-linked');
+
+    if (telegramCondition) {
+        elNotLinked?.classList.add('hidden');
+        elLinked?.classList.remove('hidden');
+        const elUser = document.getElementById('telegram-username');
+        if (elUser) elUser.textContent = p.telegramUsername ? `@${p.telegramUsername}` : 'Attivo';
+
+        // Checkbox states
+        if (document.getElementById('notify-kickoff')) document.getElementById('notify-kickoff').checked = p.notifyKickoff !== false;
+        if (document.getElementById('notify-goal')) document.getElementById('notify-goal').checked = p.notifyGoal !== false;
+        if (document.getElementById('notify-result')) document.getElementById('notify-result').checked = p.notifyResult !== false;
     } else {
-        document.getElementById('telegram-not-linked')?.classList.remove('hidden');
-        document.getElementById('telegram-linked')?.classList.add('hidden');
+        elNotLinked?.classList.remove('hidden');
+        elLinked?.classList.add('hidden');
     }
+
+    // --- Listeners (Attach once) ---
+    if (window.accountListenersInitialized) return;
+
+    // Nickname Update
+    document.getElementById('edit-nickname-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const newNick = document.getElementById('edit-nickname-input').value.trim();
+        if (!newNick) return;
+        try {
+            await setDoc(doc(db, "users", window.currentUser.uid), { name: newNick }, { merge: true });
+            alert("Nickname aggiornato! Ricarica la pagina per vederlo dappertutto.");
+            location.reload();
+        } catch (err) { console.error(err); alert("Ops, errore salvataggio."); }
+    });
+
+    // Telegram Code Generation
+    document.getElementById('generate-telegram-code-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('generate-telegram-code-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Attendere...';
+        try {
+            const generateFn = httpsCallable(functions, 'generateTelegramLinkCode');
+            const res = await generateFn();
+            document.getElementById('telegram-link-code').textContent = res.data.code;
+            document.getElementById('telegram-code-display').classList.remove('hidden');
+        } catch (err) { console.error(err); alert("Errore generazione codice."); }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-link"></i> Genera Codice';
+    });
+
+    // Telegram Notifications Toggle
+    ['notify-kickoff', 'notify-goal', 'notify-result'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', async (e) => {
+            const dbField = id.includes('kickoff') ? 'notifyKickoff' : (id.includes('goal') ? 'notifyGoal' : 'notifyResult');
+            try {
+                await setDoc(doc(db, "users", window.currentUser.uid), { [dbField]: e.target.checked }, { merge: true });
+            } catch (err) { console.error(err); }
+        });
+    });
+
+    // Unlink Telegram
+    document.getElementById('unlink-telegram-btn')?.addEventListener('click', async () => {
+        if (!confirm("Scollegare il bot Telegram? Non riceverai più notifiche.")) return;
+        try {
+            await setDoc(doc(db, "users", window.currentUser.uid), {
+                telegramLinked: false,
+                telegramChatId: null,
+                telegramUsername: null
+            }, { merge: true });
+            alert("Telegram scollegato.");
+            location.reload();
+        } catch (err) { console.error(err); }
+    });
+
+    window.accountListenersInitialized = true;
 };
