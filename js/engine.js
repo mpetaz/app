@@ -472,75 +472,7 @@ function calculateScore05HT(partita, dbCompleto) {
         teamBonus: score,
         totalScore: Math.min(100, score),
         quotaValid: true,
-    };
-}
-
-/**
- * Crea una strategia Lay The Draw (LTD) professionale
- * @param {object} match - Dati della partita
- * @param {number} avgDrawRate - Tasso pareggi medio (storico)
- * @param {object} homeDrawRate - Dettagli pareggi casa
- * @param {object} awayDrawRate - Dettagli pareggi trasferta
- * @param {boolean} isConvergent - Se AI e Storico concordano (Diamond Signal)
- */
-function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate, isConvergent = false) {
-    // ==================== LIQUIDITY CHECK ====================
-    const liquidity = checkLiquidity(match.lega);
-    if (liquidity.skip) {
-        return null; // Skip low liquidity leagues for trading
-    }
-    // =========================================================
-
-    const prob = match.probabilita;
-    const tip = match.tip;
-
-    // Range ingresso: 2.50 - 4.50 (allargato per maggiore copertura)
-    const entryRange = ['2.50', '4.50'];
-
-    // ANALISI DETTAGLIATA PER REASONING
-    let reasoning = [];
-
-    // Base: segno probabile
-    const tipLabel = tip === '1' ? `vittoria ${match.partita.split(' - ')[0]}` :
-        tip === '2' ? `vittoria ${match.partita.split(' - ')[1]}` :
-            'segno (no pareggio)';
-
-    if (isConvergent) {
-        reasoning.push(`🔥 <strong>DIAMOND SIGNAL</strong>: Convergenza AI + Storico Squadre`);
-    } else {
-        reasoning.push(`Alta probabilità ${tipLabel} (${prob}%)`);
-    }
-
-    // Analisi dettagliata pareggi
-    if (avgDrawRate <= 15) {
-        reasoning.push(`squadre che pareggiano raramente (solo ${avgDrawRate.toFixed(0)}% dei match)`);
-    } else if (avgDrawRate <= 22) {
-        reasoning.push(`basso tasso pareggi storico (${avgDrawRate.toFixed(0)}%)`);
-    }
-
-    // Info lega se rilevante
-    const legaNorm = normalizeLega(match.lega).toLowerCase();
-    if (legaNorm.includes('premier') || legaNorm.includes('bundesliga') || legaNorm.includes('serie a')) {
-        reasoning.push('top campionato con pochi pareggi tattici');
-    }
-
-    return {
-        ...match,
-        _originalTip: match.tip,
-        _originalQuota: match.quota,
-        strategy: 'LAY_THE_DRAW',
-        tradingInstruction: {
-            action: 'Lay The Draw',
-            entryRange: entryRange,
-            exitTarget: 'Dopo 1° gol o minuto 70',
-            timing: 'Primi 10 minuti di gioco'
-        },
-        confidence: Math.min(95, (match.score || 70) + (isConvergent ? 10 : 3)),
-        reasoning: reasoning.join(' + ') + ` | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
-        badge: {
-            text: 'Trading Lay The Draw',
-            color: 'bg-blue-100 text-blue-700 border-blue-300'
-        }
+        htProb: htProb
     };
 }
 
@@ -779,77 +711,57 @@ function createBackOver25Strategy(match, htProb, allMatches) {
     };
 }
 
-// Helper: Crea strategia HT SNIPER (0.5 HT Live)
-function createHTSniperStrategy(match, htProb) {
+// Helper: Crea strategia LAY THE DRAW
+function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate, convergent = false) {
+    // ==================== LIQUIDITY CHECK ====================
     const liquidity = checkLiquidity(match.lega);
-    if (liquidity.skip) return null;
+    if (liquidity.skip) {
+        return null; // Skip low liquidity leagues for trading
+    }
+    // =========================================================
+
+    const prob = match.probabilita;
+    const magicDraw = match.magicStats?.drawProb || 0;
+
+    // Range ingresso: 2.50 - 3.90
+    const entryRange = ['2.50', '3.90'];
+
+    // ANALISI DETTAGLIATA PER REASONING
+    let reasoning = [];
+
+    // Magia AI Intelligence
+    reasoning.push(`RISCHIO PAREGGIO AI: ${magicDraw}% (Soglia Elite: <18%)`);
+
+    // Analisi dettagliata pareggi storici
+    if (avgDrawRate <= 18) {
+        reasoning.push(`Storico squadre: solo ${avgDrawRate.toFixed(0)}% pareggi`);
+    }
+
+    // Diamond / Elite Badge
+    let badgeText = 'Trading Lay The Draw';
+    let badgeColor = 'bg-blue-100 text-blue-700 border-blue-300';
+    if (convergent && magicDraw < 15) {
+        badgeText = '💎 ELITE LAY DRAW';
+        badgeColor = 'bg-indigo-600 text-white border-indigo-700 shadow-sm';
+        reasoning.push('⚡ CONVERGENZA TOTALE AI + TREND');
+    }
 
     return {
         ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
-        strategy: 'HT_SNIPER',
+        _originalTip: match.tip,
+        _originalQuota: match.quota,
+        strategy: 'LAY_THE_DRAW',
         tradingInstruction: {
-            action: 'Back Over 0.5 HT',
-            entryRange: ['1.50', '2.00'],
-            exitTarget: 'Immediato dopo gol nel 1°T',
-            timing: 'Entrare al minuto 15-20 se ancora 0-0'
+            action: 'Lay The Draw',
+            entryRange: entryRange,
+            exitTarget: 'Dopo 1° gol o minuto 70',
+            timing: 'Primi 10 minuti di gioco'
         },
-        confidence: Math.round(htProb),
-        reasoning: `ALTA PROBABILITÀ GOL 1°T (${htProb}%). Se 0-0 al minuto 20, la quota diventa di estremo valore. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
+        confidence: Math.round(100 - magicDraw),
+        reasoning: reasoning.join(' | ') + ` | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
         badge: {
-            text: '🎯 HT SNIPER',
-            color: 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse'
-        }
-    };
-}
-
-// Helper: Crea strategia SECOND HALF SURGE (0.5 ST)
-function createSecondHalfSurgeStrategy(match, allMatches) {
-    const liquidity = checkLiquidity(match.lega);
-    if (liquidity.skip) return null;
-
-    return {
-        ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
-        strategy: 'SECOND_HALF_SURGE',
-        tradingInstruction: {
-            action: 'Back Over 0.5 ST',
-            entryRange: ['1.60', '2.10'],
-            exitTarget: 'Gol nel secondo tempo',
-            timing: 'Entrare al minuto 60-65 se partita bloccata'
-        },
-        confidence: Math.min(95, (match.score || 70) + 5),
-        reasoning: `Match ad alta intensità statistica. Ottimo per sfruttare il calo delle quote nel secondo tempo tra il minuto 60 e 80. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
-        badge: {
-            text: '🔥 2ND HALF SURGE',
-            color: 'bg-orange-600 text-white border-orange-700 shadow-sm'
-        }
-    };
-}
-
-// Helper: Crea strategia UNDER 3.5 TRADING (Scalping)
-function createUnder35TradingStrategy(match) {
-    const liquidity = checkLiquidity(match.lega);
-    if (liquidity.skip) return null;
-
-    return {
-        ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
-        strategy: 'UNDER_35_SCALPING',
-        tradingInstruction: {
-            action: 'Back Under 3.5 / Lay Over 3.5',
-            entryRange: ['1.30', '1.60'],
-            exitTarget: 'Scalping 10-15 tick o dopo 20 min',
-            timing: 'Pre-match o primi 5 min'
-        },
-        confidence: Math.round(100 - (match.probabilita / 1.5)), // Inversa della probabilità over
-        reasoning: `Match previsto "chiuso" con basso volume di tiri. Ideale per scaricare il rischio dopo i primi 15-20 minuti. | Liquidità: ${liquidity.rating} ${liquidity.badge}`,
-        badge: {
-            text: '🛡️ UNDER SCALPING',
-            color: 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+            text: badgeText,
+            color: badgeColor
         }
     };
 }
@@ -872,41 +784,22 @@ function transformToTradingStrategy(match, allMatches) {
     }
 
     // CASO 2: Over 2.5 diretto con alta probabilità
-    if (tip === '+2.5' && (prob >= 65 || (magicData && magicData.over25Prob >= 60 && match.score >= 60))) {
+    if (tip === '+2.5' && prob >= 65) {
         return createBackOver25Strategy(match, htProb, allMatches);
     }
 
-    // CASO HT SNIPER: Molto probabile gol nel primo tempo
-    if (htProb >= 80) {
-        return createHTSniperStrategy(match, htProb);
-    }
+    // CASO 3 (ELITE): LAY THE DRAW basato su Magia AI (Replaces tipster-based trigger)
+    // Se la simulazione Dixon-Coles dice che il pareggio è < 18%, attiviamo LTD
+    if (magicData && magicData.drawProb < 18) {
+        const teams = match.partita.split(' - ');
+        if (teams.length === 2) {
+            const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
+            const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
+            const avgRate = (homeDrawRate.rate + awayDrawRate.rate) / 2;
 
-    // CASO 2ND HALF SURGE: Match da Over con probabilità medio-alta
-    if (prob >= 60 && prob < 75 && match.score >= 60) {
-        return createSecondHalfSurgeStrategy(match, allMatches);
-    }
+            // Diamond Signal: Convergenza AI + Tipster (se il tipster dice 1, 2 o 12)
+            const convergent = ['1', '2', '12'].includes(tip);
 
-    // CASO UNDER 3.5 SCALPING: Match molto "chiusi" (es. -2.5 con prob > 70%)
-    if (tip === '-2.5' && prob >= 70) {
-        return createUnder35TradingStrategy(match);
-    }
-
-    // CASO 3 (HYBRID): LAY THE DRAW basato su Magia AI + Storico
-    const teams = match.partita.split(' - ');
-    if (teams.length === 2) {
-        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
-        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
-        const avgRate = (homeDrawRate.rate + awayDrawRate.rate) / 2;
-
-        // Trigger 1: Magia AI Elite (Pareggio improbabile Dixon-Coles)
-        const aiLowDraw = magicData && magicData.drawProb < 20;
-
-        // Trigger 2: Storico Solido (Tasso pareggi basso)
-        const histLowDraw = avgRate < 24 && prob >= 75;
-
-        if (aiLowDraw || histLowDraw) {
-            // Se entrambi i sistemi concordano -> Diamond Signal
-            const convergent = aiLowDraw && histLowDraw;
             return createLayTheDrawStrategy(match, avgRate, homeDrawRate, awayDrawRate, convergent);
         }
     }
@@ -979,45 +872,16 @@ function generateTradingBadge(match, is05HT = false, team1Stats = null, team2Sta
 // ==================== MONTE CARLO ENGINE ====================
 
 /**
- * Seeded Random Number Generator (Mulberry32)
- * Ensures deterministic results for the same match/seed.
- */
-class SeededRandom {
-    constructor(seedString) {
-        // Create a hash from the string to use as numeric seed
-        let h = 0x811c9dc5;
-        if (seedString) {
-            for (let i = 0; i < seedString.length; i++) {
-                h ^= seedString.charCodeAt(i);
-                h = Math.imul(h, 0x01000193);
-            }
-        } else {
-            h = Math.floor(Math.random() * 0xFFFFFFFF);
-        }
-        this.state = h >>> 0;
-    }
-
-    // Returns a float between 0 and 1
-    next() {
-        let t = (this.state += 0x6D2B79F5);
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        this.state = t >>> 0; // update state
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    }
-}
-
-/**
  * Generates a random number based on Poisson distribution
- * (Knuth's algorithm) - Now accepts a custom RNG
+ * (Knuth's algorithm)
  */
-function poissonRandom(lambda, rng = null) {
+function poissonRandom(lambda) {
     const L = Math.exp(-lambda);
     let k = 0;
     let p = 1;
     do {
         k++;
-        p *= rng ? rng.next() : Math.random();
+        p *= Math.random();
     } while (p > L);
     return k - 1;
 }
@@ -1054,10 +918,7 @@ function dixonColesCorrection(hg, ag, rho, lambdaHome, lambdaAway) {
  * Runs a TRUE Monte Carlo simulation for a match
  * Returns raw data for density analysis
  */
-function simulateMatch(lambdaHome, lambdaAway, iterations = 5000, seedString = "") {
-    // Determine seed for reproducible results
-    // If no seed provided, utilize Math.random via SeededRandom wrapper or just null to use fallback
-    const rng = seedString ? new SeededRandom(seedString) : null;
+function simulateMatch(lambdaHome, lambdaAway, iterations = 5000) {
     const results = {
         homeWins: 0, draws: 0, awayWins: 0,
         dc1X: 0, dcX2: 0, dc12: 0,
@@ -1071,8 +932,8 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 5000, seedString = "
     const rho = DIXON_COLES_RHO || -0.11;
 
     for (let i = 0; i < iterations; i++) {
-        const hg = poissonRandom(lambdaHome, rng);
-        const ag = poissonRandom(lambdaAway, rng);
+        const hg = poissonRandom(lambdaHome);
+        const ag = poissonRandom(lambdaAway);
 
         // Apply Dixon-Coles weighting via rejection sampling or basic correction
         // For Monte Carlo, we weight the count by the correction factor
@@ -1212,7 +1073,7 @@ function generateMagiaAI(matches, allMatchesHistory) {
             const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
                 homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
 
-            sim = simulateMatch(lambdaHome, lambdaAway, 5000, match.partita);
+            sim = simulateMatch(lambdaHome, lambdaAway, 5000);
 
             // =====================================================================
             // HYBRID PROBABILITY REFINEMENT (User Feedback: "Draws are too high")
@@ -1324,77 +1185,6 @@ function generateMagiaAI(matches, allMatchesHistory) {
 }
 
 
-/**
- * Calcola i parametri Magia AI (Dixon-Coles) per una singola partita
- * Versione "viva" per trading ohne filtri di soglia confidence
- */
-function getMagiaStats(match, allMatchesHistory) {
-    const teams = parseTeams(match.partita);
-    if (!teams) return null;
-
-    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory);
-    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory);
-
-    if (homeStats.currForm.matchCount < 3 || awayStats.currForm.matchCount < 3) return null;
-
-    // League Goal Factor
-    const leagueNorm = (match.lega || '').toLowerCase();
-    let goalFactor = 1.0;
-    for (const [l, factor] of Object.entries(LEAGUE_GOAL_FACTORS)) {
-        if (leagueNorm.includes(l)) {
-            goalFactor = factor;
-            break;
-        }
-    }
-
-    const lambdaHome = ((homeStats.currForm.avgScored * 0.6 + homeStats.season.avgScored * 0.4 +
-        awayStats.currForm.avgConceded * 0.6 + awayStats.season.avgConceded * 0.4) / 2) * goalFactor;
-    const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
-        homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
-
-    const sim = simulateMatch(lambdaHome, lambdaAway, 5000, match.partita);
-
-    // Hybrid refinement (Draw Penalty)
-    const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
-    const histAwayDraw = (awayStats.season.draws / awayStats.season.matches) * 100 || 25;
-    const avgHistDraw = (histHomeDraw + histAwayDraw) / 2;
-    let hybridDraw = (sim.draw * 0.7) + (avgHistDraw * 0.3);
-
-    const dbTip = (match.tip || '').trim();
-    if (dbTip === '1' || dbTip === '2') {
-        hybridDraw = hybridDraw * 0.90;
-    }
-
-    // Normalize
-    const remainder = 100 - hybridDraw;
-    const ratio = remainder / (sim.winHome + sim.winAway);
-    sim.draw = hybridDraw;
-    sim.winHome = sim.winHome * ratio;
-    sim.winAway = sim.winAway * ratio;
-
-    const allSignals = [
-        { label: '1', prob: sim.winHome, type: '1X2' },
-        { label: 'X', prob: sim.draw, type: '1X2' },
-        { label: '2', prob: sim.winAway, type: '1X2' },
-        { label: 'Over 2.5', prob: sim.over25, type: 'GOALS' }
-    ].sort((a, b) => b.prob - a.prob);
-
-    return {
-        drawProb: sim.draw,
-        winHomeProb: sim.winHome,
-        winAwayProb: sim.winAway,
-        over25Prob: sim.over25,
-        aiSignal: allSignals[0].label,
-        confidence: allSignals[0].prob
-    };
-}
-
-const parseTeams = (partita) => {
-    const parts = partita.split(' - ');
-    if (parts.length < 2) return null;
-    return { home: parts[0].trim(), away: parts[1].trim() };
-};
-
 // Export functions
 window.calculateStrategyRankings = null; // Will be defined in admin logic, not here
 window.engine = {
@@ -1404,6 +1194,5 @@ window.engine = {
     generateTradingBadge,
     checkLiquidity,
     simulateMatch,
-    getMagiaStats,
     generateMagiaAI
 };
