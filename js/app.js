@@ -130,6 +130,7 @@ const isMatchStale = (m) => {
 
 window.getLiveTradingAnalysis = async function (matchId) {
     const normalizedId = matchId.replace('trading_', '');
+    let match = null;
 
     // 1. Search in Favorites
     if (window.selectedMatches) {
@@ -232,7 +233,20 @@ function evaluateTipLocally(tip, risultato) {
     const total = gH + gA;
     const t = String(tip).toLowerCase().trim();
 
-    // Over/Under logic
+    // --- TRADING SPECIFICO: Pattern esatti valutati PRIMA dei generici ---
+    // "Back Under X" = vinci se total < X (stesso di Lay Over)
+    if (t.includes("back under 3.5") || t.includes("lay over 3.5")) return total < 4 ? 'Vinto' : 'Perso';
+    if (t.includes("back under 2.5") || t.includes("lay over 2.5")) return total < 3 ? 'Vinto' : 'Perso';
+    if (t.includes("back under 1.5") || t.includes("lay over 1.5")) return total < 2 ? 'Vinto' : 'Perso';
+
+    // "Back Over X" = vinci se total >= X (stesso di Lay Under)
+    if (t.includes("back over 2.5") || t.includes("lay under 2.5")) return total >= 3 ? 'Vinto' : 'Perso';
+    if (t.includes("back over 3.5") || t.includes("lay under 3.5")) return total >= 4 ? 'Vinto' : 'Perso';
+
+    // Lay the Draw
+    if (t.includes("lay the draw") || t.includes("lay draw") || t.includes("laythedraw")) return gH !== gA ? 'Vinto' : 'Perso';
+
+    // Over/Under logic (standard)
     if (t.includes("+0.5") || t.includes("over 0.5") || t.match(/\bo\s?0\.5/)) return total >= 1 ? 'Vinto' : 'Perso';
     if (t.includes("+1.5") || t.includes("over 1.5") || t.match(/\bo\s?1\.5/)) return total >= 2 ? 'Vinto' : 'Perso';
     if (t.includes("+2.5") || t.includes("over 2.5") || t.match(/\bo\s?2\.5/)) return total >= 3 ? 'Vinto' : 'Perso';
@@ -254,11 +268,6 @@ function evaluateTipLocally(tip, risultato) {
     if (cleanT === "1x" || cleanT === "x1") return gH >= gA ? 'Vinto' : 'Perso';
     if (cleanT === "x2" || cleanT === "2x") return gA >= gH ? 'Vinto' : 'Perso';
     if (cleanT === "12" || cleanT === "21") return gH !== gA ? 'Vinto' : 'Perso';
-
-    // Trading: Lay The Draw
-    if (t.includes("lay the draw") || t.includes("lay draw") || t.includes("laythedraw")) return gH !== gA ? 'Vinto' : 'Perso';
-    // Trading: Back Over 2.5
-    if (t.includes("back over") || t.includes("backover")) return total >= 3 ? 'Vinto' : 'Perso';
 
     return null;
 }
@@ -611,21 +620,27 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         insightsHTML += `
             <div class="px-4 mb-3">
                  <div class="text-[9px] font-bold text-gray-300 uppercase tracking-widest mb-1">Live Hub Events</div>
-                 <div class="flex flex-col gap-1 max-h-32 overflow-y-auto scrollbar-hide">
-                    ${match.events.slice().reverse().map(ev => {
-            const time = ev.time || ev.minute || 0;
+                     <div class="flex flex-col gap-1 max-h-32 overflow-y-auto scrollbar-hide">
+                        ${match.events.slice().reverse().map(ev => {
+            const time = ev.time?.elapsed || ev.time || ev.minute || 0;
             const icon = renderEventIcon(ev.type, ev.detail);
-            const detail = ev.detail || ev.player?.name || "";
+            const typeText = ev.type || "";
+            const detailText = ev.detail || ev.player?.name || "";
+
+            // Avoid redundant text like "Goal - Normal Goal"
+            const displayInfo = (typeText.toLowerCase() === detailText.toLowerCase() || !detailText)
+                ? typeText
+                : `${typeText}: ${detailText}`;
 
             return `
-                        <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg p-1.5 text-[10px] shadow-sm">
-                            <span class="font-black text-gray-400 w-6">${time}'</span>
-                            <span class="text-sm">${icon}</span>
-                            <span class="font-bold text-gray-700 truncate">${detail}</span>
-                            ${ev.type === 'subst' ? `<span class="text-[9px] text-gray-400 italic">(${ev.assist?.name || ''})</span>` : ''}
-                        </div>`;
+                            <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg p-1.5 text-[10px] shadow-sm">
+                                <span class="font-black text-gray-400 w-6">${time}'</span>
+                                <span class="text-sm">${icon}</span>
+                                <span class="font-bold text-gray-700 truncate">${displayInfo}</span>
+                                ${ev.type === 'subst' ? `<span class="text-[9px] text-gray-400 italic">(${ev.assist?.name || ''})</span>` : ''}
+                            </div>`;
         }).join('')}
-                 </div>
+                     </div>
             </div>
         `;
     }
