@@ -103,7 +103,21 @@ function getRankingColor(score) {
 }
 
 const isMatchStale = (m) => {
-    if (!m || !m.isNotMonitored || m.risultato || (m.liveData && m.liveData.score)) return false;
+    if (!m) return false;
+
+    // DEBUG: Log ogni match che viene controllato
+    const matchInfo = `${m.partita || 'Unknown'} (${m.ora || 'no-time'})`;
+
+    if (!m.isNotMonitored) {
+        console.log(`[Ghost Check] ❌ ${matchInfo} - IS monitored (isNotMonitored=${m.isNotMonitored})`);
+        return false;
+    }
+
+    if (m.risultato || (m.liveData && m.liveData.score)) {
+        console.log(`[Ghost Check] ❌ ${matchInfo} - HAS result (${m.risultato || m.liveData?.score})`);
+        return false;
+    }
+
     const now = new Date();
     let mDate = m.data || now.toISOString().split('T')[0];
     const mTime = m.ora || '00:00';
@@ -122,10 +136,20 @@ const isMatchStale = (m) => {
 
     try {
         const mDateTime = new Date(`${mDate.replace(/\//g, '-')}T${mTime}:00`);
-        if (isNaN(mDateTime.getTime())) return false;
+        if (isNaN(mDateTime.getTime())) {
+            console.log(`[Ghost Check] ❌ ${matchInfo} - Invalid date: ${mDate}`);
+            return false;
+        }
         const diffMs = now - mDateTime;
-        return diffMs > (100 * 60 * 1000); // 100 minutes
-    } catch (e) { return false; }
+        const diffMin = Math.floor(diffMs / (60 * 1000));
+        const isStale = diffMs > (100 * 60 * 1000);
+
+        console.log(`[Ghost Check] ${isStale ? '🗑️ HIDING' : '⏳ KEEPING'} ${matchInfo} - Started ${diffMin}min ago`);
+        return isStale;
+    } catch (e) {
+        console.log(`[Ghost Check] ❌ ${matchInfo} - Error: ${e.message}`);
+        return false;
+    }
 };
 
 window.getLiveTradingAnalysis = async function (matchId) {
@@ -1378,14 +1402,19 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
         msg.textContent = 'Nessuna partita.';
         container.appendChild(msg);
     } else {
+        console.log(`[Ranking Render] 📊 Filtering ${strat.matches.length} matches for stale ghosts...`);
         const filtered = strat.matches.filter(m => !isMatchStale(m));
+        console.log(`[Ranking Render] ✅ After filtering: ${filtered.length} matches (removed ${strat.matches.length - filtered.length} ghosts)`);
+
         const sorted = [...filtered].sort((a, b) => {
             // ALWAYS sort by time as per user request to avoid UI instability
             return (a.ora || '').localeCompare(b.ora || '');
         });
 
         const cards = sorted.map((m, idx) => window.createUniversalCard(m, idx, stratId));
+        console.log(`[Ranking Render] 🔄 Calling replaceChildren with ${cards.length} cards`);
         container.replaceChildren(...cards);
+        console.log(`[Ranking Render] ✅ Render complete`);
     }
 
     window.showPage('ranking');
