@@ -103,12 +103,26 @@ function getRankingColor(score) {
 }
 
 const isMatchStale = (m) => {
-    if (!m.isNotMonitored || m.risultato || (m.liveData && m.liveData.score)) return false;
+    if (!m || !m.isNotMonitored || m.risultato || (m.liveData && m.liveData.score)) return false;
     const now = new Date();
-    const mDate = m.data || now.toISOString().split('T')[0];
+    let mDate = m.data || now.toISOString().split('T')[0];
     const mTime = m.ora || '00:00';
+
+    // Normalize DD/MM/YYYY or similar to YYYY-MM-DD for Date constructor
+    if (mDate.includes('/') || mDate.includes('-')) {
+        const sep = mDate.includes('/') ? '/' : '-';
+        const pts = mDate.split(sep);
+        // If DD/MM/YYYY
+        if (pts[0].length <= 2 && pts[2].length === 4) {
+            mDate = `${pts[2]}-${pts[1]}-${pts[0]}`;
+        } else if (pts[0].length === 4) {
+            mDate = `${pts[0]}-${pts[1]}-${pts[2]}`;
+        }
+    }
+
     try {
-        const mDateTime = new Date(`${mDate}T${mTime}:00`);
+        const mDateTime = new Date(`${mDate.replace(/\//g, '-')}T${mTime}:00`);
+        if (isNaN(mDateTime.getTime())) return false;
         const diffMs = now - mDateTime;
         return diffMs > (100 * 60 * 1000); // 100 minutes
     } catch (e) { return false; }
@@ -820,7 +834,7 @@ window.loadTradingPicks = function (date) {
 window.renderTradingCards = function (picks) {
     lastTradingPicksCache = picks;
     const container = document.getElementById('trading-cards-container');
-    container.innerHTML = '';
+    if (!container) return;
 
     if (picks.length === 0) {
         document.getElementById('trading-empty').classList.remove('hidden');
@@ -836,7 +850,10 @@ window.renderTradingCards = function (picks) {
     }
 
     if (filtered.length === 0) {
-        container.innerHTML = `<div class="text-center py-10 text-gray-500 italic">Nessuna partita in questa categoria.</div>`;
+        if (picks.length > 0) {
+            container.replaceChildren();
+            document.getElementById('trading-empty').classList.remove('hidden');
+        }
         return;
     }
 
@@ -947,7 +964,15 @@ window.renderTradingFavoritesInStarTab = function () {
 
     // Clean up container just in case
     const container = document.getElementById('trading-favorites-container');
-    if (container) container.innerHTML = '';
+    if (!container) return;
+
+    if (activeFavs.length === 0) {
+        container.replaceChildren();
+        return;
+    }
+
+    const cards = activeFavs.map(pick => window.createUniversalCard(pick, 0, null, { isTrading: true, isFavorite: true }));
+    container.replaceChildren(...cards);
 };
 
 // ==================== MAIN FUNCTIONS ====================
@@ -1282,7 +1307,7 @@ function initLiveHubListener() {
 function renderStrategies() {
     const container = document.getElementById('strategies-grid');
     if (!container) return;
-    container.innerHTML = '';
+    // container.innerHTML = ''; // MOVED TO ATOMIC replaceChildren
 
     const descriptions = {
         all: 'Tutte le partite.',
@@ -1343,12 +1368,15 @@ function createStrategyBtn(id, strat, isPremium) {
 window.showRanking = function (stratId, strat, sortMode = 'score') {
     currentStrategyId = stratId;
     const container = document.getElementById('matches-container');
+    if (!container) return;
     document.getElementById('strategy-title').textContent = strat.name;
 
-    container.innerHTML = '';
-
     if (!strat.matches || strat.matches.length === 0) {
-        container.innerHTML = '<div class="text-center py-10 text-gray-400">Nessuna partita.</div>';
+        container.replaceChildren();
+        const msg = document.createElement('div');
+        msg.className = 'text-center py-10 text-gray-400';
+        msg.textContent = 'Nessuna partita.';
+        container.appendChild(msg);
     } else {
         const filtered = strat.matches.filter(m => !isMatchStale(m));
         const sorted = [...filtered].sort((a, b) => {
@@ -1526,8 +1554,6 @@ window.showMyMatches = function (sortMode = 'score') {
     const container = document.getElementById('my-matches-container');
     if (!container) return;
 
-    container.innerHTML = '';
-
     // 1. Refresh scores from current strategiesData (if available)
     if (window.strategiesData) {
         window.selectedMatches = window.selectedMatches.map(sm => {
@@ -1590,7 +1616,10 @@ window.showMyMatches = function (sortMode = 'score') {
 
     // Betting Favorites Section
     if (bettingMatches.length === 0) {
-        container.innerHTML = '<div class="text-center text-gray-300 py-4 opacity-50">Nessun pronostico salvato</div>';
+        const msg = document.createElement('div');
+        msg.className = 'text-center text-gray-300 py-4 opacity-50';
+        msg.textContent = 'Nessun pronostico salvato';
+        container.replaceChildren(msg);
     } else {
         const sectionHeader = document.createElement('div');
         sectionHeader.className = 'mb-4';
