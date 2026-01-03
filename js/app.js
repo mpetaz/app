@@ -121,16 +121,8 @@ function getRankingColor(score) {
 const isMatchStale = (m) => {
     if (!m) return false;
 
-    // DEBUG: Log ogni match che viene controllato
-    const matchInfo = `${m.partita || 'Unknown'} (${m.ora || 'no-time'})`;
-
-    if (!m.isNotMonitored) {
-        console.log(`[Ghost Check] ❌ ${matchInfo} - IS monitored (isNotMonitored=${m.isNotMonitored})`);
-        return false;
-    }
-
+    // Se ha un risultato, tienilo sempre
     if (m.risultato || (m.liveData && m.liveData.score)) {
-        console.log(`[Ghost Check] ❌ ${matchInfo} - HAS result (${m.risultato || m.liveData?.score})`);
         return false;
     }
 
@@ -160,10 +152,11 @@ const isMatchStale = (m) => {
         const diffMin = Math.floor(diffMs / (60 * 1000));
         const isStale = diffMs > (100 * 60 * 1000);
 
-        console.log(`[Ghost Check] ${isStale ? '🗑️ HIDING' : '⏳ KEEPING'} ${matchInfo} - Started ${diffMin}min ago`);
+        if (isStale) {
+            console.log(`[Ghost] 🗑️ ${m.partita} (${m.ora}) - ${diffMin}min ago, no result`);
+        }
         return isStale;
     } catch (e) {
-        console.log(`[Ghost Check] ❌ ${matchInfo} - Error: ${e.message}`);
         return false;
     }
 };
