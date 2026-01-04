@@ -2520,7 +2520,7 @@ async function loadLiveHubMatches() {
 
 
 
-// --- NUOVO RENDERER LIVE UNIVERSALE ---
+// --- NUOVO RENDERER LIVE UNIVERSALE - REDESIGN v2 ---
 function renderLiveHubCard(match) {
     const stats = match.liveStats || {};
     const pressure = stats.pressureValue || 0;
@@ -2531,32 +2531,35 @@ function renderLiveHubCard(match) {
     const score = match.score || "0-0";
     const [scH, scA] = score.split('-');
 
-    // ROBUST team name parsing - handle 'vs', ' - ', ':' separators
-    let homeTeam = 'Casa';
-    let awayTeam = 'Trasferta';
+    // Team names - prefer direct fields, fallback to parsing matchName
+    let homeTeam = match.homeTeam || '';
+    let awayTeam = match.awayTeam || '';
     const matchName = match.matchName || '';
-    if (matchName.includes(' vs ')) {
-        const parts = matchName.split(' vs ');
-        homeTeam = parts[0]?.trim() || 'Casa';
-        awayTeam = parts[1]?.trim() || 'Trasferta';
-    } else if (matchName.includes(' - ')) {
-        const parts = matchName.split(' - ');
-        homeTeam = parts[0]?.trim() || 'Casa';
-        awayTeam = parts[1]?.trim() || 'Trasferta';
-    } else if (matchName.includes(':')) {
-        const parts = matchName.split(':');
-        homeTeam = parts[0]?.trim() || 'Casa';
-        awayTeam = parts[1]?.trim() || 'Trasferta';
-    } else {
-        // Fallback: use whole name
-        homeTeam = matchName || 'Partita';
+
+    if (!homeTeam || !awayTeam) {
+        if (matchName.includes(' vs ')) {
+            const parts = matchName.split(' vs ');
+            homeTeam = homeTeam || parts[0]?.trim() || 'Casa';
+            awayTeam = awayTeam || parts[1]?.trim() || 'Trasferta';
+        } else if (matchName.includes(' - ')) {
+            const parts = matchName.split(' - ');
+            homeTeam = homeTeam || parts[0]?.trim() || 'Casa';
+            awayTeam = awayTeam || parts[1]?.trim() || 'Trasferta';
+        }
     }
 
-    // Goal Cooking Color Logic
-    let cookingColor = 'bg-slate-300';
-    if (pressure > 30) cookingColor = 'bg-yellow-500';
-    if (pressure > 60) cookingColor = 'bg-orange-500';
-    if (pressure > 85) cookingColor = 'bg-red-500 animate-pulse';
+    // Team logos
+    const homeLogo = match.homeLogo || null;
+    const awayLogo = match.awayLogo || null;
+    const homeLogoHtml = homeLogo ? `<img src="${homeLogo}" alt="${homeTeam}" class="w-8 h-8 object-contain" onerror="this.style.display='none'">` : '';
+    const awayLogoHtml = awayLogo ? `<img src="${awayLogo}" alt="${awayTeam}" class="w-8 h-8 object-contain" onerror="this.style.display='none'">` : '';
+
+    // Pressure bar color - HIGH CONTRAST (no yellow on white!)
+    let pressureColor = 'bg-slate-400';
+    let pressureText = 'text-slate-600';
+    if (pressure > 30) { pressureColor = 'bg-amber-500'; pressureText = 'text-amber-700'; }
+    if (pressure > 60) { pressureColor = 'bg-orange-600'; pressureText = 'text-orange-700'; }
+    if (pressure > 85) { pressureColor = 'bg-red-600 animate-pulse'; pressureText = 'text-red-700'; }
 
     // Events Rendering
     const eventsHtml = renderLiveEvents(match.events || []);
@@ -2564,90 +2567,107 @@ function renderLiveHubCard(match) {
     // Status display
     const status = (match.status || 'LIVE').toUpperCase();
     const elapsed = match.elapsed || '?';
-    const statusLabel = status === 'FT' ? 'FINITA' :
-        status === 'HT' ? 'INTERVALLO' :
-            status === 'NS' ? 'DA INIZIARE' :
-                `LIVE ${elapsed}'`;
+    let statusLabel = `LIVE ${elapsed}'`;
+    let statusClass = 'bg-red-500 text-white';
+    if (status === 'FT') { statusLabel = 'FINITA'; statusClass = 'bg-slate-600 text-white'; }
+    else if (status === 'HT') { statusLabel = 'INTERVALLO'; statusClass = 'bg-amber-500 text-white'; }
+    else if (status === 'NS') { statusLabel = 'DA INIZIARE'; statusClass = 'bg-blue-500 text-white'; }
+
+    // Trading badge - check if match is from trading
+    const isTrading = match.tip && (match.tip.toLowerCase().includes('back') || match.tip.toLowerCase().includes('lay'));
+    const tradingBadge = isTrading ? `<span class="px-2 py-0.5 bg-purple-600 text-white text-[8px] font-bold rounded-full uppercase">Trading</span>` : '';
+
+    // Tip display
+    const tipBadge = match.tip ? `<span class="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded-full">${match.tip}</span>` : '';
 
     return `
-        <div class="rounded-2xl overflow-hidden shadow-lg mb-4 flex flex-col transition-all bg-white border border-indigo-100">
-        <!-- Header: Status & Date -->
-        <div class="flex justify-between items-center px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600">
+        <div class="rounded-2xl overflow-hidden shadow-lg mb-4 flex flex-col bg-white border border-slate-200">
+        <!-- Header: Status & Trading Badge -->
+        <div class="flex justify-between items-center px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600">
             <div class="flex items-center gap-2">
-                <span class="flex h-2 w-2 relative">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                </span>
-                <span class="text-[10px] font-black uppercase tracking-widest text-white">${statusLabel}</span>
+                <span class="px-2 py-0.5 ${statusClass} rounded text-[10px] font-black uppercase">${statusLabel}</span>
+                ${tradingBadge}
             </div>
-            <span class="text-[10px] font-bold text-white/70 uppercase tracking-tight">${match.matchDate || ''}</span>
+            <span class="text-[9px] font-semibold text-white/80">${match.matchDate || ''}</span>
         </div>
 
-        <!--Body: Teams & Score-->
-        <div class="p-4 text-slate-800 text-center">
-            <div class="flex items-center justify-between gap-3">
-                <div class="flex-1 text-right">
-                    <h3 class="text-sm font-black leading-tight text-slate-800">${homeTeam}</h3>
+        <!-- Body: Teams & Score with Logos -->
+        <div class="px-3 py-3">
+            <div class="flex items-center justify-between gap-2">
+                <!-- Home Team -->
+                <div class="flex-1 flex flex-col items-center gap-1">
+                    ${homeLogoHtml}
+                    <h3 class="text-xs font-bold leading-tight text-slate-800 text-center line-clamp-2">${homeTeam}</h3>
                 </div>
-                <div class="flex items-center gap-2 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">
-                    <span class="text-2xl font-black text-indigo-600">${scH}</span>
-                    <span class="text-lg font-bold text-slate-300">:</span>
-                    <span class="text-2xl font-black text-rose-500">${scA}</span>
+                <!-- Score -->
+                <div class="flex items-center gap-1 bg-slate-800 px-3 py-2 rounded-xl">
+                    <span class="text-2xl font-black text-white">${scH}</span>
+                    <span class="text-lg font-bold text-slate-400">:</span>
+                    <span class="text-2xl font-black text-white">${scA}</span>
                 </div>
-                <div class="flex-1 text-left">
-                    <h3 class="text-sm font-black leading-tight text-slate-800">${awayTeam}</h3>
+                <!-- Away Team -->
+                <div class="flex-1 flex flex-col items-center gap-1">
+                    ${awayLogoHtml}
+                    <h3 class="text-xs font-bold leading-tight text-slate-800 text-center line-clamp-2">${awayTeam}</h3>
                 </div>
             </div>
 
-            <!-- Goal Cooking Indicator -->
-            <div class="mt-4 mb-1 flex justify-between items-end">
-                <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                    <i class="fa-solid fa-fire text-orange-500"></i> PRESSIONE
-                </span>
-                <span class="text-[9px] font-black text-slate-600">${pressure}%</span>
+            <!-- Tip Badge -->
+            <div class="flex justify-center mt-2 gap-2">
+                ${tipBadge}
             </div>
-            <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div class="h-full rounded-full transition-all duration-1000 ${cookingColor}" style="width: ${Math.min(pressure, 100)}%"></div>
-            </div>
-        </div>
 
-        <!--Stats Dashboard-->
-        <div class="grid grid-cols-3 gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 text-center">
-            <div>
-                <div class="text-[8px] font-bold text-slate-400 uppercase">xG</div>
-                <div class="text-xs font-black text-slate-700">${xgHome.toFixed(1)} - ${xgAway.toFixed(1)}</div>
-            </div>
-            <div>
-                <div class="text-[8px] font-bold text-slate-400 uppercase">Attacchi</div>
-                <div class="text-xs font-black text-slate-700">${stats.dangerousAttacks || '0 - 0'}</div>
-            </div>
-            <div>
-                <div class="text-[8px] font-bold text-slate-400 uppercase">Possesso</div>
-                <div class="text-xs font-black text-emerald-600">${stats.possession || '50% - 50%'}</div>
+            <!-- Pressure Indicator -->
+            <div class="mt-3">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-[10px] font-bold ${pressureText} uppercase flex items-center gap-1">
+                        <i class="fa-solid fa-fire"></i> Pressione Gol
+                    </span>
+                    <span class="text-[11px] font-black ${pressureText}">${pressure}%</span>
+                </div>
+                <div class="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-1000 ${pressureColor}" style="width: ${Math.min(pressure, 100)}%"></div>
+                </div>
             </div>
         </div>
 
-        <!--Events Timeline (Compact)-->
-        <div class="px-4 py-2 bg-white border-t border-slate-100">
+        <!-- Stats Grid - Larger fonts -->
+        <div class="grid grid-cols-3 gap-1 px-3 py-2 bg-slate-50 border-t border-slate-200">
+            <div class="text-center">
+                <div class="text-[9px] font-bold text-indigo-600 uppercase">xG</div>
+                <div class="text-sm font-black text-slate-800">${xgHome.toFixed(1)} - ${xgAway.toFixed(1)}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-[9px] font-bold text-orange-600 uppercase">Attacchi</div>
+                <div class="text-sm font-black text-slate-800">${stats.dangerousAttacks || '0 - 0'}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-[9px] font-bold text-emerald-600 uppercase">Possesso</div>
+                <div class="text-sm font-black text-slate-800">${stats.possession || '50% - 50%'}</div>
+            </div>
+        </div>
+
+        <!-- Events Timeline -->
+        <div class="px-3 py-2 bg-white border-t border-slate-200">
              <div class="flex items-center gap-1 mb-1">
-                <i class="fa-solid fa-clock-rotate-left text-[9px] text-slate-400"></i>
-                <span class="text-[8px] font-black text-slate-400 uppercase">Eventi</span>
+                <i class="fa-solid fa-list text-[10px] text-slate-500"></i>
+                <span class="text-[9px] font-bold text-slate-500 uppercase">Eventi</span>
              </div>
-             <div class="space-y-1 overflow-y-auto max-h-16 text-slate-600 text-[10px]">
-                ${eventsHtml || '<span class="italic text-slate-400">In attesa...</span>'}
+             <div class="space-y-1 overflow-y-auto max-h-20 text-slate-700 text-[11px]">
+                ${eventsHtml || '<span class="italic text-slate-400">In attesa di eventi...</span>'}
              </div>
         </div>
 
-        <!--AI Insight (Compact)-->
-        <div class="px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-t border-indigo-100">
+        <!-- AI Insight -->
+        <div class="px-3 py-2 bg-gradient-to-r from-indigo-50 to-purple-50 border-t border-indigo-200">
             <div class="flex items-start gap-2">
-                <div class="w-6 h-6 rounded-full bg-white border border-indigo-200 flex items-center justify-center text-[10px]">🧞</div>
+                <div class="w-7 h-7 rounded-full bg-white border-2 border-indigo-300 flex items-center justify-center text-sm shadow">🧞</div>
                 <div class="flex-1">
-                    <p class="text-[10px] text-slate-600 leading-snug mb-2">
+                    <p class="text-[11px] text-slate-700 leading-snug mb-2">
                         ${generateLiveInsight(match)}
                     </p>
-                    <button onclick="window.getLiveTradingAnalysis('${matchName}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wide transition-all flex items-center justify-center gap-1">
-                        <i class="fa-solid fa-brain"></i> Analisi
+                    <button onclick="window.getLiveTradingAnalysis('${matchName}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all flex items-center justify-center gap-1 shadow">
+                        <i class="fa-solid fa-brain"></i> Analisi Profonda
                     </button>
                 </div>
             </div>
