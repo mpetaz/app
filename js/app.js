@@ -2520,6 +2520,40 @@ async function loadLiveHubMatches() {
 
 
 
+window.toggleLiveFavorite = async function (matchName, tip) {
+    if (!window.currentUser) return alert("Accedi per attivare i preferiti");
+
+    const isTrading = tip && (tip.toLowerCase().includes('back') || tip.toLowerCase().includes('lay'));
+
+    if (isTrading) {
+        // Construct Trading ID: trading_normalizedname
+        const mKey = `trading_${matchName.toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '')}`;
+        await window.toggleTradingFavorite(mKey);
+    } else {
+        // Search for this match in all strategies to find its ID
+        let matchId = null;
+        if (window.strategiesData) {
+            for (const stratId in window.strategiesData) {
+                const found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
+                if (found) {
+                    matchId = found.id || `${found.data}_${found.partita}`;
+                    break;
+                }
+            }
+        }
+
+        if (matchId) {
+            await window.toggleFlag(matchId);
+        } else {
+            console.warn("[LiveHub] Betting match ID not found for:", matchName);
+            // If not found in strategies, we can't toggle flag easily because we don't know the strategy source
+            alert("Per attivare notifiche di questo match, selezionalo dalla scheda Strategie.");
+        }
+    }
+    // Force re-render of Live Hub to update star status
+    window.loadLiveHubMatches();
+};
+
 // --- NUOVO RENDERER LIVE UNIVERSALE - REDESIGN v2 ---
 function renderLiveHubCard(match) {
     const stats = match.liveStats || {};
@@ -2580,6 +2614,15 @@ function renderLiveHubCard(match) {
     // Tip display
     const tipBadge = match.tip ? `<span class="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded-full">${match.tip}</span>` : '';
 
+    // Check if flagged for Star display
+    let isFlagged = false;
+    const cleanName = matchName.toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+    if (isTrading) {
+        isFlagged = window.tradingFavorites?.includes(`trading_${cleanName}`);
+    } else {
+        isFlagged = window.selectedMatches?.some(m => (m.partita || '').toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '') === cleanName);
+    }
+
     return `
         <div class="rounded-2xl overflow-hidden shadow-lg mb-4 flex flex-col bg-white border border-slate-200">
         <!-- Header: Status & Trading Badge -->
@@ -2587,6 +2630,9 @@ function renderLiveHubCard(match) {
             <div class="flex items-center gap-2">
                 <span class="px-2 py-0.5 ${statusClass} rounded text-[10px] font-black uppercase">${statusLabel}</span>
                 ${tradingBadge}
+                <button onclick="window.toggleLiveFavorite('${matchName.replace(/'/g, "\\'")}', '${match.tip || ''}')" class="ml-1 text-white hover:text-yellow-300 transition-all">
+                    <i class="${isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/80'} fa-star text-sm"></i>
+                </button>
             </div>
             <span class="text-[9px] font-semibold text-white/80">${match.matchDate || ''}</span>
         </div>
