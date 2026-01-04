@@ -1513,16 +1513,32 @@ function initLiveHubListener() {
             loadLiveHubMatches();
         }
 
-        // Global Badge Update - ONLY count TODAY's LIVE matches
+        // Global Badge Update - ONLY count TODAY's LIVE matches from MAJOR LEAGUES
         const today = new Date().toISOString().split('T')[0];
         const allMatches = Object.values(window.liveScoresHub);
+
+        // Same leagues filter as in loadLiveHubMatches
+        const MAJOR_LEAGUES = [
+            135, 136, 39, 40, 41, 140, 78, 79, 61, 88, 94, 207, 235, 144, 203, 2, 3, 848, 137, 45, 143
+        ];
+
         const todayLiveMatches = allMatches.filter(m => {
             const isToday = (m.matchDate || '').startsWith(today);
             const isLive = ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes((m.status || '').toUpperCase());
-            return isToday && isLive;
+            const isMajorLeague = !m.leagueId || MAJOR_LEAGUES.includes(m.leagueId);
+            return isToday && isLive && isMajorLeague;
         });
 
-        const liveCount = todayLiveMatches.length;
+        // De-duplicate by matchName
+        const seen = new Set();
+        const uniqueMatches = todayLiveMatches.filter(m => {
+            const key = (m.matchName || '').toLowerCase().replace(/\s+/g, '');
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        const liveCount = uniqueMatches.length;
         const liveBadge = document.getElementById('live-badge');
         if (liveBadge) {
             if (liveCount > 0) {
