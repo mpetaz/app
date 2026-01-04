@@ -161,23 +161,36 @@ window.getLiveTradingAnalysis = async function (matchId) {
         alert("Dati match non trovati in memoria. Provo comunque a generare un'analisi basica... 🧞‍♂️");
     }
 
-    const elapsed = (match?.liveData?.elapsed || match?.minute || 0).toString().replace("'", "");
-    const score = match?.liveData?.score || match?.risultato || "0-0";
-    const stats = match?.liveStats || {};
+    // Extract data - handle multiple formats (Trading picks vs Live Hub)
+    // Live Hub format: match.elapsed, match.score, match.status
+    // Trading format: match.liveData.elapsed, match.liveData.score
+    const elapsed = (match?.elapsed || match?.liveData?.elapsed || match?.minute || '0').toString().replace("'", "");
+    const score = match?.score || match?.liveData?.score || match?.risultato || "0-0";
+    const status = match?.status || match?.liveData?.status || 'LIVE';
+    const stats = match?.liveStats || match?.liveData?.stats || {};
 
     // Build stats string properly
     const da = stats.dangerousAttacks || "N/A";
     const sog = stats.shotsOnGoal || "N/A";
-    const xg = stats.xg ? `${stats.xg.home} - ${stats.xg.away}` : "N/A";
+    const xg = stats.xg ? `${stats.xg.home?.toFixed(2) || stats.xg.home || 0} - ${stats.xg.away?.toFixed(2) || stats.xg.away || 0}` : "N/A";
     const pos = stats.possession || "N/A";
+
+    // Build events summary if available
+    const events = match?.events || [];
+    let eventsText = '';
+    if (events.length > 0) {
+        const goals = events.filter(e => e.type?.toUpperCase().includes('GOAL'));
+        const cards = events.filter(e => e.type?.toUpperCase().includes('CARD'));
+        eventsText = `\n- Eventi: ${goals.length} gol, ${cards.length} cartellini`;
+    }
 
     const prompt = `Analizza questo match LIVE per un'operazione professionale:
 - Match: ${match?.partita || match?.matchName || 'Sconosciuto'}
-- Minuto: ${elapsed || 0}'
+- Minuto: ${elapsed}' (${status})
 - Risultato: ${score}
 - Valutazione Backend: ${match?.evaluation || 'LIVE'}
 - Strategia/Tip: ${match?.strategy || match?.label || 'Monitoraggio'} ${match?.tip || ''}
-- Statistiche: DA:${da}, SOG:${sog}, xG:${xg}, Possesso:${pos}
+- Statistiche: DA:${da}, SOG:${sog}, xG:${xg}, Possesso:${pos}${eventsText}
 
 Fornisci un'analisi professionale in max 3-4 righe. Usa termini tecnici da Pro Trader. Concludi con un consiglio chiaro tra:
 🚀 ENTRA (Se le condizioni sono ottimali)
