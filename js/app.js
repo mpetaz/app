@@ -1505,7 +1505,10 @@ function initLiveHubListener() {
             }
         });
 
-        console.log(`[LiveHub] Sync complete.${Object.keys(window.liveScoresHub).length} active updates.`);
+        // NEW: Trigger Dashboard Refresh for "Top Del Giorno" box updates
+        if (document.getElementById('page-strategies')?.classList.contains('active')) {
+            renderStrategies();
+        }
 
         // Trigger dynamic re-renders of active pages
         if (document.getElementById('page-ranking')?.classList.contains('active')) {
@@ -1567,62 +1570,110 @@ function initLiveHubListener() {
 function renderStrategies() {
     const container = document.getElementById('strategies-grid');
     if (!container) return;
-    // container.innerHTML = ''; // MOVED TO ATOMIC replaceChildren
 
-    const descriptions = {
-        all: 'Tutte le partite.',
-        winrate_80: 'Only Top Winrate > 80%',
-        italia: 'Serie A + B',
-        magic_ai: 'AI Powered Analysis'
-    };
-
-    const premium = [];
-    const standard = [];
-    const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht', 'winrate_80'];
-
-    Object.entries(window.strategiesData).forEach(([id, strat]) => {
-        if (STANDARD_STRATEGIES.includes(id)) standard.push({ id, strat });
-        else premium.push({ id, strat });
-    });
-
+    const allStrats = Object.entries(window.strategiesData);
     const children = [];
 
-    if (premium.length) {
-        const sec = document.createElement('div');
-        sec.className = 'col-span-full mb-2';
-        sec.innerHTML = '<div class="text-sm font-bold text-purple-200 uppercase tracking-wide mb-3">✨ Strategie AI</div>';
-        children.push(sec);
-        premium.forEach(x => children.push(createStrategyBtn(x.id, x.strat, true)));
-    }
+    // Render the 7 standard strategies
+    allStrats.forEach(([id, strat]) => {
+        children.push(createStrategyBtn(id, strat));
+    });
 
-    if (standard.length) {
-        const sec = document.createElement('div');
-        sec.className = 'col-span-full mt-4 mb-2';
-        sec.innerHTML = '<div class="text-sm font-bold text-blue-200 uppercase tracking-wide mb-3 mt-5">📂 Strategie Fisse</div>';
-        children.push(sec);
-        standard.forEach(x => children.push(createStrategyBtn(x.id, x.strat, false)));
+    // ADD THE 8th BOX: "Top Del Giorno" (Special Green Box)
+    if (typeof createTopDelGiornoBox === 'function') {
+        children.push(createTopDelGiornoBox());
     }
 
     container.replaceChildren(...children);
 }
 
-function createStrategyBtn(id, strat, isPremium) {
+function createStrategyBtn(id, strat) {
     const btn = document.createElement('button');
     const isMagic = id.includes('magia');
-    btn.className = `strategy-btn ${isMagic ? 'magic-ai' : ''} text-white rounded-xl p-4 shadow-lg w-full text-left relative overflow-hidden`;
+    // Compact padding and smaller typography for 2-column grid fit
+    btn.className = `strategy-btn ${isMagic ? 'magic-ai' : ''} text-white rounded-2xl p-3 shadow-lg w-full text-left relative overflow-hidden transition-transform active:scale-95 border border-white/10`;
     btn.onclick = () => window.showRanking(id, strat);
 
     btn.innerHTML = `
-        <div class="relative z-10" >
-            ${isPremium ? '<span class="text-[10px] bg-white/20 px-2 py-0.5 rounded font-black uppercase mb-2 inline-block">Pro</span>' : ''}
-            <div class="text-xl font-black text-white drop-shadow-md">${strat.name}</div>
-            <div class="text-xs text-white/80 font-semibold">${strat.totalMatches || strat.matches?.length || 0} Matches</div>
+        <div class="relative z-10">
+            <div class="text-lg font-black text-white leading-tight mb-0.5">${strat.name}</div>
+            <div class="text-[10px] text-white/70 font-bold uppercase tracking-wider">${strat.totalMatches || strat.matches?.length || 0} Partite</div>
         </div>
-        <div class="absolute right-[-10px] bottom-[-10px] text-6xl opacity-20 rotate-12">
+        <div class="absolute right-[-8px] bottom-[-8px] text-5xl opacity-10 rotate-12">
             ${isMagic ? '🪄' : '⚽'}
         </div>
     `;
     return btn;
+}
+
+function createTopDelGiornoBox() {
+    const div = document.createElement('div');
+    div.className = `bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl p-3 shadow-lg w-full text-left relative overflow-hidden border border-emerald-400/30 flex flex-col justify-between min-h-[90px] cursor-pointer transition-transform active:scale-95`;
+    div.onclick = () => window.showPage('page-live-hub');
+
+    // Calculate total matches for today (live + scheduled)
+    const hubMatches = Object.values(window.liveScoresHub || {});
+    const today = new Date().toISOString().split('T')[0];
+
+    // SAME Major Leagues filter as loadLiveHubMatches for consistency
+    const MAJOR_LEAGUES = [
+        135, 136, 39, 40, 41, 140, 78, 79, 61, 88, 94, 207, 235, 144, 203, 2, 3, 848, 137, 45, 143
+    ];
+
+    const todayGames = hubMatches.filter(m => {
+        const d = m.matchDate || '';
+        const isToday = d === today || d.startsWith(today);
+        const isMajor = !m.leagueId || MAJOR_LEAGUES.includes(m.leagueId);
+        return isToday && isMajor;
+    });
+
+    const count = todayGames.length;
+
+    // Separate finished matches for preview (FT) - Last 4 hours
+    const finished = todayGames.filter(m => {
+        const status = (m.status || '').toUpperCase();
+        if (status !== 'FT') return false;
+
+        const updatedAt = m.updatedAt?.toDate?.() || new Date(m.updatedAt);
+        const hoursSinceUpdate = (Date.now() - updatedAt.getTime()) / (1000 * 60 * 60);
+        return hoursSinceUpdate < 4;
+    })
+        .sort((a, b) => {
+            const dateA = a.updatedAt?.toDate?.() || new Date(a.updatedAt);
+            const dateB = b.updatedAt?.toDate?.() || new Date(b.updatedAt);
+            return dateB - dateA;
+        })
+        .slice(0, 3); // Show last 3 results
+
+    let resultsHtml = '';
+    if (finished.length > 0) {
+        resultsHtml = `<div class="mt-2 space-y-1">
+            ${finished.map(m => {
+            const evalStr = m.evaluation || '';
+            let color = 'text-white';
+            if (evalStr.includes('Vinta')) color = 'text-emerald-200';
+            else if (evalStr.includes('Persa') || evalStr.includes('Stop-loss')) color = 'text-rose-200';
+            else if (evalStr.includes('Cash-out')) color = 'text-amber-200';
+
+            return `<div class="text-[9px] font-black ${color} truncate">🏁 ${m.matchName}: ${m.score}</div>`;
+        }).join('')}
+        </div>`;
+    } else {
+        resultsHtml = `<div class="text-[9px] text-emerald-100/60 font-semibold mt-2">Radar attivo per i live...</div>`;
+    }
+
+    div.innerHTML = `
+        <div class="relative z-10 flex flex-col h-full">
+            <div class="flex justify-between items-start">
+                <div class="text-sm font-black uppercase tracking-tighter leading-none italic">Top Del Giorno</div>
+                <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px] font-bold animate-pulse">LIVE HUB</span>
+            </div>
+            <div class="text-2xl font-black mt-1 leading-none">${count} <span class="text-[10px] font-bold opacity-80 uppercase italic">In Radar</span></div>
+            ${resultsHtml}
+        </div>
+        <i class="fa-solid fa-fire absolute right-2 bottom-2 text-4xl opacity-10 -rotate-12"></i>
+    `;
+    return div;
 }
 
 window.showRanking = function (stratId, strat, sortMode = 'score') {
@@ -2611,10 +2662,10 @@ function renderLiveHubCard(match) {
     const isTrading = match.tip && (match.tip.toLowerCase().includes('back') || match.tip.toLowerCase().includes('lay'));
     const tradingBadge = isTrading ? `<span class="px-2 py-0.5 bg-purple-600 text-white text-[8px] font-bold rounded-full uppercase">Trading</span>` : '';
 
-    // Tip display
-    const tipBadge = match.tip ? `<span class="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded-full">${match.tip}</span>` : '';
+    // Tip display - BIGGER & BOLDER v2.2
+    const tipBadge = match.tip ? `<span class="px-3 py-1 bg-indigo-100 text-indigo-700 text-xs font-black rounded-full border border-indigo-200 shadow-sm">${match.tip}</span>` : '';
 
-    // Check if flagged for Star display
+    // Check if flagged for Star display v2.2
     let isFlagged = false;
     const cleanName = matchName.toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
     if (isTrading) {
@@ -2623,8 +2674,18 @@ function renderLiveHubCard(match) {
         isFlagged = window.selectedMatches?.some(m => (m.partita || '').toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '') === cleanName);
     }
 
+    // Conditional background for FT matches v2.2
+    let cardBg = 'bg-white';
+    if (status === 'FT') {
+        const evalStr = match.evaluation || '';
+        if (evalStr.includes('Vinta')) cardBg = 'bg-emerald-50 border-emerald-200';
+        else if (evalStr.includes('Persa') || evalStr.includes('Stop-loss')) cardBg = 'bg-rose-50 border-rose-200';
+        else if (evalStr.includes('Cash-out')) cardBg = 'bg-amber-50 border-amber-200';
+        else if (evalStr.includes('Push')) cardBg = 'bg-slate-50 border-slate-200';
+    }
+
     return `
-        <div class="rounded-2xl overflow-hidden shadow-lg mb-4 flex flex-col bg-white border border-slate-200">
+        <div class="rounded-2xl overflow-hidden shadow-lg mb-4 flex flex-col ${cardBg} border shadow-sm transition-all">
         <!-- Header: Status & Trading Badge -->
         <div class="flex justify-between items-center px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600">
             <div class="flex items-center gap-2">
@@ -2739,22 +2800,22 @@ function renderLiveEvents(events) {
 
         if (type.toUpperCase() === 'GOAL') {
             icon = '⚽';
-            label = `<span class="font-black text-white" > GOAL!</span> ${player}${assist} `;
-            color = 'text-green-400';
+            label = `<span class="font-black text-indigo-950"> GOAL!</span> ${player}${assist} `;
+            color = 'text-indigo-900';
         } else if (type.toUpperCase() === 'CARD') {
             if (detail.toUpperCase().includes('YELLOW')) {
                 icon = '🟨';
                 label = `Giallo: ${player} `;
-                color = 'text-yellow-400';
+                color = 'text-indigo-900';
             } else {
                 icon = '🟥';
                 label = `Rosso: ${player} `;
-                color = 'text-red-400';
+                color = 'text-indigo-900';
             }
         } else if (type.toUpperCase() === 'VAR') {
             icon = '🖥️';
             label = `VAR: ${detail.replace('Goal cancelled', 'Gol annullato').replace('Penalty confirmed', 'Rigore confermato')} `;
-            color = 'text-blue-300';
+            color = 'text-indigo-900';
         } else if (type.toUpperCase() === 'SUBST') {
             return ''; // Hide substitutions to keep it clean
         } else {
