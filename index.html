@@ -142,7 +142,8 @@
                 </div>
             </div>
 
-            <h2 class="text-2xl font-bold mb-4 text-center">📊 Seleziona una Strategia</h2>
+            <h2 class="text-2xl font-black mb-6 text-center text-white tracking-tight">📊 Seleziona una Strategia
+            </h2>
             <div id="strategies-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <!-- Populated dynamically -->
             </div>
@@ -168,8 +169,8 @@
         <!-- History Page (7-Day Track Record) -->
         <div id="page-history" class="page container mx-auto px-4 pb-24">
             <div class="mb-6">
-                <h2 class="text-3xl font-bold mb-2">📅 Ultimi 7 Giorni</h2>
-                <p class="text-gray-400 text-sm">Track record completo delle performance</p>
+                <h2 class="text-3xl font-black mb-1 text-white">📅 Ultimi 7 Giorni</h2>
+                <p class="text-white/80 text-sm italic">Track record completo delle performance</p>
             </div>
 
             <!-- Tab Switch -->
@@ -198,7 +199,7 @@
         <!-- My Matches Page -->
         <div id="page-my-matches" class="page container mx-auto px-4 pb-24">
             <div class="flex items-center justify-between mb-4">
-                <h2 class="text-2xl font-bold">⭐ Le Mie Partite</h2>
+                <h2 class="text-2xl font-black text-white">⭐ Le Mie Partite</h2>
                 <button id="delete-all-matches-btn"
                     class="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-red-700 transition">
                     <i class="fa-solid fa-trash mr-1"></i> Cancella Tutte
@@ -336,8 +337,8 @@
         <div id="page-trading-sportivo" class="page container mx-auto px-4 pb-24">
             <!-- Header & Date Nav -->
             <div class="mb-6">
-                <h2 class="text-2xl font-bold mb-2">🎯 Trading Sportivo</h2>
-                <p class="text-sm text-gray-400 mb-4">Le migliori partite selezionate per trading sportivo</p>
+                <h2 class="text-2xl font-black text-white mb-1">🎯 Trading Sportivo</h2>
+                <p class="text-sm text-white/70 italic mb-4">Le migliori partite selezionate per trading sportivo</p>
 
                 <!-- Date Navigation -->
                 <div class="flex items-center justify-between bg-gray-800 rounded-lg p-3 mb-4">
@@ -345,7 +346,7 @@
                         <i class="fa-solid fa-chevron-left"></i>
                     </button>
                     <div class="text-center">
-                        <div id="trading-selected-date-display" class="font-bold text-white text-sm">Oggi</div>
+                        <div id="trading-selected-date-display" class="font-bold text-slate-800 text-sm">Oggi</div>
                         <div id="trading-date-indicator" class="text-[10px] text-gray-500 mt-0.5">-</div>
                     </div>
                     <button id="trading-date-next" class="text-gray-400 hover:text-white transition">
@@ -361,139 +362,221 @@
                     </button>
                     <button id="filter-trading-live"
                         class="flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all bg-transparent text-gray-500 hover:bg-gray-800 flex items-center justify-center gap-1">
-                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span> LIVE
+                        <i class="fa-solid fa-satellite-dish"></i> LIVE
                     </button>
                     <button id="filter-trading-favs"
                         class="flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all bg-transparent text-gray-500 hover:bg-gray-800 flex items-center justify-center gap-1">
-                        <i class="fa-solid fa-star text-yellow-500 text-[10px]"></i> MIE
+                        <i class="fa-solid fa-star"></i> PREFERITI
                     </button>
                 </div>
-            </div>
 
-            <!-- Trading Cards Container -->
-            <div id="trading-cards-container" class="space-y-4">
-                <!-- Populated dynamically -->
-            </div>
+                <!-- Trading List -->
+                <div id="trading-matches-container" class="space-y-4 min-h-[300px]">
+                    <!-- Populated dynamically -->
+                </div>
 
-            <!-- Empty State -->
-            <div id="trading-empty" class="hidden text-center py-12">
-                <i class="fa-solid fa-chart-line text-6xl text-gray-600 mb-4"></i>
-                <p class="text-gray-400">Nessuna trading pick per questa data</p>
-                <p class="text-sm text-gray-500 mt-2">Le picks vengono generate dall'admin per ogni giornata</p>
+                <div id="trading-empty"
+                    class="hidden flex flex-col items-center justify-center py-12 text-gray-500 opacity-50">
+                    <i class="fa-solid fa-box-open text-4xl mb-3"></i>
+                    <p class="text-xs font-medium">Nessuna opportunità trovata</p>
+                </div>
             </div>
         </div>
 
-        <!-- Serie A Live Page -->
-        <div id="page-serie-a" class="page container mx-auto px-4 pb-24">
+        <!-- I Consigli di euGENIO Page (Ex Trading) -->
+        <div id="page-tips" class="page container mx-auto px-4 pb-24">
             <div class="mb-6">
                 <div class="flex items-center gap-3 mb-2">
-                    <img src="logo_serie_a.png" alt="Serie A" class="h-10 w-auto">
-                    <h2 class="text-2xl font-black">Serie A Live</h2>
+                    <div class="p-3 bg-orange-500/20 rounded-2xl">
+                        <i class="fa-solid fa-wand-magic-sparkles text-3xl text-orange-400"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-black text-slate-800 mb-0.5">I Consigli</h2>
+                        <p class="text-[10px] font-bold text-orange-600 uppercase tracking-widest">Le selezioni di
+                            euGENIO AI per oggi</p>
+                    </div>
                 </div>
-                <p class="text-sm text-purple-200">Intelligence in tempo reale per tutto il campionato</p>
             </div>
 
-            <div id="serie-a-live-container" class="space-y-4">
-                <!-- Populated with live match widgets -->
-                <div class="text-center py-12 text-gray-300">
-                    <i class="fa-solid fa-satellite-dish text-5xl mb-4 opacity-50"></i>
-                    <p>In attesa delle partite di oggi...</p>
+            <!-- Multiple Containers -->
+            <div id="parlays-container" class="space-y-6">
+                <!-- Raddoppio x2 -->
+                <div id="parlay-x2" class="glass-card-premium p-4 border-l-4 border-green-500">
+                    <div class="flex justify-between items-center mb-4">
+                        <span
+                            class="bg-green-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Cassa
+                            Sicura (x2)</span>
+                        <span class="text-xs font-bold text-gray-400" id="parlay-x2-odds">Quota:
+                            --</span>
+                    </div>
+                    <div class="parlay-matches space-y-2">
+                        <!-- Matches here -->
+                    </div>
+                </div>
+
+                <!-- Tridente x3 -->
+                <div id="parlay-x3" class="glass-card-premium p-4 border-l-4 border-blue-500">
+                    <div class="flex justify-between items-center mb-4">
+                        <span
+                            class="bg-blue-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Il
+                            Tridente (x3)</span>
+                        <span class="text-xs font-bold text-gray-400" id="parlay-x3-odds">Quota:
+                            --</span>
+                    </div>
+                    <div class="parlay-matches space-y-2">
+                        <!-- Matches here -->
+                    </div>
+                </div>
+
+                <!-- Multiplona x4 -->
+                <div id="parlay-x4" class="glass-card-premium p-4 border-l-4 border-purple-500">
+                    <div class="flex justify-between items-center mb-4">
+                        <span
+                            class="bg-purple-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">La
+                            Multiplona (x4)</span>
+                        <span class="text-xs font-bold text-gray-400" id="parlay-x4-odds">Quota:
+                            --</span>
+                    </div>
+                    <div class="parlay-matches space-y-2">
+                        <!-- Matches here -->
+                    </div>
+                </div>
+            </div>
+
+            <div id="no-tips-msg" class="hidden text-center py-20 opacity-30">
+                <i class="fa-solid fa-box-open text-6xl mb-4"></i>
+                <p>Nessun consiglio generato per oggi</p>
+            </div>
+        </div>
+
+        <!-- Live Radar Page (Ex Serie A) -->
+        <div id="page-live" class="page container mx-auto px-4 pb-24">
+            <div class="mb-6">
+                <div class="flex items-center gap-3 mb-2">
+                    <div class="relative">
+                        <i class="fa-solid fa-satellite-dish text-4xl text-white"></i>
+                        <span class="absolute -top-1 -right-1 flex h-3 w-3">
+                            <span
+                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                        </span>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-black text-white mb-0.5 tracking-tighter">Comando LIVE</h2>
+                        <p class="text-[10px] font-bold text-white/70 uppercase tracking-widest">Top Leagues Monitoring
+                        </p>
+                    </div>
+                </div>
+
+                <div id="live-hub-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Populated dynamically from Live Hub -->
+                    <div class="col-span-full text-center py-12 text-gray-400">
+                        <i class="fa-solid fa-radar text-5xl mb-4 opacity-20"></i>
+                        <p>Scansione match in corso...</p>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Bottom Nav -->
-        <div class="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 flex justify-around py-3 z-50">
-            <button data-page="strategies" class="nav-btn flex flex-col items-center text-purple-400 transition">
-                <i class="fa-solid fa-list text-2xl mb-1"></i>
-                <span class="text-xs font-semibold">Strategie</span>
+        <!-- Bottom Nav - MATCHING HEADER GRADIENT FOR SYMMETRY -->
+        <div id="bottom-nav-bar"
+            class="fixed bottom-0 left-0 right-0 flex justify-around py-3 z-50 shadow-lg border-t border-white/10"
+            style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);">
+            <button data-page="strategies"
+                class="nav-btn flex flex-col items-center text-white transition hover:scale-110">
+                <i class="fa-solid fa-list text-xl mb-1"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Strategie</span>
             </button>
             <button data-page="history"
-                class="nav-btn flex flex-col items-center text-gray-400 hover:text-green-400 transition">
-                <i class="fa-solid fa-calendar-days text-2xl mb-1"></i>
-                <span class="text-xs font-semibold">Ultimi 7 Giorni</span>
+                class="nav-btn flex flex-col items-center text-white/60 hover:text-white transition hover:scale-110">
+                <i class="fa-solid fa-calendar-days text-xl mb-1"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wide">7 Giorni</span>
             </button>
             <button data-page="my-matches"
-                class="nav-btn flex flex-col items-center text-gray-400 hover:text-yellow-400 transition">
-                <i class="fa-solid fa-star text-2xl mb-1"></i>
-                <span class="text-xs font-semibold">Mie Partite</span>
+                class="nav-btn flex flex-col items-center text-white/60 hover:text-yellow-300 transition hover:scale-110">
+                <i class="fa-solid fa-star text-xl mb-1"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Preferiti</span>
             </button>
-            <button data-page="trading-sportivo"
-                class="nav-btn flex flex-col items-center text-gray-400 hover:text-orange-400 transition">
-                <i class="fa-solid fa-chart-line text-2xl mb-1"></i>
-                <span class="text-xs font-semibold">Trading</span>
+            <button data-page="tips"
+                class="nav-btn flex flex-col items-center text-white/60 hover:text-orange-300 transition hover:scale-110">
+                <i class="fa-solid fa-wand-magic-sparkles text-xl mb-1"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Consigli</span>
             </button>
-            <button data-page="serie-a"
-                class="nav-btn flex flex-col items-center text-gray-400 hover:text-blue-300 transition">
-                <img src="logo_serie_a.png" class="h-6 w-auto mb-1 opacity-80" alt="Serie A">
-                <span class="text-xs font-semibold">Serie A</span>
+            <button data-page="live"
+                class="nav-btn flex flex-col items-center text-white/60 hover:text-red-400 transition hover:scale-110">
+                <div class="relative mb-1">
+                    <i class="fa-solid fa-satellite-dish text-xl"></i>
+                    <span id="live-badge"
+                        class="hidden absolute -top-1 -right-2 bg-red-500 text-[8px] font-black text-white px-1 rounded-full animate-pulse">●</span>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Live</span>
             </button>
             <button data-page="account"
-                class="nav-btn flex flex-col items-center text-gray-400 hover:text-blue-400 transition">
-                <i class="fa-solid fa-user text-2xl mb-1"></i>
-                <span class="text-xs font-semibold">Account</span>
+                class="nav-btn flex flex-col items-center text-white/60 hover:text-blue-300 transition hover:scale-110">
+                <i class="fa-solid fa-user text-xl mb-1"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Account</span>
             </button>
         </div>
-    </div>
 
-    <script>
-        // ==================== CREDENZIALI FIREBASE E GEMINI ====================
-        // NEW: TispsterAI-APP (Public App Database)
-        window.firebaseConfig = {
-            apiKey: "AIzaSyD7aXUbEshUFsUnpIDR3ZO1tAIgMsb_zpc",
-            authDomain: "tispsterai-app.firebaseapp.com",
-            projectId: "tispsterai-app",
-            storageBucket: "tispsterai-app.firebasestorage.app",
-            messagingSenderId: "166289799388",
-            appId: "1:166289799388:web:d8b31f2c24eb1d75f11c19"
-        };
-        // Gemini API Key is now handled securely server-side via Cloud Functions.
-        // No more direct client-side keys.
-    </script>
+        <script>
+            // ==================== CREDENZIALI FIREBASE E GEMINI ====================
+            // NEW: TispsterAI-APP (Public App Database)
+            window.firebaseConfig = {
+                apiKey: "AIzaSyD7aXUbEshUFsUnpIDR3ZO1tAIgMsb_zpc",
+                authDomain: "tispsterai-app.firebaseapp.com",
+                projectId: "tispsterai-app",
+                storageBucket: "tispsterai-app.firebasestorage.app",
+                messagingSenderId: "166289799388",
+                appId: "1:166289799388:web:d8b31f2c24eb1d75f11c19"
+            };
+            // Gemini API Key is now handled securely server-side via Cloud Functions.
+            // No more direct client-side keys.
+        </script>
 
-    <!-- AI CHATBOT WIDGET -->
-    <div id="ai-chat-widget" class="fixed bottom-20 right-6 z-50 flex flex-col items-end font-sans">
-        <!-- Chat Window -->
-        <div id="ai-chat-window"
-            class="hidden bg-white w-80 h-96 rounded-2xl shadow-2xl border border-gray-200 flex flex-col mb-4 overflow-hidden transition-all transform origin-bottom-right">
-            <!-- Header -->
-            <div class="bg-gradient-to-r from-purple-600 to-blue-600 p-4 flex justify-between items-center text-white">
-                <div class="flex items-center gap-2">
-                    <i class="fa-solid fa-robot"></i>
-                    <span class="font-bold text-sm">euGENIO 🧞‍♂️</span>
-                </div>
-                <button id="close-chat-btn" class="hover:text-gray-200 transition">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-
-            <!-- Messages Area -->
-            <div id="chat-messages" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-3 text-sm">
-                <!-- Welcome Message dynamically added -->
-            </div>
-
-            <!-- Input Area -->
-            <div class="p-3 bg-white border-t border-gray-100">
-                <form id="chat-form" class="flex gap-2">
-                    <input type="text" id="chat-input" placeholder="Scrivi una domanda..."
-                        class="flex-1 p-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500">
-                    <button type="submit"
-                        class="bg-purple-600 text-white p-2 rounded-lg hover:bg-purple-700 transition shadow-sm disabled:opacity-50">
-                        <i class="fa-solid fa-paper-plane"></i>
+        <!-- AI CHATBOT WIDGET -->
+        <div id="ai-chat-widget" class="fixed bottom-20 right-6 z-50 flex flex-col items-end font-sans">
+            <!-- Chat Window -->
+            <div id="ai-chat-window"
+                class="hidden bg-white w-80 h-96 rounded-2xl shadow-2xl border border-gray-200 flex flex-col mb-4 overflow-hidden transition-all transform origin-bottom-right">
+                <!-- Header -->
+                <div
+                    class="bg-gradient-to-r from-purple-600 to-blue-600 p-4 flex justify-between items-center text-white">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-robot"></i>
+                        <span class="font-bold text-sm">euGENIO 🧞‍♂️</span>
+                    </div>
+                    <button id="close-chat-btn" class="hover:text-gray-200 transition">
+                        <i class="fa-solid fa-xmark"></i>
                     </button>
-                </form>
+                </div>
+
+                <!-- Messages Area -->
+                <div id="chat-messages" class="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-3 text-sm">
+                    <!-- Welcome Message dynamically added -->
+                </div>
+
+                <!-- Input Area -->
+                <div class="p-3 bg-white border-t border-gray-100">
+                    <form id="chat-form" class="flex gap-2">
+                        <input type="text" id="chat-input" placeholder="Scrivi una domanda..."
+                            class="flex-1 p-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500">
+                        <button type="submit"
+                            class="bg-purple-600 text-white p-2 rounded-lg hover:bg-purple-700 transition shadow-sm disabled:opacity-50">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </form>
+                </div>
             </div>
+
+            <!-- Toggle Button -->
+            <button id="toggle-chat-btn"
+                class="bg-gradient-to-r from-purple-600 to-blue-600 text-white w-14 h-14 rounded-full shadow-lg hover:shadow-xl transition transform hover:scale-105 flex items-center justify-center text-2xl">
+                <i class="fa-solid fa-comment-dots"></i>
+            </button>
         </div>
 
-        <!-- Toggle Button -->
-        <button id="toggle-chat-btn"
-            class="bg-gradient-to-r from-purple-600 to-blue-600 text-white w-14 h-14 rounded-full shadow-lg hover:shadow-xl transition transform hover:scale-105 flex items-center justify-center text-2xl">
-            <i class="fa-solid fa-comment-dots"></i>
-        </button>
-    </div>
-
-    <script type="module" src="js/app.js?v=3.5.22"></script>
-    <script src="js/pwa.js?v=3.5.3"></script>
+        <script type="module" src="js/app.js?v=3.5.22"></script>
+        <script src="js/pwa.js?v=3.5.3"></script>
 </body>
 
 </html>
