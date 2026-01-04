@@ -33,17 +33,26 @@ let currentSortMode = 'time';
 let _lastRenderCache = {
     rankingHash: null,
     myMatchesHash: null,
-    tradingHash: null
+    tradingHash: null,
+    dashboardHash: null
 };
 
+// DEBOUNCE: Prevent rapid-fire re-renders
+let _liveUpdateDebounceTimer = null;
+const DEBOUNCE_MS = 500;
+
 function getDataHash(data) {
-    if (!data) return null;
+    if (!data) return 'null';
     try {
-        return JSON.stringify(data);
+        // IGNORE volatile timestamps to prevent unnecessary re-renders (Flashing/Tosse)
+        return JSON.stringify(data, (key, value) => {
+            if (key === 'updatedAt' || key === 'lastRefresh' || key === 'lastUpdated' || key === 'lastUpdate') return undefined;
+            return value;
+        });
     } catch (e) {
-        return Math.random().toString(); // Force render on error
+        return Math.random().toString();
     }
-} // Forced to 'time' as per user request to avoid UI instability
+}
 let isRegisterMode = false;
 let warningStats = null;
 let tradingFavorites = []; // IDs of favorite trading picks
@@ -128,8 +137,10 @@ const isMatchStale = (m) => {
 };
 
 window.getLiveTradingAnalysis = async function (matchId) {
+    const matchName = matchId.replace('trading_', '').replace(/_/g, ' ');
     const normalizedId = matchId.replace('trading_', '');
     let match = null;
+
 
     // 1. Search in Favorites
     if (window.selectedMatches) {
@@ -162,18 +173,23 @@ window.getLiveTradingAnalysis = async function (matchId) {
     }
 
     // Extract data - handle multiple formats (Trading picks vs Live Hub)
-    // Live Hub format: match.elapsed, match.score, match.status
-    // Trading format: match.liveData.elapsed, match.liveData.score
     const elapsed = (match?.elapsed || match?.liveData?.elapsed || match?.minute || '0').toString().replace("'", "");
     const score = match?.score || match?.liveData?.score || match?.risultato || "0-0";
     const status = match?.status || match?.liveData?.status || 'LIVE';
     const stats = match?.liveStats || match?.liveData?.stats || {};
 
-    // Build stats string properly
-    const da = stats.dangerousAttacks || "N/A";
-    const sog = stats.shotsOnGoal || "N/A";
-    const xg = stats.xg ? `${stats.xg.home?.toFixed(2) || stats.xg.home || 0} - ${stats.xg.away?.toFixed(2) || stats.xg.away || 0}` : "N/A";
-    const pos = stats.possession || "N/A";
+    // Build stats string properly - Resilient Mapping v2.3
+    const getStat = (obj, keys, def = "0 - 0") => {
+        for (const k of keys) {
+            if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "" && obj[k] !== "0-0") return obj[k];
+        }
+        return def;
+    };
+
+    const da = getStat(stats, ["dangerousAttacks", "dangerous_attacks", "attacks", "da"]);
+    const sog = getStat(stats, ["shotsOnGoal", "shots_on_goal", "sog"]);
+    const pos = getStat(stats, ["possession", "ball_possession", "palla"], "50% - 50%");
+    const xg = stats.xg ? `${stats.xg.home?.toFixed(2) || stats.xg.home || 0} - ${stats.xg.away?.toFixed(2) || stats.xg.away || 0}` : "0.0 - 0.0";
 
     // Build events summary if available
     const events = match?.events || [];
@@ -184,30 +200,45 @@ window.getLiveTradingAnalysis = async function (matchId) {
         eventsText = `\n- Eventi: ${goals.length} gol, ${cards.length} cartellini`;
     }
 
-    const prompt = `Analizza questo match LIVE per un'operazione professionale:
-- Match: ${match?.partita || match?.matchName || 'Sconosciuto'}
-- Minuto: ${elapsed}' (${status})
-- Risultato: ${score}
-- Valutazione Backend: ${match?.evaluation || 'LIVE'}
-- Strategia/Tip: ${match?.strategy || match?.label || 'Monitoraggio'} ${match?.tip || ''}
-- Statistiche: DA:${da}, SOG:${sog}, xG:${xg}, Possesso:${pos}${eventsText}
+    const visibleQuestion = `euGENIO 🧞‍♂️, fammi un'analisi live di questo match: **${matchName}**`;
 
-Fornisci un'analisi professionale in max 3-4 righe. Usa termini tecnici da Pro Trader. Concludi con un consiglio chiaro tra:
-🚀 ENTRA (Se le condizioni sono ottimali)
-✋ RESTA (Se sei già dentro, aspetta ancora)
-💰 CASHOUT (Se è il momento di prendere i profitti o limitare i danni)
-❌ NO ENTRY (Se il match è troppo stabile)`;
+    const userName = (typeof getUserName === 'function') ? getUserName() : "Socio";
 
-    // Open chat and send prompt
-    const chatBtn = document.getElementById('toggle-chat-btn');
-    if (chatBtn) chatBtn.click();
+    const hiddenDetailedPrompt = `Sei euGENIO, analista professionista di trading sportivo.
 
-    // We need to wait for chat to open or just use the global function
-    const input = document.getElementById('chat-input');
-    const form = document.getElementById('chat-form');
-    if (input && form) {
-        input.value = prompt;
-        form.dispatchEvent(new Event('submit'));
+**DATI TECNICI DEL MATCH:**
+- Match: ${matchName}
+- Minuto: ${elapsed}' | Risultato: ${score} | Status: ${status}
+- Pressione Gol: ${stats.pressureValue || 'N/A'}%
+- Strategia attiva: ${match?.strategy || match?.label || 'Monitoraggio'} ${match?.tip || ''}
+- xG: ${xg} | DA: ${da} | SOG: ${sog} | Possesso: ${pos}${eventsText}
+
+**ISTRUZIONI PER LA RISPOSTA:**
+1. Inizia con: "Ok ${userName}:"
+2. NON ripetere dati già visibili (minuto, punteggio) - l'utente li vede nell'app!
+3. Vai DRITTO all'analisi professionale:
+   - Analizza i DATI tecnici (xG, Pressione, DA, SOG)
+   - Spiega cosa significano NEL CONTESTO di questo match
+   - Da' indicazioni operative CONCRETE
+4. SPIEGA SEMPRE IL PERCHÉ delle tue indicazioni basandoti sui dati
+   Esempi:
+   - "Esci e fai cashout PERCHÉ la pressione è crollata a X% e non ci sono più occasioni"
+   - "Stai dentro PERCHÉ xG sale e la pressione è a X%, il gol sta arrivando"
+   - "Non entrare PERCHÉ il match è bloccato, DA fermi a X e Possesso equilibrato"
+   - "Stop loss se sei contro PERCHÉ i dati mostrano inversione di trend"
+5. Tono: professionale, empatico, da esperto che sa di cosa parla
+6. NO LIMITI di lunghezza - scrivi tutto quello che serve per una consulenza completa
+7. Chiudi con indicazione operativa chiara e motivata`;
+
+
+
+
+    // Execute with Hidden Logic v2.3
+    if (typeof window.askEugenioDetailed === 'function') {
+        window.askEugenioDetailed(visibleQuestion, hiddenDetailedPrompt);
+    } else {
+        // Fallback if component not ready
+        alert("euGENIO si sta preparando... riprova tra un istante!");
     }
 };
 
@@ -302,6 +333,12 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const hubId = `${mKey}_${tKey}`;
     let liveHubData = window.liveScoresHub[hubId];
 
+    // NEW: High Priority FixtureID Lookup (Immune to name changes)
+    if (!liveHubData && match.fixtureId) {
+        liveHubData = Object.values(window.liveScoresHub).find(h => h.fixtureId === match.fixtureId);
+        if (liveHubData) console.log(`[LiveHub] 🆔 Fixture Match Found: ${match.fixtureId}`);
+    }
+
     // FUZZY FALLBACK: If exact ID not found, try to find by fuzzy matching name
     if (!liveHubData) {
         // Only try fuzzy if we have a substantial name (len > 3)
@@ -332,6 +369,14 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             if (bestKey) {
                 liveHubData = window.liveScoresHub[bestKey];
                 console.log(`[LiveHub] 🔦 Fuzzy Match Found: "${hubId}" -> "${bestKey}"`);
+            } else {
+                // 3. GLOBAL MATCH FALLBACK: Find ANY record for this match name, regardless of tip.
+                // We mainly need the score and status.
+                bestKey = hubKeys.find(k => k.includes(mKey));
+                if (bestKey) {
+                    liveHubData = window.liveScoresHub[bestKey];
+                    console.log(`[LiveHub] 🌍 Global Match Fallback: Found "${bestKey}" for "${mKey}"`);
+                }
             }
         }
     }
@@ -347,7 +392,6 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             risultato: liveHubData.score,
             status: liveHubData.status,
             minute: liveHubData.elapsed,
-            // Priorità all'evaluation dell'Hub se il match è LIVE
             esito: liveHubData.evaluation,
             liveData: {
                 ...match.liveData,
@@ -358,7 +402,24 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             liveStats: liveHubData.liveStats || match.liveStats,
             events: liveHubData.events || match.events
         };
-    } else if (match.risultato && match.risultato.includes('-') && !match.esito) {
+
+        // 🩺 PROTOCOLLO 90'+10min: Se il match è al 90° e il tempo previsto è passato, è FINITO.
+        const elapsedMinute = parseInt(liveHubData.elapsed) || 0;
+
+        if (elapsedMinute >= 90 && match.status !== 'FT' && match.status !== 'AET' && match.status !== 'PEN') {
+            const matchTimeStr = match.ora || '00:00';
+            const matchDateStr = match.data || new Date().toISOString().split('T')[0];
+            const kickoff = new Date(`${matchDateStr}T${matchTimeStr}:00`);
+            const expectedEndTime = kickoff.getTime() + (130 * 60 * 1000); // kickoff + 2h10m
+
+            if (Date.now() > expectedEndTime) {
+                console.log(`[Auto-FT] ⏱️ Match "${mName}" at ${elapsedMinute}' past expected end - forcing FT`);
+                match.status = 'FT';
+            }
+        }
+
+    }
+    else if (match.risultato && match.risultato.includes('-') && !match.esito) {
         // FALLBACK: Match has a result in local data but NOT in Hub AND NOT in permanent esito
         const localEsito = evaluateTipLocally(mTip, match.risultato);
         if (localEsito) {
@@ -463,11 +524,12 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // Header Generation with Star
     const flagBtnHTML = isTrading
         ? `<button data-match-id="${matchId}" class="text-white/70 hover:text-white transition text-xl bg-white/10 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" onclick="toggleTradingFavorite('${matchId}'); event.stopPropagation();">
-             <i class="${isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular'} fa-star"></i>
+             <i class="${isFlagged ? 'fa-solid text-yellow-300 drop-shadow-md' : 'fa-regular text-white/70'} fa-star"></i>
            </button>`
-        : `<button data-match-id="${matchId}" class="flag-btn ${isFlagged ? 'flagged text-yellow-300' : 'text-white/60'} hover:text-yellow-300 transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
-             ${isFlagged ? '<i class="fa-solid fa-star drop-shadow-md"></i>' : '<i class="fa-regular fa-star"></i>'}
+        : `<button data-match-id="${matchId}" class="flag-btn ${isFlagged ? 'flagged' : ''} hover:text-yellow-300 transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
+             <i class="${isFlagged ? 'fa-solid fa-star text-yellow-300 drop-shadow-md' : 'fa-regular fa-star text-white/60'}"></i>
            </button>`;
+
 
     let headerHTML = '';
     const elapsed = match.liveData?.elapsed || match.liveData?.minute || 0;
@@ -808,14 +870,20 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // --- Footer with Monitoring Badge ---
     let notMonitoredBadge = '';
-    if (match.isNotMonitored) {
-        const now = new Date();
-        const matchDateTime = new Date(`${match.data || now.toISOString().split('T')[0]}T${match.ora || '00:00'}:00`);
+    const now = new Date();
+    const matchTimeStr = match.ora || '00:00';
+    const matchDateStr = match.data || now.toISOString().split('T')[0];
+    const matchDateTime = new Date(`${matchDateStr}T${matchTimeStr}:00`);
+    const oneHourAfterKickoff = (now - matchDateTime) > (60 * 60 * 1000); // 1 hour after kickoff
+
+    // NEW RULE: If 1h past kickoff and NO liveHubData → Non Monitorata (match likely postponed/cancelled)
+    if (match.isNotMonitored || (!liveHubData && oneHourAfterKickoff)) {
         const isFuture = matchDateTime > now;
         notMonitoredBadge = isFuture
             ? '<span class="text-[9px] font-bold text-blue-400 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-regular fa-clock"></i> In Attesa</span>'
-            : '<span class="text-[9px] font-bold text-orange-500 uppercase tracking-widest bg-orange-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-solid fa-satellite-dish"></i> Connessione...</span>';
+            : '<span class="text-[9px] font-bold text-red-400 uppercase tracking-widest bg-red-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-solid fa-ban"></i> Non Monitorata</span>';
     }
+
 
     const footerHTML = `
         <div class="bg-slate-50 p-2 border-t border-slate-100 flex justify-between items-center px-4">
@@ -1112,6 +1180,9 @@ window.renderTradingCards = function (picks) {
     });
 
     container.replaceChildren(...cards);
+
+    // RESTORE SCROLL
+    if (oldScroll > 0) window.scrollTo({ top: oldScroll, behavior: 'instant' });
 }
 
 // Helper to generate consistent Trading Pick IDs (Matches backend logic)
@@ -1372,7 +1443,7 @@ async function loadData(dateToLoad = null) {
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 const rawStrategies = data.strategies || data;
-                const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'over_2_5_ai'];
+                const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'over_2_5_ai', 'top_del_giorno'];
 
                 window.strategiesData = {};
                 Object.entries(rawStrategies).forEach(([id, strat]) => {
@@ -1505,29 +1576,44 @@ function initLiveHubListener() {
             }
         });
 
-        // NEW: Trigger Dashboard Refresh for "Top Del Giorno" box updates
-        if (document.getElementById('page-strategies')?.classList.contains('active')) {
-            renderStrategies();
-        }
+        // ALL re-renders are now DEBOUNCED to stop the 'cough'
+        clearTimeout(_liveUpdateDebounceTimer);
+        _liveUpdateDebounceTimer = setTimeout(() => {
+            // Dashboard
+            if (document.getElementById('page-strategies')?.classList.contains('active')) {
+                const dataHash = getDataHash(window.liveScoresHub);
+                if (_lastRenderCache.dashboardHash !== dataHash) {
+                    renderStrategies();
+                    _lastRenderCache.dashboardHash = dataHash;
+                }
+            }
 
-        // Trigger dynamic re-renders of active pages
-        if (document.getElementById('page-ranking')?.classList.contains('active')) {
-            window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
-        }
-        if (document.getElementById('page-my-matches')?.classList.contains('active')) {
-            window.showMyMatches();
-        }
-        // Also re-render Trading and Star pages
-        if (document.getElementById('page-trading')?.classList.contains('active')) {
-            if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
-        }
-        if (document.getElementById('page-star')?.classList.contains('active')) {
-            if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
-        }
-        // NEW: Live Hub Page Re-render
-        if (document.getElementById('page-live')?.classList.contains('active')) {
-            loadLiveHubMatches();
-        }
+            // Ranking page
+            if (document.getElementById('page-ranking')?.classList.contains('active')) {
+                window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
+            }
+
+            // My Matches page
+            if (document.getElementById('page-my-matches')?.classList.contains('active')) {
+                window.showMyMatches();
+            }
+
+            // Trading page
+            if (document.getElementById('page-trading')?.classList.contains('active')) {
+                if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
+            }
+
+            // Star/Favorites page
+            if (document.getElementById('page-star')?.classList.contains('active')) {
+                if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
+            }
+
+            // Live Hub page
+            if (document.getElementById('page-live')?.classList.contains('active')) {
+                loadLiveHubMatches();
+            }
+        }, DEBOUNCE_MS);
+
 
         // Global Badge Update - ONLY count TODAY's LIVE matches from MAJOR LEAGUES
         const today = new Date().toISOString().split('T')[0];
@@ -1571,27 +1657,58 @@ function renderStrategies() {
     const container = document.getElementById('strategies-grid');
     if (!container) return;
 
-    const allStrats = Object.entries(window.strategiesData);
-    const children = [];
+    // INVISIBLE UPDATE PROTOCOL: Hide, update, restore
+    const oldScroll = window.scrollY;
+    const oldHeight = container.offsetHeight;
 
-    // Render the 7 standard strategies
-    allStrats.forEach(([id, strat]) => {
-        children.push(createStrategyBtn(id, strat));
+    // Step 1: Hide container (prevents flash)
+    container.style.visibility = 'hidden';
+    if (oldHeight > 0) container.style.minHeight = `${oldHeight}px`;
+
+    // Step 2: Build new content
+    const allStrats = Object.entries(window.strategiesData).sort((a, b) => {
+        const isA_AI = a[0].includes('magia') || a[0].includes('ai');
+        const isB_AI = b[0].includes('magia') || b[0].includes('ai');
+        if (isA_AI && !isB_AI) return -1;
+        if (!isA_AI && isB_AI) return 1;
+        return 0;
     });
 
-    // ADD THE 8th BOX: "Top Del Giorno" (Special Green Box)
+    const children = [];
+    allStrats.forEach(([id, strat]) => {
+        if (id !== 'top_del_giorno') {
+            children.push(createStrategyBtn(id, strat));
+        }
+    });
+
     if (typeof createTopDelGiornoBox === 'function') {
         children.push(createTopDelGiornoBox());
     }
 
+    // Step 3: Swap DOM
     container.replaceChildren(...children);
+
+    // Step 4: Restore scroll BEFORE making visible
+    if (oldScroll > 0) window.scrollTo({ top: oldScroll, behavior: 'instant' });
+
+    // Step 5: Make visible again (single paint, no flash)
+    requestAnimationFrame(() => {
+        container.style.visibility = '';
+        container.style.minHeight = '';
+    });
 }
+
 
 function createStrategyBtn(id, strat) {
     const btn = document.createElement('button');
     const isMagic = id.includes('magia');
+    const isAI = id.includes('ai') || isMagic;
+
+    // AI strategies get ORANGE gradient, others get standard BLUE gradient
+    const bgClass = isAI ? 'bg-gradient-to-br from-orange-500 to-amber-600' : 'bg-gradient-to-br from-indigo-600 to-indigo-800';
+
     // Compact padding and smaller typography for 2-column grid fit
-    btn.className = `strategy-btn ${isMagic ? 'magic-ai' : ''} text-white rounded-2xl p-3 shadow-lg w-full text-left relative overflow-hidden transition-transform active:scale-95 border border-white/10`;
+    btn.className = `strategy-btn ${isMagic ? 'magic-ai' : ''} ${bgClass} text-white rounded-2xl p-3 shadow-lg w-full text-left relative overflow-hidden transition-transform active:scale-95 border border-white/10`;
     btn.onclick = () => window.showRanking(id, strat);
 
     btn.innerHTML = `
@@ -1600,96 +1717,73 @@ function createStrategyBtn(id, strat) {
             <div class="text-[10px] text-white/70 font-bold uppercase tracking-wider">${strat.totalMatches || strat.matches?.length || 0} Partite</div>
         </div>
         <div class="absolute right-[-8px] bottom-[-8px] text-5xl opacity-10 rotate-12">
-            ${isMagic ? '🪄' : '⚽'}
+            ${isAI ? '🪄' : '⚽'}
         </div>
     `;
     return btn;
 }
 
 function createTopDelGiornoBox() {
-    const div = document.createElement('div');
-    div.className = `bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl p-3 shadow-lg w-full text-left relative overflow-hidden border border-emerald-400/30 flex flex-col justify-between min-h-[90px] cursor-pointer transition-transform active:scale-95`;
-    div.onclick = () => window.showPage('page-live-hub');
+    const topStrat = window.strategiesData?.['top_del_giorno'];
+    const adminMatches = topStrat?.matches || topStrat?.partite_by_tip?.all || [];
+    const count = adminMatches.length;
 
-    // Calculate total matches for today (live + scheduled)
-    const hubMatches = Object.values(window.liveScoresHub || {});
-    const today = new Date().toISOString().split('T')[0];
-
-    // SAME Major Leagues filter as loadLiveHubMatches for consistency
-    const MAJOR_LEAGUES = [
-        135, 136, 39, 40, 41, 140, 78, 79, 61, 88, 94, 207, 235, 144, 203, 2, 3, 848, 137, 45, 143
-    ];
-
-    const todayGames = hubMatches.filter(m => {
-        const d = m.matchDate || '';
-        const isToday = d === today || d.startsWith(today);
-        const isMajor = !m.leagueId || MAJOR_LEAGUES.includes(m.leagueId);
-        return isToday && isMajor;
+    // Check for live matches
+    const liveHubMap = window.liveScoresHub || {};
+    const hubMatches = Object.values(liveHubMap);
+    const hasLive = adminMatches.some(am => {
+        const hubMatch = liveHubMap[am.id] || hubMatches.find(h => h.matchName === am.partita || h.fixtureId === am.fixtureId);
+        if (!hubMatch) return false;
+        const status = (hubMatch.status || '').toUpperCase();
+        return status !== 'FT' && status !== 'NS' && status !== '' && status !== 'PST';
     });
 
-    const count = todayGames.length;
+    const div = document.createElement('div');
+    div.className = `bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl p-3 shadow-lg w-full text-left relative overflow-hidden border border-emerald-400/30 cursor-pointer transition-transform active:scale-95`;
+    div.onclick = () => {
+        if (topStrat) window.showRanking('top_del_giorno', topStrat);
+        else window.showPage('page-live');
+    };
 
-    // Separate finished matches for preview (FT) - Last 4 hours
-    const finished = todayGames.filter(m => {
-        const status = (m.status || '').toUpperCase();
-        if (status !== 'FT') return false;
-
-        const updatedAt = m.updatedAt?.toDate?.() || new Date(m.updatedAt);
-        const hoursSinceUpdate = (Date.now() - updatedAt.getTime()) / (1000 * 60 * 60);
-        return hoursSinceUpdate < 4;
-    })
-        .sort((a, b) => {
-            const dateA = a.updatedAt?.toDate?.() || new Date(a.updatedAt);
-            const dateB = b.updatedAt?.toDate?.() || new Date(b.updatedAt);
-            return dateB - dateA;
-        })
-        .slice(0, 3); // Show last 3 results
-
-    let resultsHtml = '';
-    if (finished.length > 0) {
-        resultsHtml = `<div class="mt-2 space-y-1">
-            ${finished.map(m => {
-            const evalStr = m.evaluation || '';
-            let color = 'text-white';
-            if (evalStr.includes('Vinta')) color = 'text-emerald-200';
-            else if (evalStr.includes('Persa') || evalStr.includes('Stop-loss')) color = 'text-rose-200';
-            else if (evalStr.includes('Cash-out')) color = 'text-amber-200';
-
-            return `<div class="text-[9px] font-black ${color} truncate">🏁 ${m.matchName}: ${m.score}</div>`;
-        }).join('')}
-        </div>`;
-    } else {
-        resultsHtml = `<div class="text-[9px] text-emerald-100/60 font-semibold mt-2">Radar attivo per i live...</div>`;
-    }
-
+    // Simple layout like other strategy buttons
     div.innerHTML = `
-        <div class="relative z-10 flex flex-col h-full">
-            <div class="flex justify-between items-start">
-                <div class="text-sm font-black uppercase tracking-tighter leading-none italic">Top Del Giorno</div>
-                <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px] font-bold animate-pulse">LIVE HUB</span>
-            </div>
-            <div class="text-2xl font-black mt-1 leading-none">${count} <span class="text-[10px] font-bold opacity-80 uppercase italic">In Radar</span></div>
-            ${resultsHtml}
+        <div class="relative z-10">
+            <div class="text-lg font-black text-white leading-tight mb-0.5">🏆 Top Live</div>
+            <div class="text-[10px] text-white/70 font-bold uppercase tracking-wider">${count} Partite</div>
+            ${hasLive ? `<div class="absolute top-0 right-0 flex items-center gap-1 bg-white/20 px-1.5 py-0.5 rounded-full">
+                <span class="relative flex h-2 w-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                </span>
+                <span class="text-[8px] font-bold uppercase">LIVE</span>
+            </div>` : ''}
         </div>
-        <i class="fa-solid fa-fire absolute right-2 bottom-2 text-4xl opacity-10 -rotate-12"></i>
+        <div class="absolute right-[-8px] bottom-[-8px] text-5xl opacity-10 rotate-12">🏆</div>
     `;
     return div;
 }
 
+
 window.showRanking = function (stratId, strat, sortMode = 'score') {
-    currentStrategyId = stratId; // CRITICAL: Set this BEFORE showPage to avoid infinite loop!
+    currentStrategyId = stratId;
     window.showPage('ranking');
     const container = document.getElementById('matches-container');
     if (!container) return;
     document.getElementById('strategy-title').textContent = strat.name;
 
     // ANTI-FLICKER: Skip render if data hasn't changed
-    const dataHash = getDataHash(strat.matches);
+    const dataHash = getDataHash(strat.matches) + getDataHash(window.liveScoresHub);
     if (_lastRenderCache.rankingHash === dataHash) {
         console.log('[Ranking Render] ⏭️ SKIPPED (data unchanged)');
         return;
     }
     _lastRenderCache.rankingHash = dataHash;
+
+    // INVISIBLE UPDATE PROTOCOL
+    const oldScroll = window.scrollY;
+    const oldHeight = container.offsetHeight;
+    container.style.visibility = 'hidden';
+    if (oldHeight > 0) container.style.minHeight = `${oldHeight}px`;
 
     if (!strat.matches || strat.matches.length === 0) {
         container.replaceChildren();
@@ -1698,21 +1792,22 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
         msg.textContent = 'Nessuna partita.';
         container.appendChild(msg);
     } else {
-        console.log(`[Ranking Render] 📊 Filtering ${strat.matches.length} matches for stale ghosts...`);
         const filtered = strat.matches.filter(m => !isMatchStale(m));
-        console.log(`[Ranking Render] ✅ After filtering: ${filtered.length} matches(removed ${strat.matches.length - filtered.length} ghosts)`);
-
-        const sorted = [...filtered].sort((a, b) => {
-            // ALWAYS sort by time as per user request to avoid UI instability
-            return (a.ora || '').localeCompare(b.ora || '');
-        });
-
+        const sorted = [...filtered].sort((a, b) => (a.ora || '').localeCompare(b.ora || ''));
         const cards = sorted.map((m, idx) => window.createUniversalCard(m, idx, stratId));
-        console.log(`[Ranking Render] 🔄 Calling replaceChildren with ${cards.length} cards`);
         container.replaceChildren(...cards);
-        console.log(`[Ranking Render] ✅ Render complete`);
     }
+
+    // Restore scroll BEFORE making visible
+    if (oldScroll > 0) window.scrollTo({ top: oldScroll, behavior: 'instant' });
+
+    // Make visible again
+    requestAnimationFrame(() => {
+        container.style.visibility = '';
+        container.style.minHeight = '';
+    });
 }
+
 
 window.toggleFlag = async function (matchId) {
     let foundMatch = null;
@@ -1723,8 +1818,8 @@ window.toggleFlag = async function (matchId) {
         for (const [stratId, strat] of Object.entries(window.strategiesData)) {
             const matches = strat.matches || (Array.isArray(strat) ? strat : []);
             const m = matches.find(x => {
-                const id = x.id || `${x.data}_${x.partita} `;
-                return id === matchId;
+                const id = x.id || `${x.data}_${x.partita}`;
+                return id.trim() === matchId.trim();
             });
             if (m) {
                 foundMatch = m;
@@ -1737,16 +1832,17 @@ window.toggleFlag = async function (matchId) {
     // Fallback: Check if already in selectedMatches
     if (!foundMatch) {
         foundMatch = window.selectedMatches.find(m => {
-            const id = m.id || `${m.data}_${m.partita} `;
-            return id === matchId;
+            const id = m.id || `${m.data}_${m.partita}`;
+            return id.trim() === matchId.trim();
         });
     }
 
     if (foundMatch) {
         // Ensure ID is consistent
-        const consistentId = foundMatch.id || `${foundMatch.data}_${foundMatch.partita} `;
+        const consistentId = foundMatch.id || `${foundMatch.data}_${foundMatch.partita}`;
 
-        const idx = window.selectedMatches.findIndex(m => (m.id || `${m.data}_${m.partita} `) === consistentId);
+        const idx = window.selectedMatches.findIndex(m => (m.id || `${m.data}_${m.partita}`).trim() === consistentId.trim());
+
 
         if (idx >= 0) {
             window.selectedMatches.splice(idx, 1);
@@ -2124,33 +2220,43 @@ Mantieni un tono calmo, analitico e autorevole.`;
             .join('\n') || "Nessuna strategia caricata.";
 
         const basePrompt = eugenioPromptCache?.prompt ||
-            `Ciao! Sono euGENIO, il tuo assistente AI esperto in scommesse e trading sportivo.
-        ${liveTradingPersona}
+            `Sei **euGENIO 🧞‍♂️**, analista professionista di trading sportivo per Tipster-AI.
 
-Utilizzo modelli matematici(Poisson, Monte Carlo, Dixon - Coles) per trovare valore dove gli altri non lo vedono.
-Ti chiami ${userName}.
+**IDENTITÀ:**
+- Tu: euGENIO (l'AI)
+- Utente: **${userName}** (il Capo, il trader)
 
-ECCO IL CONTESTO ATTUALE DELL'APP:
-        - Performance globale: ${stats.total} match analizzati, Winrate ${stats.winrate}%
-            - Strategie attive oggi:
-${strategiesText}
+**TUE COMPETENZE:**
+${liveTradingPersona}
+- Modelli matematici: Poisson, Monte Carlo, Dixon-Coles
+- Analisi xG, Pressione Gol, Dangerous Attacks, Shots on Goal
 
-DEFINIZIONI STRATEGIE:
-${Object.entries(strategyDefinitions).map(([k, v]) => `- ${k.toUpperCase()}: ${v}`).join('\n')}
+**PERFORMANCE APP:**
+- ${stats.total} match analizzati, Winrate ${stats.winrate}%
+- Strategie operative oggi: ${Object.keys(strategies).length}
 
-    IMPORTANTE: Se vedi il "Goal Cooking Indicator" sopra il 70 %, significa che il gol è imminente statisticamente!
-Sii sempre sincero: se un match non ha valore, dillo chiaramente.`;
+**STRATEGIE DISPONIBILI:**
+${strategiesText}`;
 
-        let prompt = `${basePrompt}
+        return `${basePrompt}
 
 ${eugenioPromptCache?.customInstructions || ''}
 ${eugenioPromptCache?.additionalContext || ''}
 ${eugenioPromptCache?.tradingKnowledge || ''}
 
-Regole comportamentali:
-    1. Saluta SOLO nel primo messaggio.
-2. NON confondere Magia AI(tempo reale) con Special AI(precisione statistica).
-3. Sii conciso e professionale.`;
+**REGOLE COMUNICAZIONE:**
+1. Conversazione normale: saluta ${userName} solo al primo messaggio
+2. Analisi Profonda Live: 
+   - Inizia con "Ok ${userName}:"
+   - NO presentazioni, NO saluti ripetuti
+   - Vai dritto ai dati e alle indicazioni
+3. NON ripetere mai dati visibili (minuto, punteggio)
+4. SPIEGA SEMPRE il PERCHÉ basandoti sui dati tecnici
+5. Usa linguaggio professionale ma empatico
+6. NO limiti di lunghezza - scrivi tutto quello che serve
+7. Chiudi con indicazione operativa chiara e motivata`;
+
+
 
         return prompt;
     }
@@ -2183,8 +2289,11 @@ Regole comportamentali:
         bubble.innerHTML = text;
         div.appendChild(bubble);
         messagesContainer.appendChild(div);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        setTimeout(() => {
+            messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
+        }, 100);
     }
+
 
     function showLoading() {
         const div = document.createElement('div');
@@ -2211,8 +2320,12 @@ Regole comportamentali:
 
         input.value = '';
         appendMessage(text, 'user');
-        showLoading();
+        processMessage(text);
+    });
 
+    // Unified message processor v2.3
+    async function processMessage(text, hiddenAIPrompt = null) {
+        showLoading();
         try {
             if (chatHistory.length === 0) {
                 if (!eugenioPromptCache) await window.loadEugenioPrompt();
@@ -2220,12 +2333,15 @@ Regole comportamentali:
                 chatHistory.push({ role: "model", parts: [{ text: "Certamente! Sono pronto ad aiutarti." }] });
             }
 
-            chatHistory.push({ role: "user", parts: [{ text: text }] });
+            // Use hidden prompt if provided (from "Deep Analysis" buttons), else use user text
+            const promptToSend = hiddenAIPrompt || text;
+            chatHistory.push({ role: "user", parts: [{ text: promptToSend }] });
 
             const result = await window.chatWithGemini({
                 contents: chatHistory,
-                generationConfig: { temperature: 1, maxOutputTokens: 1024 }
+                generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
             });
+
 
             const loading = document.getElementById('ai-loading');
             if (loading) loading.remove();
@@ -2233,16 +2349,60 @@ Regole comportamentali:
             const responseText = result.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Scusa, non ho capito. 🧞‍♂️";
             chatHistory.push({ role: "model", parts: [{ text: responseText }] });
 
-            // Simple markdown-ish to HTML
             const htmlText = responseText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
-            appendMessage(htmlText, 'ai');
+            appendMessage(htmlText, 'ai'); // Typewriter disabled for now to prevent flickering
 
         } catch (err) {
             const loading = document.getElementById('ai-loading');
             if (loading) loading.remove();
             appendMessage("Ops! C'è stato un errore nel contattare euGENIO. 🧞‍♂️", 'ai');
         }
-    });
+    }
+
+    // Typewriter effect function v2.27
+    async function typewriterMessage(htmlText, sender) {
+        const div = document.createElement('div');
+        div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'} `;
+        const bubble = document.createElement('div');
+        bubble.className = sender === 'user'
+            ? 'bg-purple-600 text-white rounded-2xl rounded-tr-none p-3 shadow-sm max-w-[85%]'
+            : 'bg-white border border-gray-200 rounded-2xl rounded-tl-none p-3 shadow-sm max-w-[85%] text-gray-800';
+        bubble.innerHTML = ''; // Start empty
+        div.appendChild(bubble);
+        messagesContainer.appendChild(div);
+
+        // Typewriter effect - write character by character
+        let currentText = '';
+        const speed = 15; // milliseconds per character
+
+        for (let i = 0; i < htmlText.length; i++) {
+            currentText += htmlText[i];
+            bubble.innerHTML = currentText;
+
+            // Auto-scroll while typing
+            if (i % 5 === 0) { // Scroll every 5 characters for smoothness
+                messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, speed));
+        }
+
+        // Final scroll
+        setTimeout(() => {
+            messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
+        }, 100);
+    }
+
+    // NEW Component: Secret Payload Handler v2.3
+    window.askEugenioDetailed = async function (visibleText, hiddenAIPrompt) {
+        if (!isOpen) toggleChat();
+        // Force history reset for specific match analysis to avoid confusion and token bloat
+        chatHistory = [];
+        appendMessage(visibleText, 'user');
+        await processMessage(visibleText, hiddenAIPrompt);
+    };
+
+
 })();
 
 
@@ -2279,6 +2439,8 @@ window.loadHistory = async function () {
                             else totalPending++;
                         });
                     });
+
+
 
                     dateData.push({ date, strategies, totalWins, totalLosses, totalPending, hasData: true });
                 } else {
@@ -2355,9 +2517,13 @@ function toggleDateDetails(date, strategies, card) {
         if (closed.length === 0) return '';
 
         let wins = 0, losses = 0;
-        closed.forEach(m => { m.esito === 'Vinto' ? wins++ : losses++; });
-        const wr = Math.round((wins / (wins + losses)) * 100);
+        closed.forEach(m => {
+            if (m.esito === 'Vinto') wins++;
+            else if (m.esito === 'Perso') losses++;
+        });
+        const wr = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
         let wrColor = wr >= 70 ? 'text-green-400' : (wr >= 50 ? 'text-yellow-400' : 'text-red-400');
+
 
         return `
         <div class="strategy-card bg-white/10 rounded-lg p-3 mb-2" data-strategy="${id}" data-date="${date}" >
@@ -2371,13 +2537,20 @@ function toggleDateDetails(date, strategies, card) {
                     </div>
                 </div>
                 <div id="matches-${id}-${date}" class="hidden mt-3 pt-3 border-t border-white/10 space-y-2">
-                    ${closed.map(m => `
-                        <div class="${m.esito === 'Vinto' ? 'bg-green-600/30' : 'bg-red-600/30'} p-2 rounded text-xs flex justify-between items-center">
+                    ${closed.map(m => {
+            const isWin = m.esito === 'Vinto';
+            const isLoss = m.esito === 'Perso';
+            const bgColor = isWin ? 'bg-green-600/30' : (isLoss ? 'bg-red-600/30' : 'bg-gray-600/30');
+            const icon = isWin ? '✅' : (isLoss ? '❌' : '⏳');
+
+            return `
+                        <div class="${bgColor} p-2 rounded text-xs flex justify-between items-center">
                             <div><div class="font-bold">${m.partita}</div><div class="opacity-70">${m.tip} (@${m.quota || '-'})</div></div>
-                            <div class="text-right font-black">${m.risultato} ${m.esito === 'Vinto' ? '✅' : '❌'}</div>
-                        </div>
-                    `).join('')}
+                            <div class="text-right font-black">${m.risultato} ${icon}</div>
+                        </div>`;
+        }).join('')}
                 </div>
+
             </div> `;
     }).join('');
     container.classList.remove('hidden');
@@ -2742,17 +2915,18 @@ function renderLiveHubCard(match) {
         <div class="grid grid-cols-3 gap-1 px-3 py-2 bg-slate-50 border-t border-slate-200">
             <div class="text-center">
                 <div class="text-[9px] font-bold text-indigo-600 uppercase">xG</div>
-                <div class="text-sm font-black text-slate-800">${xgHome.toFixed(1)} - ${xgAway.toFixed(1)}</div>
+                <div class="text-sm font-black text-slate-800">${(xgHome || 0).toFixed(1)} - ${(xgAway || 0).toFixed(1)}</div>
             </div>
             <div class="text-center">
-                <div class="text-[9px] font-bold text-orange-600 uppercase">Attacchi</div>
-                <div class="text-sm font-black text-slate-800">${stats.dangerousAttacks || '0 - 0'}</div>
+                <div class="text-[9px] font-bold text-orange-600 uppercase">Attacchi Pericolosi</div>
+                <div class="text-sm font-black text-slate-800">${stats.dangerousAttacks || stats.dangerous_attacks || stats.attacks || '0 - 0'}</div>
             </div>
             <div class="text-center">
                 <div class="text-[9px] font-bold text-emerald-600 uppercase">Possesso</div>
-                <div class="text-sm font-black text-slate-800">${stats.possession || '50% - 50%'}</div>
+                <div class="text-sm font-black text-slate-800">${stats.possession || stats.ball_possession || '50% - 50%'}</div>
             </div>
         </div>
+
 
         <!-- Events Timeline -->
         <div class="px-3 py-2 bg-white border-t border-slate-200">
