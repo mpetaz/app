@@ -1419,11 +1419,7 @@ function getMagiaStats(match, allMatchesHistory) {
     };
 }
 
-const parseTeams = (partita) => {
-    const parts = partita.split(' - ');
-    if (parts.length < 2) return null;
-    return { home: parts[0].trim(), away: parts[1].trim() };
-};
+// parseTeams moved to js/utils.js
 
 // Export functions
 window.calculateStrategyRankings = null; // Will be defined in admin logic, not here

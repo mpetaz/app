@@ -39,7 +39,7 @@ let _lastRenderCache = {
 
 // DEBOUNCE: Prevent rapid-fire re-renders
 let _liveUpdateDebounceTimer = null;
-const DEBOUNCE_MS = 500;
+const DEBOUNCE_MS = 2000; // Aumentato per ridurre flickering
 
 function getDataHash(data) {
     if (!data) return 'null';
@@ -322,20 +322,30 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const mName = match.partita || "";
     // CRITICAL: Use tradingInstruction.action if available (same as Backend)
     const mTip = match.tradingInstruction?.action || match.tip || "";
+
+    // DEBUG: Initial State Check for Bhayangkara (REMOVED)
     // DEEP NORMALIZATION (Same as Backend)
     const mKey = mName.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const tKey = mTip.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const hubId = `${mKey}_${tKey}`;
-    let liveHubData = window.liveScoresHub[hubId];
+    // SMART SKIP: Non cercare dati live se la partita non è ancora iniziata
+    // MA se ha già un risultato, non saltare mai!
+    const matchDate = match.data || new Date().toISOString().split('T')[0];
+    const matchTime = match.ora || match.api_time || '00:00';
+    const kickoffTime = new Date(`${matchDate}T${matchTime}:00`);
+    const hasResult = match.risultato && match.risultato.includes('-');
+    const matchNotStarted = !hasResult && kickoffTime > new Date();
 
-    // NEW: High Priority FixtureID Lookup (Immune to name changes)
-    if (!liveHubData && match.fixtureId) {
+    // SKIP live hub lookup if match hasn't started yet
+    let liveHubData = matchNotStarted ? null : window.liveScoresHub[hubId];
+
+    // NEW: High Priority FixtureID Lookup (Immune to name changes) - ONLY if started
+    if (!liveHubData && !matchNotStarted && match.fixtureId) {
         liveHubData = Object.values(window.liveScoresHub).find(h => h.fixtureId === match.fixtureId);
-        if (liveHubData) console.log(`[LiveHub] 🆔 Fixture Match Found: ${match.fixtureId}`);
     }
 
-    // FUZZY FALLBACK: If exact ID not found, try to find by fuzzy matching name
-    if (!liveHubData) {
+    // FUZZY FALLBACK: Only if match has started
+    if (!liveHubData && !matchNotStarted) {
         // Only try fuzzy if we have a substantial name (len > 3)
         if (mKey.length > 3) {
             const hubKeys = Object.keys(window.liveScoresHub);
@@ -376,10 +386,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         }
     }
 
-    // DEBUG: Active to trace hubId lookups
-    if (!liveHubData && index < 5) { // Limit logs
-        console.log(`[CardDebug] ❌ Missed: "${hubId}" (Size: ${Object.keys(window.liveScoresHub).length})`);
-    }
+    // DEBUG rimosso - causava spam nella console
 
     if (liveHubData) {
         match = {
@@ -416,10 +423,23 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     }
     else if (match.risultato && match.risultato.includes('-') && !match.esito) {
         // FALLBACK: Match has a result in local data but NOT in Hub AND NOT in permanent esito
-        const localEsito = evaluateTipLocally(mTip, match.risultato);
+        // FIX: For Magia AI, use the AI tip if available, otherwise standard tip
+        const evalTip = match.magicStats?.tipMagiaAI || mTip;
+        const localEsito = evaluateTipLocally(evalTip, match.risultato);
+
+        // DEBUG: Trace local evaluation
+        if (mName.toLowerCase().includes('bhayangkara')) {
+            console.log(`[DebugColor] Match: ${mName}`);
+            console.log(`[DebugColor] Tip used: "${evalTip}" (orig: "${mTip}")`);
+            console.log(`[DebugColor] Result: "${match.risultato}"`);
+            console.log(`[DebugColor] Evaluated Local Esito: ${localEsito}`);
+        }
+
         if (localEsito) {
             match = { ...match, esito: localEsito, status: 'FT', isNotMonitored: true };
-            console.log(`[CardDebug] LOCAL FALLBACK: ${mName} | tip: ${mTip} | risultato: ${match.risultato} -> esito: ${localEsito}`);
+            if (mName.toLowerCase().includes('bhayangkara')) console.log(`[DebugColor] FORCED STATUS TO FT. New Status: ${match.status}`);
+        } else {
+            if (mName.toLowerCase().includes('bhayangkara')) console.log(`[DebugColor] Evaluation Failed (returned null)`);
         }
     }
     else if (!liveHubData && !match.risultato) {
@@ -489,8 +509,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const card = document.createElement('div');
     // Color coding based on result (DARKER/VIVID colors) - ONLY for FINISHED matches
     let esitoClass = '';
-    const isFinished = match.status === 'FT' || match.status === 'AET' || match.status === 'PEN';
     const finalEsito = (match.esito || "").toUpperCase();
+
+    // STANDARD LOGIC (Clean): Status MUST be FT/AET/PEN
+    const isFinished = match.status === 'FT' || match.status === 'AET' || match.status === 'PEN';
 
     if (isFinished || liveHubData?.status === 'FT') {
         if (finalEsito === 'WIN' || finalEsito === 'VINTO') {
@@ -501,13 +523,13 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             esitoClass = 'bg-gradient-to-b from-yellow-200 to-yellow-300 border-yellow-400 ring-2 ring-yellow-300';
         } else if (finalEsito === 'STOP_LOSS') {
             esitoClass = 'bg-gradient-to-b from-rose-300 to-rose-400 border-rose-500 ring-2 ring-rose-400';
-        } else if (finalEsito === 'PUSH') {
+        } else if (finalEsito === 'PUSH' || finalEsito === 'VOID' || finalEsito === 'RIMBORSATO') {
             esitoClass = 'bg-gradient-to-b from-gray-200 to-gray-300 border-gray-400 ring-2 ring-gray-300';
         }
     }
     // DEBUG: Log esito and esitoClass for FT matches
-    if (match.status === 'FT' || liveHubData?.status === 'FT') {
-        console.log(`[EsitoDebug] ${mName} | evaluation: ${liveHubData?.evaluation} | esito: ${match.esito} | esitoClass: ${esitoClass ? 'SET' : 'EMPTY'}`);
+    if (isFinished || liveHubData?.status === 'FT') {
+        console.log(`[EsitoDebug] ${mName} | evaluation: ${liveHubData?.evaluation} | esito: ${match.esito} | isFinished: ${isFinished} | esitoClass: ${esitoClass ? 'SET' : 'EMPTY'}`);
     }
 
     card.className = `match-card rounded-3xl shadow-2xl fade-in mb-4 overflow-hidden relative transition-all duration-300 ${isMagia ? 'magia-scanner-card' : 'glass-card-premium'} ${esitoClass}`;
@@ -517,12 +539,18 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // Moved Flag Button to Header
 
     // Header Generation with Star
+    // FIX: Star visibility on light backgrounds (Magia AI) vs Dark backgrounds
+    const isLightHeader = isMagia;
+    const starInactiveClass = isLightHeader ? 'text-slate-300' : 'text-white/60';
+    const starActiveClass = isLightHeader ? 'text-yellow-500' : 'text-yellow-300';
+    const btnHoverClass = isLightHeader ? 'hover:text-yellow-500' : 'hover:text-yellow-300';
+
     const flagBtnHTML = isTrading
         ? `<button data-match-id="${matchId}" class="text-white/70 hover:text-white transition text-xl bg-white/10 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" onclick="toggleTradingFavorite('${matchId}'); event.stopPropagation();">
-             <i class="${isFlagged ? 'fa-solid text-yellow-300 drop-shadow-md' : 'fa-regular text-white/70'} fa-star"></i>
+             <i class="${isFlagged ? `fa-solid ${starActiveClass} drop-shadow-md` : `fa-regular ${starInactiveClass}`} fa-star"></i>
            </button>`
-        : `<button data-match-id="${matchId}" class="flag-btn ${isFlagged ? 'flagged' : ''} hover:text-yellow-300 transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
-             <i class="${isFlagged ? 'fa-solid fa-star text-yellow-300 drop-shadow-md' : 'fa-regular fa-star text-white/60'}"></i>
+        : `<button data-match-id="${matchId}" class="flag-btn ${isFlagged ? 'flagged' : ''} ${btnHoverClass} transition text-xl ml-2" onclick="toggleFlag('${matchId}'); event.stopPropagation();">
+             <i class="${isFlagged ? `fa-solid fa-star ${starActiveClass} drop-shadow-md` : `fa-regular fa-star ${starInactiveClass}`}"></i>
            </button>`;
 
 
@@ -567,48 +595,65 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         `;
     }
 
-    // --- Teams & Score ---
-    const currentScore = match.liveData?.score || (match.liveData ? `${match.liveData.homeScore || 0} - ${match.liveData.awayScore || 0}` : null);
+    // --- Teams & Score (Modern V2 Layout with Defined Borders) ---
+    const currentScore = match.liveData?.score || (match.liveData ? `${match.liveData.homeScore || 0} - ${match.liveData.awayScore || 0}` : (match.risultato || "0-0"));
+    const [homeScore, awayScore] = currentScore.split('-').map(s => s.trim());
+    const isPlayed = match.risultato && match.risultato.includes('-');
 
-    // Status Badge (Minute / HT / FT) - Show minute when LIVE
-    let statusBadge = '';
-    if (match.status === 'FT' || match.status === 'AET' || match.status === 'PEN') {
-        statusBadge = '<span class="bg-gray-800 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">FT</span>';
-    } else if (match.status === 'HT') {
-        statusBadge = '<span class="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-bold">HT</span>';
-    } else if (match.minute || match.liveData?.elapsed) {
-        const minute = match.minute || match.liveData.elapsed;
-        statusBadge = `<span class="bg-blue-500 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">${minute}'</span>`;
-    } else if (match.risultato?.includes('HT')) {
-        statusBadge = '<span class="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-bold">HT</span>';
-    } else if (match.risultato?.includes('FT')) {
-        statusBadge = '<span class="bg-gray-800 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">FT</span>';
+    // Status Badge Logic
+    let statusText = '';
+    let statusClass = 'hidden';
+
+    if (match.status === 'HT' || (match.risultato && match.risultato.includes('HT'))) {
+        statusText = 'HT';
+        statusClass = 'bg-slate-200 text-slate-600';
+    } else if (match.status === 'FT' || match.status === 'AET' || match.status === 'PEN' || (match.risultato && match.risultato.includes('FT'))) {
+        statusText = 'FINALE';
+        statusClass = 'bg-slate-800 text-white';
+    } else if (isLive && !match.isNotMonitored) {
+        statusText = `${elapsed}'`;
+        statusClass = 'bg-red-500 text-white animate-pulse';
+    } else if (match.ora) {
+        statusText = match.ora;
+        statusClass = 'bg-blue-50 text-blue-600 border border-blue-100';
     }
 
-    const scoreDisplay = (isTrading && options.detailedTrading && currentScore)
-        ? `<div class="mt-1 text-2xl font-black text-gray-900 tracking-widest">${currentScore}</div>`
-        : (match.risultato ? `<div class="mt-1 flex flex-col items-center gap-1">
-                                <div class="text-xl font-black text-gray-900">${match.risultato.replace('HT', '').replace('FT', '').trim()}</div>
-                                ${statusBadge}
-                             </div>` : (match.isNotMonitored ? `
-                                <div class="mt-2 flex flex-col items-center">
-                                    <span class="bg-red-100 text-red-600 border border-red-200 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter">
-                                        <i class="fa-solid fa-eye-slash mr-1"></i> NON MONITORATA
-                                    </span>
-                                </div>
-                             ` : ''));
+    const scoreboardHTML = `
+        <div class="py-4 px-3 flex justify-between items-center relative">
+            <!-- Home Team -->
+            <div class="w-[38%] text-right pr-2 flex flex-col justify-center">
+                <span class="text-[13px] font-bold text-slate-800 leading-tight line-clamp-2 uppercase tracking-tight">${(match.partita || ' - ').split('-')[0].trim()}</span>
+            </div>
+
+            <!-- Scoreboard Box (Central Feature) -->
+            <div class="w-[24%] flex flex-col items-center justify-center relative z-10">
+                <div class="bg-white border border-slate-200 shadow-sm rounded-xl px-2 py-2 min-w-[75px] flex justify-center items-center relative">
+                    ${isPlayed || isLive ?
+            `<span class="text-2xl font-black text-slate-900 tracking-tight font-mono">${homeScore}<span class="text-slate-300 mx-0.5">-</span>${awayScore}</span>`
+            : `<span class="text-lg font-bold text-slate-400">VS</span>`
+        }
+                    
+                    ${statusText ?
+            `<span class="absolute -top-2.5 left-1/2 -translate-x-1/2 ${statusClass} px-2 py-0.5 rounded-md text-[9px] font-black uppercase shadow-sm whitespace-nowrap z-20 border border-white/50">${statusText}</span>`
+            : ''}
+                </div>
+            </div>
+
+            <!-- Away Team -->
+            <div class="w-[38%] text-left pl-2 flex flex-col justify-center">
+                <span class="text-[13px] font-bold text-slate-800 leading-tight line-clamp-2 uppercase tracking-tight">${(match.partita || ' - ').split('-')[1]?.trim() || ''}</span>
+            </div>
+        </div>
+    `;
 
     const teamsHTML = `
-        <div class="p-4 text-center">
-            <div class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">${match.lega || 'Unknown League'}</div>
-            <div class="text-xl font-black text-slate-800 leading-tight mb-1">${match.partita}</div>
-            ${scoreDisplay}
-            ${!isLive && match.isNotMonitored ? `
-                <div class="mt-3 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-500/10 border border-red-500/20">
-                    <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                    <span class="text-[9px] font-black text-red-400 uppercase tracking-widest">NON MONITORATA</span>
-                </div>
-            ` : ''}
+        <div class="bg-slate-50/50 rounded-t-2xl border-b border-slate-100">
+            <!-- Slim Header -->
+             <div class="text-center py-2 flex justify-center items-center gap-2 relative">
+                 <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">${match.lega || 'LEGA'}</span>
+                 ${isLive && isTrading ? `<span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>` : ''}
+             </div>
+            ${scoreboardHTML}
         </div>
     `;
 
@@ -618,65 +663,66 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     if (isMagia) {
         primarySignalHTML = `
-            <div class="px-4 mb-4">
-                <!-- Main Prediction Box -->
-                <div class="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 text-center relative overflow-hidden">
-                    <span class="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1 block">PREVISIONE IA</span>
-                    <div class="text-2xl font-black text-slate-800 mb-1">${ms.tipMagiaAI || match.tip || '-'}</div>
-                    ${ms.oddMagiaAI ? `<div class="inline-block bg-indigo-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">@ ${ms.oddMagiaAI}</div>` : ''}
+            <div class="px-4 pb-4">
+                <!-- Magia AI Main Tip (Blue Pill) -->
+                <div class="bg-gradient-to-r from-indigo-500 to-blue-600 rounded-xl p-3 text-center shadow-lg shadow-indigo-200/50 mb-3 relative overflow-hidden group">
+                    <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                     <span class="text-[9px] font-bold text-indigo-100 uppercase tracking-widest mb-0.5 block">PREVISIONE IA</span>
+                     <div class="flex justify-center items-center gap-2">
+                        <span class="text-xl font-black text-white">${ms.tipMagiaAI || match.tip || '-'}</span>
+                        ${ms.oddMagiaAI ? `<span class="bg-white/20 px-1.5 rounded text-xs font-bold text-white backdrop-blur-sm">@ ${ms.oddMagiaAI}</span>` : ''}
+                     </div>
                 </div>
 
-                <!-- Probability AI (Triple Bar) -->
-                <div class="mt-4">
-                    <div class="flex justify-between items-end mb-1">
-                         <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">PROBABILITÀ AI</span>
+                <!-- Probability Bar (Single, Clean) -->
+                <div class="mb-4">
+                    <div class="prob-bar-container h-2 bg-slate-100 rounded-full overflow-hidden flex">
+                        <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
+                        <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
+                        <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
                     </div>
-                    <div class="prob-bar-container mb-2">
-                        <div class="prob-segment-home" style="width: ${ms.winHomeProb || 0}%"></div>
-                        <div class="prob-segment-draw" style="width: ${ms.drawProb || 0}%"></div>
-                        <div class="prob-segment-away" style="width: ${ms.winAwayProb || 0}%"></div>
-                    </div>
-                    <div class="flex justify-between text-[9px] font-bold text-slate-400">
+                    <div class="flex justify-between text-[9px] font-bold text-slate-400 mt-1 px-1">
                         <span>1 (${Math.round(ms.winHomeProb || 0)}%)</span>
                         <span>X (${Math.round(ms.drawProb || 0)}%)</span>
                         <span>2 (${Math.round(ms.winAwayProb || 0)}%)</span>
                     </div>
                 </div>
 
-                <!-- Strong Signals Checkboxes -->
-                <div class="mt-4">
-                    <div class="text-[8px] font-black text-center text-slate-400 uppercase tracking-widest mb-2">SEGNALI FORTI</div>
-                    <div class="grid grid-cols-3 gap-2">
-                        ${(ms.topSignals || []).slice(0, 3).map(sig => `
-                            <div class="bg-slate-50 border border-slate-100 rounded-xl p-2 text-center">
-                                <div class="text-[8px] text-indigo-500 font-bold uppercase mb-0.5">${sig.label}</div>
-                                <div class="text-xs font-black text-slate-800">${sig.prob}%</div>
-                            </div>
-                        `).join('')}
+                <!-- Magia Stats Grid (Italian Labels) -->
+                <div class="grid grid-cols-3 gap-2">
+                     <!-- Confidence -->
+                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
+                         <div class="text-[8px] text-slate-400 font-black uppercase mb-0.5">AFFIDABILITÀ</div>
+                         <div class="text-sm font-black text-indigo-600">${ms.confidence || 0}%</div>
+                    </div>
+                     <!-- No Gol/Goal -->
+                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
+                         <div class="text-[8px] text-slate-400 font-black uppercase mb-0.5">PROB. NO GOL</div>
+                         <div class="text-sm font-black text-slate-700">${ms.noGolProb || 0}%</div>
+                    </div>
+                     <!-- Top Signal -->
+                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
+                         <div class="text-[8px] text-slate-400 font-black uppercase mb-0.5">SEGNALE EXTRA</div>
+                         <div class="text-xs font-black text-purple-600 whitespace-nowrap overflow-hidden text-ellipsis">${(ms.topSignals && ms.topSignals[1]) ? ms.topSignals[1].label : '-'}</div>
                     </div>
                 </div>
-
-                <!-- HT Snipper Mini Row (Mockup Style) -->
-                ${ms.over15Prob > 60 ? `
-                <div class="mt-4 bg-purple-900/20 border border-purple-500/10 rounded-2xl p-3 flex justify-between items-center">
-                    <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></div>
-                        <span class="text-[10px] font-bold text-purple-300">Gol nel Primo Tempo (0.5 HT)</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-black text-white bg-purple-500/30 px-2 py-0.5 rounded-lg">${Math.round(ms.over15Prob * 0.7)}%</span>
-                        <span class="text-[10px] font-bold text-purple-400 opacity-50">@1.54</span>
-                    </div>
-                </div>` : ''}
             </div>
         `;
     } else {
         primarySignalHTML = `
-            <div class="px-4 mb-3">
-                <div class="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col items-center">
-                     <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">CONSIGLIO</span>
-                     <div class="text-2xl font-black text-slate-800">${match.tip}</div>
-                     ${match.quota ? `<div class="mt-1 bg-indigo-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full">@ ${match.quota}</div>` : ''}
+            <div class="px-4 pb-4 flex flex-col items-center gap-3">
+                <!-- Standard Main Tip (Blue Pill) -->
+                <div class="w-full bg-blue-600 text-white rounded-xl py-2 px-3 text-center shadow-md shadow-blue-200">
+                     <span class="text-[10px] uppercase font-bold text-blue-200 block mb-0.5">CONSIGLIO</span>
+                     <span class="text-lg font-black tracking-wide">${match.tip}</span>
+                     ${match.quota ? `<span class="ml-2 bg-blue-500/50 px-1.5 rounded text-sm font-bold">@ ${match.quota}</span>` : ''}
+                </div>
+
+                <!-- Secondary/HT Tip (Purple Pill) -->
+                <div class="w-[80%] bg-purple-50 border border-purple-100 text-purple-800 rounded-full py-1 px-3 text-center flex justify-between items-center shadow-sm">
+                     <span class="text-[10px] font-black uppercase text-purple-400">0.5 HT</span>
+                     <span class="text-xs font-bold text-purple-700">Prob. ${match.probabilita || '70%'}</span>
+                     ${match.quota ? `<span class="bg-purple-100 px-1.5 rounded text-[10px] font-bold text-purple-600">@ 1.45</span>` : ''}
                 </div>
             </div>
         `;
@@ -769,8 +815,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         `;
     }
 
-    // 1X2 Prob Bar (Consistent AI Insight)
-    if (ms.winHomeProb || ms.drawProb || ms.winAwayProb) {
+    // 1X2 Prob Bar (Consistent AI Insight) - ONLY SHOW FOR NON-MAGIA MATCHES (Avoid duplicate)
+    if (!isMagia && (ms.winHomeProb || ms.drawProb || ms.winAwayProb)) {
         insightsHTML += `
             <div class="px-4 mb-4">
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -1066,13 +1112,21 @@ window.loadTipsPage = function () {
             const home = teams[0] || 'Team A';
             const away = teams[1] || 'Team B';
 
+            // Star Logic for Parlays
+            const matchId = m.id || `${m.data}_${m.partita}`;
+            const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
+            const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/30';
+
             matchesHtml += `
                 <div class="glass-item-premium">
                     <div class="tip-icon-box ${iconColor} bg-white/10">
                         <i class="fa-solid ${icon}"></i>
                     </div>
                     <div class="team-vertical-box">
-                        <div class="text-[9px] text-white/30 font-black truncate uppercase tracking-widest mb-1 italic">${m.lega || 'PRO LEAGUE'}</div>
+                        <div class="flex justify-between items-center mb-1 pr-2">
+                            <span class="text-[9px] text-white/30 font-black truncate uppercase tracking-widest italic max-w-[70%]">${m.lega || 'PRO LEAGUE'}</span>
+                            ${m.ora ? `<span class="text-[9px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[8px]"></i>${m.ora}</span>` : ''}
+                        </div>
                         <div class="team-name-row truncate">${home}</div>
                         <div class="team-name-row truncate">${away}</div>
                         <div class="flex items-center gap-2 mt-2">
@@ -1080,7 +1134,13 @@ window.loadTipsPage = function () {
                             <span class="confidence-label">AI ${m.score || 85}%</span>
                         </div>
                     </div>
-                    <div class="odd-highlight-v5">@${m.quota}</div>
+                    
+                    <div class="flex items-center gap-3">
+                         <div class="odd-highlight-v5">@${m.quota}</div>
+                         <button data-match-id="${matchId}" onclick="toggleFlag('${matchId}'); event.stopPropagation();" class="hover:scale-110 transition-transform p-1">
+                            <i class="${starClass} fa-star text-lg drop-shadow-sm"></i>
+                         </button>
+                    </div>
                 </div>
             `;
         });
@@ -1514,8 +1574,22 @@ async function loadData(dateToLoad = null) {
                 const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'over_2_5_ai', 'top_del_giorno'];
 
                 window.strategiesData = {};
+                // SANITIZATION: Fix corrupt data (status missing) from backend
+                const sanitizeMatch = (m) => {
+                    const hasRes = m.risultato && m.risultato.includes('-');
+                    const hasOutcome = m.esito && ['WIN', 'VINTO', 'LOSE', 'PERSO', 'VOID', 'RIMBORSATO', 'CASH_OUT'].includes(m.esito.toUpperCase());
+                    // If finished but missing status, force FT
+                    if (hasRes && hasOutcome && (!m.status || m.status === 'NS')) {
+                        m.status = 'FT';
+                    }
+                };
+
                 Object.entries(rawStrategies).forEach(([id, strat]) => {
                     if (strat && strat.name && (approved.includes(id) || id.includes('magia') || (strat.method === 'poisson'))) {
+                        // Apply sanitization
+                        if (strat.matches && Array.isArray(strat.matches)) {
+                            strat.matches.forEach(sanitizeMatch);
+                        }
                         window.strategiesData[id] = strat;
                     }
                 });
@@ -1644,7 +1718,7 @@ function initLiveHubListener() {
             }
         });
 
-        // ALL re-renders are now DEBOUNCED to stop the 'cough'
+        // ALL re-renders are now DEBOUNCED to stop the 'cough' - INCREASED to 2s
         clearTimeout(_liveUpdateDebounceTimer);
         _liveUpdateDebounceTimer = setTimeout(() => {
             // Dashboard
@@ -1796,14 +1870,15 @@ function createTopDelGiornoBox() {
     const adminMatches = topStrat?.matches || topStrat?.partite_by_tip?.all || [];
     const count = adminMatches.length;
 
-    // Check for live matches
+    // Check for ACTUALLY LIVE matches (in corso = 1H, 2H, HT)
     const liveHubMap = window.liveScoresHub || {};
     const hubMatches = Object.values(liveHubMap);
+    const LIVE_STATUSES = ['1H', '2H', 'HT', 'LIVE', 'ET', 'P'];
     const hasLive = adminMatches.some(am => {
         const hubMatch = liveHubMap[am.id] || hubMatches.find(h => h.matchName === am.partita || h.fixtureId === am.fixtureId);
         if (!hubMatch) return false;
         const status = (hubMatch.status || '').toUpperCase();
-        return status !== 'FT' && status !== 'NS' && status !== '' && status !== 'PST';
+        return LIVE_STATUSES.includes(status);
     });
 
     const div = document.createElement('div');
@@ -1937,18 +2012,37 @@ window.toggleFlag = async function (matchId) {
             alert("Accedi per salvare i preferiti!");
         }
 
-        // Update UI using data attribute
-        const btns = document.querySelectorAll(`button[data-match-id= "${matchId}"]`);
+        // Update UI surgical fix (Non-destructive)
+        const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
         btns.forEach(b => {
-            // Reset classes
-            b.className = "flag-btn transition hover:text-yellow-300 text-xl ml-2";
+            const i = b.querySelector('i');
+            if (!i) return;
 
+            // Check if removing (idx >= 0 means it WAS in list)
             if (idx >= 0) {
-                b.classList.add("text-white/60");
-                b.innerHTML = '<i class="fa-regular fa-star"></i>';
+                // BECOME INACTIVE
+                // Check if it was matching "light theme" (yellow-500) to revert to slate-300
+                const isLight = b.classList.contains('text-yellow-500') || i.classList.contains('text-yellow-500');
+                const inactiveColor = isLight ? 'text-slate-300' : 'text-white/60';
+
+                b.classList.remove('flagged', 'text-yellow-300', 'text-yellow-500');
+                i.classList.remove('fa-solid', 'text-yellow-300', 'text-yellow-500', 'drop-shadow-md');
+
+                i.classList.add('fa-regular');
+                // Avoid adding duplicate classes
+                if (!i.classList.contains(inactiveColor)) i.classList.add(inactiveColor);
+
             } else {
-                b.classList.add("flagged", "text-yellow-300");
-                b.innerHTML = '<i class="fa-solid fa-star drop-shadow-md"></i>';
+                // BECOME ACTIVE
+                // Check if it was "light theme" (slate-300) to use yellow-500
+                const isLight = i.classList.contains('text-slate-300');
+                const activeColor = isLight ? 'text-yellow-500' : 'text-yellow-300';
+
+                b.classList.add('flagged', activeColor);
+
+                i.classList.remove('fa-regular', 'text-slate-300', 'text-white/60', 'text-white/30', 'text-white/40', 'text-white/70');
+                i.classList.add('fa-solid', 'drop-shadow-md');
+                if (!i.classList.contains(activeColor)) i.classList.add(activeColor);
             }
         });
     } else {
@@ -2828,7 +2922,14 @@ window.toggleLiveFavorite = async function (matchName, tip) {
         let matchId = null;
         if (window.strategiesData) {
             for (const stratId in window.strategiesData) {
-                const found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
+                // ID-FIRST: Priorità fixtureId, fallback nome
+                let found = null;
+                if (match.fixtureId) {
+                    found = window.strategiesData[stratId].matches?.find(m => m.fixtureId === match.fixtureId);
+                }
+                if (!found) {
+                    found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
+                }
                 if (found) {
                     matchId = found.id || `${found.data}_${found.partita}`;
                     break;
@@ -2914,7 +3015,13 @@ function renderLiveHubCard(match) {
     if (isTrading) {
         isFlagged = window.tradingFavorites?.includes(`trading_${cleanName}`);
     } else {
-        isFlagged = window.selectedMatches?.some(m => (m.partita || '').toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '') === cleanName);
+        // ID-FIRST: Priorità fixtureId, fallback nome normalizzato
+        if (match.fixtureId) {
+            isFlagged = window.selectedMatches?.some(m => m.fixtureId === match.fixtureId);
+        }
+        if (!isFlagged) {
+            isFlagged = window.selectedMatches?.some(m => (m.partita || '').toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '') === cleanName);
+        }
     }
 
     // Conditional background for FT matches v2.2
