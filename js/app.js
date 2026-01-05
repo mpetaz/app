@@ -1084,7 +1084,7 @@ window.loadTipsPage = function () {
         let matchesHtml = '<div class="space-y-4">';
         selected.forEach(m => {
             const isGoal = m.tip.includes('Goal') || m.tip.includes('Over') || m.tip.includes('+');
-            const icon = isGoal ? 'fa-fire-flame-curved' : 'fa-shield-halved';
+            let icon = isGoal ? 'fa-fire-flame-curved' : 'fa-shield-halved'; // Changed to let for outcome reassignment
             const iconColor = isGoal ? 'text-orange-400' : 'text-blue-400';
 
             // Split teams for vertical layout
