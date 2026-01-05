@@ -1490,6 +1490,8 @@ onAuthStateChanged(auth, async (user) => {
         });
 
     } else {
+        // User not authenticated - show login form and hide overlay
+        document.getElementById('loading-overlay').classList.add('hidden');
         document.getElementById('login-container').classList.remove('hidden');
     }
 });
