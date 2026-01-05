@@ -460,7 +460,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     const rankingValue = Math.round(match.confidence || match.score || 0);
     const rankingColor = getRankingColor(rankingValue);
-    const rankingBadgeHTML = rankingValue > 0 ? `<span class="bg-${rankingColor} text-black px-2 py-0.5 rounded-full text-[10px] font-black ml-2 shadow-sm border border-black/10 transition-transform hover:scale-110">${rankingValue}</span>` : '';
+    const rankingBadgeHTML = rankingValue > 0 ? `<span class="bg-${rankingColor} text-black px-2 py-0.5 rounded-full text-xs font-black ml-2 shadow-sm border border-black/10 transition-transform hover:scale-110">${rankingValue}</span>` : '';
 
     // Style Configuration
     let headerClass = 'bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950';
@@ -564,13 +564,13 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="p-3 flex justify-between items-center text-slate-800 relative border-b border-slate-200 bg-white">
                 <div class="flex items-center gap-2">
                     <div class="w-6 h-6 rounded bg-indigo-50 flex items-center justify-center border border-indigo-100">
-                        <i class="fa-solid fa-microchip text-indigo-500 text-[10px]"></i>
+                        <i class="fa-solid fa-microchip text-indigo-500 text-xs"></i>
                     </div>
-                    <span class="font-black text-[10px] tracking-widest uppercase text-slate-500">MAGIA AI SCANNER</span>
-                    <span class="bg-indigo-500 text-white px-1.5 py-0.5 rounded text-[10px] font-black shadow-sm">${rankingValue}</span>
+                    <span class="font-black text-xs tracking-widest uppercase text-slate-500">MAGIA AI SCANNER</span>
+                    <span class="bg-indigo-500 text-white px-1.5 py-0.5 rounded text-xs font-black shadow-sm">${rankingValue}</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    ${match.ora ? `<div class="text-slate-400 text-[10px] font-bold flex items-center gap-1"><i class="fa-regular fa-clock"></i> ${match.ora}</div>` : ''}
+                    ${match.ora ? `<div class="text-slate-400 text-xs font-bold flex items-center gap-1"><i class="fa-regular fa-clock"></i> ${match.ora}</div>` : ''}
                     ${flagBtnHTML}
                 </div>
             </div>
@@ -634,7 +634,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         }
                     
                     ${statusText ?
-            `<span class="absolute -top-2.5 left-1/2 -translate-x-1/2 ${statusClass} px-2 py-0.5 rounded-md text-[9px] font-black uppercase shadow-sm whitespace-nowrap z-20 border border-white/50">${statusText}</span>`
+            `<span class="absolute -top-2.5 left-1/2 -translate-x-1/2 ${statusClass} px-2 py-0.5 rounded-md text-[11px] font-black uppercase shadow-sm whitespace-nowrap z-20 border border-white/50">${statusText}</span>`
             : ''}
                 </div>
             </div>
@@ -650,7 +650,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         <div class="bg-slate-50/50 rounded-t-2xl border-b border-slate-100">
             <!-- Slim Header -->
              <div class="text-center py-2 flex justify-center items-center gap-2 relative">
-                 <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">${match.lega || 'LEGA'}</span>
+                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">${match.lega || 'LEGA'}</span>
                  ${isLive && isTrading ? `<span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>` : ''}
              </div>
             ${scoreboardHTML}
@@ -667,7 +667,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 <!-- Magia AI Main Tip (Blue Pill) -->
                 <div class="bg-gradient-to-r from-indigo-500 to-blue-600 rounded-xl p-3 text-center shadow-lg shadow-indigo-200/50 mb-3 relative overflow-hidden group">
                     <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                     <span class="text-[9px] font-bold text-indigo-100 uppercase tracking-widest mb-0.5 block">PREVISIONE IA</span>
+                     <span class="text-[11px] font-bold text-indigo-100 uppercase tracking-widest mb-0.5 block">PREVISIONE IA</span>
                      <div class="flex justify-center items-center gap-2">
                         <span class="text-xl font-black text-white">${ms.tipMagiaAI || match.tip || '-'}</span>
                         ${ms.oddMagiaAI ? `<span class="bg-white/20 px-1.5 rounded text-xs font-bold text-white backdrop-blur-sm">@ ${ms.oddMagiaAI}</span>` : ''}
@@ -681,7 +681,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                         <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
                         <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
                     </div>
-                    <div class="flex justify-between text-[9px] font-bold text-slate-400 mt-1 px-1">
+                    <div class="flex justify-between text-[11px] font-bold text-slate-400 mt-1 px-1">
                         <span>1 (${Math.round(ms.winHomeProb || 0)}%)</span>
                         <span>X (${Math.round(ms.drawProb || 0)}%)</span>
                         <span>2 (${Math.round(ms.winAwayProb || 0)}%)</span>
@@ -692,17 +692,17 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 <div class="grid grid-cols-3 gap-2">
                      <!-- Confidence -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                         <div class="text-[8px] text-slate-400 font-black uppercase mb-0.5">AFFIDABILITÀ</div>
+                         <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">AFFIDABILITÀ</div>
                          <div class="text-sm font-black text-indigo-600">${ms.confidence || 0}%</div>
                     </div>
                      <!-- No Gol/Goal -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                         <div class="text-[8px] text-slate-400 font-black uppercase mb-0.5">PROB. NO GOL</div>
+                         <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">PROB. NO GOL</div>
                          <div class="text-sm font-black text-slate-700">${ms.noGolProb || 0}%</div>
                     </div>
                      <!-- Top Signal -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                         <div class="text-[8px] text-slate-400 font-black uppercase mb-0.5">SEGNALE EXTRA</div>
+                         <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">SEGNALE EXTRA</div>
                          <div class="text-xs font-black text-purple-600 whitespace-nowrap overflow-hidden text-ellipsis">${(ms.topSignals && ms.topSignals[1]) ? ms.topSignals[1].label : '-'}</div>
                     </div>
                 </div>
@@ -713,16 +713,16 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 pb-4 flex flex-col items-center gap-3">
                 <!-- Standard Main Tip (Blue Pill) -->
                 <div class="w-full bg-blue-600 text-white rounded-xl py-2 px-3 text-center shadow-md shadow-blue-200">
-                     <span class="text-[10px] uppercase font-bold text-blue-200 block mb-0.5">CONSIGLIO</span>
+                     <span class="text-xs uppercase font-bold text-blue-200 block mb-0.5">CONSIGLIO</span>
                      <span class="text-lg font-black tracking-wide">${match.tip}</span>
                      ${match.quota ? `<span class="ml-2 bg-blue-500/50 px-1.5 rounded text-sm font-bold">@ ${match.quota}</span>` : ''}
                 </div>
 
                 <!-- Secondary/HT Tip (Purple Pill) -->
                 <div class="w-[80%] bg-purple-50 border border-purple-100 text-purple-800 rounded-full py-1 px-3 text-center flex justify-between items-center shadow-sm">
-                     <span class="text-[10px] font-black uppercase text-purple-400">0.5 HT</span>
+                     <span class="text-xs font-black uppercase text-purple-400">0.5 HT</span>
                      <span class="text-xs font-bold text-purple-700">Prob. ${match.probabilita || '70%'}</span>
-                     ${match.quota ? `<span class="bg-purple-100 px-1.5 rounded text-[10px] font-bold text-purple-600">@ 1.45</span>` : ''}
+                     ${match.quota ? `<span class="bg-purple-100 px-1.5 rounded text-xs font-bold text-purple-600">@ 1.45</span>` : ''}
                 </div>
             </div>
         `;
@@ -744,15 +744,15 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         insightsHTML += `
             <div class="px-4 mb-2">
                 ${isSniperTrigger ? `
-                <div class="bg-indigo-50 border border-indigo-100 text-indigo-700 text-[9px] font-bold p-1.5 rounded-lg mb-2 flex items-center justify-between">
+                <div class="bg-indigo-50 border border-indigo-100 text-indigo-700 text-[11px] font-bold p-1.5 rounded-lg mb-2 flex items-center justify-between">
                     <span>🎯 FINESTRA SNIPER ATTIVA</span>
                     <i class="fa-solid fa-clock"></i>
                 </div>` : ''}
 
                 <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-100 mb-2">
                     <div class="flex justify-between items-center mb-1">
-                        <span class="text-[8px] font-bold text-slate-400 uppercase">Goal Cooking Indicator</span>
-                        <span class="text-[9px] font-black ${pressure > 70 ? 'text-orange-500' : 'text-blue-500'}">${pressure}%</span>
+                        <span class="text-[10px] font-bold text-slate-400 uppercase">Goal Cooking Indicator</span>
+                        <span class="text-[11px] font-black ${pressure > 70 ? 'text-orange-500' : 'text-blue-500'}">${pressure}%</span>
                     </div>
                     <div class="h-1.5 bg-slate-200 rounded-full overflow-hidden">
                         <div class="h-full bg-gradient-to-r from-blue-400 via-yellow-400 to-red-400" style="width: ${pressure}%"></div>
@@ -761,15 +761,15 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
                 <div class="grid grid-cols-3 gap-2 text-center text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
                      <div>
-                        <div class="text-[10px] text-gray-400 font-bold uppercase">Possesso</div>
+                        <div class="text-xs text-gray-400 font-bold uppercase">Possesso</div>
                         <div class="font-black text-gray-800 text-xs">${pos}</div>
                      </div>
                      <div>
-                        <div class="text-[10px] text-gray-400 font-bold uppercase">Tiri (Porta)</div>
+                        <div class="text-xs text-gray-400 font-bold uppercase">Tiri (Porta)</div>
                         <div class="font-black text-gray-800 text-xs">${match.liveStats.shotsOnGoal || (match.liveStats.shots ? `${match.liveStats.shots.home}-${match.liveStats.shots.away}` : '0-0')}</div>
                      </div>
                      <div>
-                        <div class="text-[10px] text-gray-400 font-bold uppercase">XG</div>
+                        <div class="text-xs text-gray-400 font-bold uppercase">XG</div>
                         <div class="font-black text-gray-800 text-xs">${match.liveStats.xg?.home || 0} - ${match.liveStats.xg?.away || 0}</div>
                      </div>
                 </div>
@@ -789,7 +789,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
         insightsHTML += `
             <div class="px-4 mb-3">
-                 <div class="text-[9px] font-bold text-gray-300 uppercase tracking-widest mb-1">Live Hub Events</div>
+                 <div class="text-[11px] font-bold text-gray-300 uppercase tracking-widest mb-1">Live Hub Events</div>
                      <div class="flex flex-col gap-1 max-h-32 overflow-y-auto scrollbar-hide">
                         ${match.events.slice().reverse().map(ev => {
             const time = ev.time?.elapsed || ev.time || ev.minute || 0;
@@ -803,11 +803,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 : `${typeText}: ${detailText}`;
 
             return `
-                            <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg p-1.5 text-[10px] shadow-sm">
+                            <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg p-1.5 text-xs shadow-sm">
                                 <span class="font-black text-gray-400 w-6">${time}'</span>
                                 <span class="text-sm">${icon}</span>
                                 <span class="font-bold text-gray-700 truncate">${displayInfo}</span>
-                                ${ev.type === 'subst' ? `<span class="text-[9px] text-gray-400 italic">(${ev.assist?.name || ''})</span>` : ''}
+                                ${ev.type === 'subst' ? `<span class="text-[11px] text-gray-400 italic">(${ev.assist?.name || ''})</span>` : ''}
                             </div>`;
         }).join('')}
                      </div>
@@ -821,14 +821,14 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 mb-4">
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div class="flex justify-between items-end mb-2">
-                         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
+                         <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
                     </div>
                     <div class="flex h-2.5 rounded-full overflow-hidden mb-2 shadow-inner bg-slate-200">
                         <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
                         <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
                         <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
                     </div>
-                    <div class="flex justify-between text-[10px] font-bold text-slate-500 px-1">
+                    <div class="flex justify-between text-xs font-bold text-slate-500 px-1">
                         <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-indigo-500"></div>1 (${Math.round(ms.winHomeProb || 0)}%)</div>
                         <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-slate-300"></div>X (${Math.round(ms.drawProb || 0)}%)</div>
                         <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-purple-500"></div>2 (${Math.round(ms.winAwayProb || 0)}%)</div>
@@ -845,8 +845,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 mb-3">
                 <div class="eugenio-why-box border border-indigo-100 shadow-sm relative overflow-hidden bg-indigo-50/30">
                     <div class="flex items-center gap-1.5 mb-1">
-                        <i class="fa-solid fa-brain text-[10px] text-indigo-400"></i>
-                        <span class="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
+                        <i class="fa-solid fa-brain text-xs text-indigo-400"></i>
+                        <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
                     </div>
                     ${why}
                 </div>
@@ -862,34 +862,14 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             insightsHTML += `
                 <div class="mx-4 mb-3 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
                     <i class="fa-solid fa-triangle-exclamation text-red-500 text-xs"></i>
-                    <div class="text-[10px] text-red-700 font-bold">Lega volatile (${volatile.volatility}% vol)</div>
+                    <div class="text-xs text-red-700 font-bold">Lega volatile (${volatile.volatility}% vol)</div>
                 </div>
              `;
         }
     }
 
-    // 05 HT Logic
-    const htHTML = match.info_ht && match.info_ht.trim() !== '' ? (() => {
-        const htMatch = match.info_ht.match(/(\d+)%.*?@?([\d.,]+)/);
-        const htProb = htMatch ? htMatch[1] : '';
-        const htQuota = htMatch ? htMatch[2] : '';
-
-        return `
-            <div class="px-4 mb-3">
-                <div class="bg-purple-50 border border-purple-100 rounded-xl p-3">
-                    <div class="flex justify-between items-center">
-                        <div class="flex items-center gap-2">
-                            <i class="fa-solid fa-fire text-purple-400 text-xs"></i>
-                            <span class="text-[10px] font-black text-purple-400 uppercase tracking-widest">Gol 0.5 HT</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            ${htProb ? `<span class="bg-purple-100 text-purple-600 text-[10px] font-black px-1.5 py-0.5 rounded-lg border border-purple-200">${htProb}%</span>` : ''}
-                            ${htQuota ? `<span class="bg-white text-purple-600 text-[10px] font-black px-1.5 py-0.5 rounded-lg border border-purple-100 shadow-sm">@ ${htQuota}</span>` : ''}
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-    })() : '';
+    // 05 HT Logic - REMOVED AS REQUESTED (Duplicato, usiamo quello del DB nel primarySignal)
+    const htHTML = '';
 
     insightsHTML += htHTML;
 
@@ -900,8 +880,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 mb-3">
                 <div class="eugenio-why-box border border-indigo-100 shadow-sm relative overflow-hidden bg-indigo-50/30">
                     <div class="flex items-center gap-1.5 mb-1">
-                        <i class="fa-solid fa-brain text-[10px] text-indigo-400"></i>
-                        <span class="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
+                        <i class="fa-solid fa-brain text-xs text-indigo-400"></i>
+                        <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
                     </div>
                     ${alternativeRationale}
                 </div>
@@ -921,16 +901,16 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     if (match.isNotMonitored || (!liveHubData && oneHourAfterKickoff)) {
         const isFuture = matchDateTime > now;
         notMonitoredBadge = isFuture
-            ? '<span class="text-[9px] font-bold text-blue-400 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-regular fa-clock"></i> In Attesa</span>'
-            : '<span class="text-[9px] font-bold text-red-400 uppercase tracking-widest bg-red-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-solid fa-ban"></i> Non Monitorata</span>';
+            ? '<span class="text-[11px] font-bold text-blue-400 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-regular fa-clock"></i> In Attesa</span>'
+            : '<span class="text-[11px] font-bold text-red-400 uppercase tracking-widest bg-red-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-solid fa-ban"></i> Non Monitorata</span>';
     }
 
 
     const footerHTML = `
         <div class="bg-slate-50 p-2 border-t border-slate-100 flex justify-between items-center px-4">
-              <div class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">TIPSTER AI</div>
+              <div class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">TIPSTER AI</div>
               <div class="flex items-center gap-2">
-                ${match.status === 'FT' ? '<span class="text-[9px] font-black text-green-600">● MATCH CONCLUSO</span>' : (notMonitoredBadge || '<span class="text-[9px] font-black text-indigo-500 animate-pulse">● MONITORAGGIO ATTIVO</span>')}
+                ${match.status === 'FT' ? '<span class="text-[11px] font-black text-green-600">● MATCH CONCLUSO</span>' : (notMonitoredBadge || '<span class="text-[11px] font-black text-indigo-500 animate-pulse">● MONITORAGGIO ATTIVO</span>')}
               </div>
         </div>
     `;
@@ -1092,10 +1072,10 @@ window.loadTipsPage = function () {
                         <span class="bg-${config.color}-600 text-white text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg">${config.label}</span>
                         <span class="roi-badge">+${roi}% ROI</span>
                     </div>
-                    <div class="text-[10px] text-white/50 font-bold uppercase tracking-tight ml-2">Confidence AI: <span class="text-white font-black">${avgConfidence}%</span></div>
+                    <div class="text-xs text-white/80 font-bold uppercase tracking-tight ml-2">Confidence AI: <span class="text-white font-black">${avgConfidence}%</span></div>
                 </div>
                 <div class="text-right">
-                    <div class="text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-1">Quota Totale</div>
+                    <div class="text-[11px] font-black text-white/70 uppercase tracking-[0.3em] mb-1">Quota Totale</div>
                     <div class="text-3xl font-black text-white leading-none">@${totalOdds.toFixed(2)}</div>
                 </div>
             </div>
@@ -1115,7 +1095,7 @@ window.loadTipsPage = function () {
             // Star Logic for Parlays
             const matchId = m.id || `${m.data}_${m.partita}`;
             const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
-            const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/30';
+            const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/70';
 
             matchesHtml += `
                 <div class="glass-item-premium">
@@ -1124,8 +1104,8 @@ window.loadTipsPage = function () {
                     </div>
                     <div class="team-vertical-box">
                         <div class="flex justify-between items-center mb-1 pr-2">
-                            <span class="text-[9px] text-white/30 font-black truncate uppercase tracking-widest italic max-w-[70%]">${m.lega || 'PRO LEAGUE'}</span>
-                            ${m.ora ? `<span class="text-[9px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[8px]"></i>${m.ora}</span>` : ''}
+                            <span class="text-[11px] text-white/70 font-black truncate uppercase tracking-widest italic max-w-[70%]">${m.lega || 'PRO LEAGUE'}</span>
+                            ${m.ora ? `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>` : ''}
                         </div>
                         <div class="team-name-row truncate">${home}</div>
                         <div class="team-name-row truncate">${away}</div>
@@ -1856,7 +1836,7 @@ function createStrategyBtn(id, strat) {
     btn.innerHTML = `
         <div class="relative z-10">
             <div class="text-lg font-black text-white leading-tight mb-0.5">${strat.name}</div>
-            <div class="text-[10px] text-white/70 font-bold uppercase tracking-wider">${strat.totalMatches || strat.matches?.length || 0} Partite</div>
+            <div class="text-xs text-white/70 font-bold uppercase tracking-wider">${strat.totalMatches || strat.matches?.length || 0} Partite</div>
         </div>
         <div class="absolute right-[-8px] bottom-[-8px] text-5xl opacity-10 rotate-12">
             ${isAI ? '🪄' : '⚽'}
@@ -1892,13 +1872,13 @@ function createTopDelGiornoBox() {
     div.innerHTML = `
         <div class="relative z-10">
             <div class="text-lg font-black text-white leading-tight mb-0.5">🏆 Top Live</div>
-            <div class="text-[10px] text-white/70 font-bold uppercase tracking-wider">${count} Partite</div>
+            <div class="text-xs text-white/70 font-bold uppercase tracking-wider">${count} Partite</div>
             ${hasLive ? `<div class="absolute top-0 right-0 flex items-center gap-1 bg-white/20 px-1.5 py-0.5 rounded-full">
                 <span class="relative flex h-2 w-2">
                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
                     <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
                 </span>
-                <span class="text-[8px] font-bold uppercase">LIVE</span>
+                <span class="text-[10px] font-bold uppercase">LIVE</span>
             </div>` : ''}
         </div>
         <div class="absolute right-[-8px] bottom-[-8px] text-5xl opacity-10 rotate-12">🏆</div>
@@ -2040,7 +2020,7 @@ window.toggleFlag = async function (matchId) {
 
                 b.classList.add('flagged', activeColor);
 
-                i.classList.remove('fa-regular', 'text-slate-300', 'text-white/60', 'text-white/30', 'text-white/40', 'text-white/70');
+                i.classList.remove('fa-regular', 'text-slate-300', 'text-white/60', 'text-white/70', 'text-white/40', 'text-white/70');
                 i.classList.add('fa-solid', 'drop-shadow-md');
                 if (!i.classList.contains(activeColor)) i.classList.add(activeColor);
             }
@@ -2658,7 +2638,7 @@ function createHistoryDateCard(data, index) {
                 <div class="text-lg font-bold">${dayName}, ${dayNum} ${monthName}</div>
                 <div class="text-right">
                     <div class="text-2xl font-black ${winrateColor}">${winrate}%</div>
-                    <div class="text-[10px] text-gray-400 uppercase">winrate</div>
+                    <div class="text-xs text-gray-400 uppercase">winrate</div>
                 </div>
             </div>
             <div class="flex items-center gap-4 text-sm font-bold">
@@ -2694,7 +2674,7 @@ function toggleDateDetails(date, strategies, card) {
                 <div class="flex justify-between items-center cursor-pointer" onclick="event.stopPropagation(); window.toggleStrategyMatchesHistory('${id}', '${date}', this)">
                     <div>
                         <div class="font-bold text-purple-300">${strat.name || id}</div>
-                        <div class="text-[10px] text-gray-400">${wins}V - ${losses}P</div>
+                        <div class="text-xs text-gray-400">${wins}V - ${losses}P</div>
                     </div>
                     <div class="text-right">
                         <div class="text-xl font-black ${wrColor}">${wr}%</div>
@@ -2879,7 +2859,7 @@ async function loadLiveHubMatches() {
     if (majorLeagueGames.length === 0) {
         container.innerHTML = `
             <div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl">
-                <i class="fa-solid fa-radar text-6xl mb-4 text-white/30 animate-pulse"></i>
+                <i class="fa-solid fa-radar text-6xl mb-4 text-white/70 animate-pulse"></i>
                 <p class="font-black text-xl text-white">Nessun match attivo oggi</p>
                 <p class="text-sm text-white/60 mt-2 max-w-xs mx-auto">Il radar sta scansionando i campionati principali. Torna più tardi!</p>
             </div>`;
@@ -3004,7 +2984,7 @@ function renderLiveHubCard(match) {
 
     // Trading badge - check if match is from trading
     const isTrading = match.tip && (match.tip.toLowerCase().includes('back') || match.tip.toLowerCase().includes('lay'));
-    const tradingBadge = isTrading ? `<span class="px-2 py-0.5 bg-purple-600 text-white text-[8px] font-bold rounded-full uppercase">Trading</span>` : '';
+    const tradingBadge = isTrading ? `<span class="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-bold rounded-full uppercase">Trading</span>` : '';
 
     // Tip display - BIGGER & BOLDER v2.2
     const tipBadge = match.tip ? `<span class="px-3 py-1 bg-indigo-100 text-indigo-700 text-xs font-black rounded-full border border-indigo-200 shadow-sm">${match.tip}</span>` : '';
@@ -3039,13 +3019,13 @@ function renderLiveHubCard(match) {
         <!-- Header: Status & Trading Badge -->
         <div class="flex justify-between items-center px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600">
             <div class="flex items-center gap-2">
-                <span class="px-2 py-0.5 ${statusClass} rounded text-[10px] font-black uppercase">${statusLabel}</span>
+                <span class="px-2 py-0.5 ${statusClass} rounded text-xs font-black uppercase">${statusLabel}</span>
                 ${tradingBadge}
                 <button onclick="window.toggleLiveFavorite('${matchName.replace(/'/g, "\\'")}', '${match.tip || ''}')" class="ml-1 text-white hover:text-yellow-300 transition-all">
                     <i class="${isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/80'} fa-star text-sm"></i>
                 </button>
             </div>
-            <span class="text-[9px] font-semibold text-white/80">${match.matchDate || ''}</span>
+            <span class="text-[11px] font-semibold text-white/80">${match.matchDate || ''}</span>
         </div>
 
         <!-- Body: Teams & Score with Logos -->
@@ -3077,7 +3057,7 @@ function renderLiveHubCard(match) {
             <!-- Pressure Indicator -->
             <div class="mt-3">
                 <div class="flex justify-between items-center mb-1">
-                    <span class="text-[10px] font-bold ${pressureText} uppercase flex items-center gap-1">
+                    <span class="text-xs font-bold ${pressureText} uppercase flex items-center gap-1">
                         <i class="fa-solid fa-fire"></i> Pressione Gol
                     </span>
                     <span class="text-[11px] font-black ${pressureText}">${pressure}%</span>
@@ -3091,15 +3071,15 @@ function renderLiveHubCard(match) {
         <!-- Stats Grid - Larger fonts -->
         <div class="grid grid-cols-3 gap-1 px-3 py-2 bg-slate-50 border-t border-slate-200">
             <div class="text-center">
-                <div class="text-[9px] font-bold text-indigo-600 uppercase">xG</div>
+                <div class="text-[11px] font-bold text-indigo-600 uppercase">xG</div>
                 <div class="text-sm font-black text-slate-800">${(xgHome || 0).toFixed(1)} - ${(xgAway || 0).toFixed(1)}</div>
             </div>
             <div class="text-center">
-                <div class="text-[9px] font-bold text-orange-600 uppercase">Attacchi Pericolosi</div>
+                <div class="text-[11px] font-bold text-orange-600 uppercase">Attacchi Pericolosi</div>
                 <div class="text-sm font-black text-slate-800">${stats.dangerousAttacks || stats.dangerous_attacks || stats.attacks || '0 - 0'}</div>
             </div>
             <div class="text-center">
-                <div class="text-[9px] font-bold text-emerald-600 uppercase">Possesso</div>
+                <div class="text-[11px] font-bold text-emerald-600 uppercase">Possesso</div>
                 <div class="text-sm font-black text-slate-800">${stats.possession || stats.ball_possession || '50% - 50%'}</div>
             </div>
         </div>
@@ -3108,8 +3088,8 @@ function renderLiveHubCard(match) {
         <!-- Events Timeline -->
         <div class="px-3 py-2 bg-white border-t border-slate-200">
              <div class="flex items-center gap-1 mb-1">
-                <i class="fa-solid fa-list text-[10px] text-slate-500"></i>
-                <span class="text-[9px] font-bold text-slate-500 uppercase">Eventi</span>
+                <i class="fa-solid fa-list text-xs text-slate-500"></i>
+                <span class="text-[11px] font-bold text-slate-500 uppercase">Eventi</span>
              </div>
              <div class="space-y-1 overflow-y-auto max-h-20 text-slate-700 text-[11px]">
                 ${eventsHtml || '<span class="italic text-slate-400">In attesa di eventi...</span>'}
@@ -3124,7 +3104,7 @@ function renderLiveHubCard(match) {
                     <p class="text-[11px] text-slate-700 leading-snug mb-2">
                         ${generateLiveInsight(match)}
                     </p>
-                    <button onclick="window.getLiveTradingAnalysis('${matchName}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all flex items-center justify-center gap-1 shadow">
+                    <button onclick="window.getLiveTradingAnalysis('${matchName}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-xs font-black uppercase tracking-wide transition-all flex items-center justify-center gap-1 shadow">
                         <i class="fa-solid fa-brain"></i> Analisi Profonda
                     </button>
                 </div>
@@ -3174,7 +3154,7 @@ function renderLiveEvents(events) {
         }
 
         return `
-        <div class="flex items-center gap-2 text-[10px] ${color} animate-fade-in relative pl-2" >
+        <div class="flex items-center gap-2 text-xs ${color} animate-fade-in relative pl-2" >
                 <span class="w-6 font-bold text-gray-500">${time}'</span>
                 <span class="text-xs">${icon}</span>
                 <span class="flex-1 truncate">${label}</span>
