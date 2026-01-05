@@ -3161,19 +3161,53 @@ function renderLiveHubCard(match) {
             </div>
         </div>
 
-        <!-- Stats Grid - Larger fonts -->
-        <div class="grid grid-cols-3 gap-1 px-3 py-2 bg-slate-50 border-t border-slate-200">
-            <div class="text-center">
-                <div class="text-[11px] font-bold text-indigo-600 uppercase">xG</div>
-                <div class="text-sm font-black text-slate-800">${(xgHome || 0).toFixed(1)} - ${(xgAway || 0).toFixed(1)}</div>
+        <!-- NEW: Comprehensive Stats Dashboard 3x2 Grid -->
+        <div class="px-3 py-3 bg-slate-50 border-t border-slate-200">
+            <div class="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
+                <i class="fa-solid fa-chart-line text-[9px]"></i> Live Statistics
             </div>
-            <div class="text-center">
-                <div class="text-[11px] font-bold text-orange-600 uppercase">Attacchi Pericolosi</div>
-                <div class="text-sm font-black text-slate-800">${stats.dangerousAttacks || stats.dangerous_attacks || stats.attacks || '0 - 0'}</div>
-            </div>
-            <div class="text-center">
-                <div class="text-[11px] font-bold text-emerald-600 uppercase">Possesso</div>
-                <div class="text-sm font-black text-slate-800">${stats.possession || stats.ball_possession || '50% - 50%'}</div>
+            <div class="grid grid-cols-3 gap-2">
+                <!-- xG -->
+                <div class="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                    <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-purple-500/10">⚡</div>
+                    <div class="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">xG</div>
+                    <div class="text-xs font-black text-slate-800">${(xgHome || 0).toFixed(1)} - ${(xgAway || 0).toFixed(1)}</div>
+                </div>
+                
+                <!-- Shots on Goal -->
+                <div class="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                    <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-orange-500/10">🎯</div>
+                    <div class="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Tiri (Porta)</div>
+                    <div class="text-xs font-black text-slate-800">${stats.shotsOnGoal || '0-0'}</div>
+                </div>
+                
+                <!-- Total Shots -->
+                <div class="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                    <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-blue-500/10">⚽</div>
+                    <div class="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Tiri Totali</div>
+                    <div class="text-xs font-black text-slate-800">${stats.totalShots || '0-0'}</div>
+                </div>
+                
+                <!-- Corners -->
+                <div class="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                    <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-emerald-500/10">📐</div>
+                    <div class="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Corner</div>
+                    <div class="text-xs font-black text-slate-800">${stats.corners || '0-0'}</div>
+                </div>
+                
+                <!-- Shots Inside Box -->
+                <div class="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                    <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-red-500/10">🔥</div>
+                    <div class="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Tiri in Area</div>
+                    <div class="text-xs font-black text-slate-800">${stats.shotsInside || '0-0'}</div>
+                </div>
+                
+                <!-- Possession -->
+                <div class="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                    <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-indigo-500/10">🏃</div>
+                    <div class="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Possesso</div>
+                    <div class="text-xs font-black text-slate-800">${stats.possession || stats.ball_possession || '50% - 50%'}</div>
+                </div>
             </div>
         </div>
 
