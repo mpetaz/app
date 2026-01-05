@@ -950,37 +950,40 @@ window.initTradingPage = function () {
  * TAB: I CONSIGLI
  * Generates Smart Parlays (Multiple) based on the day's top picks.
  */
+/**
+ * TAB: I CONSIGLI - Socio Approved Logic v3.0 🩺
+ * Generates Smart Parlays (Multiple) where ROI is ALWAYS >= @2.00
+ */
 window.loadTipsPage = function () {
-    const parlays = {
-        x2: { id: 'parlay-x2', qty: 2, matches: [] },
-        x3: { id: 'parlay-x3', qty: 3, matches: [] },
-        x4: { id: 'parlay-x4', qty: 4, matches: [] }
+    const containers = {
+        x2: { id: 'parlay-x2', qty: 2, label: 'Cassa Sicura (x2)', color: 'green' },
+        x3: { id: 'parlay-x3', qty: 3, label: 'Il Tridente (x3)', color: 'blue' },
+        x4: { id: 'parlay-x4', qty: 4, label: 'La Multiplona (x4)', color: 'purple' }
     };
 
-    // 1. Gather ALL available matches for today from strategiesData
+    // 1. Gather all available matches for today
     let allPicks = [];
-    Object.entries(window.strategiesData).forEach(([stratId, strat]) => {
+    Object.entries(window.strategiesData || {}).forEach(([stratId, strat]) => {
         if (strat.matches) {
             strat.matches.forEach(m => {
                 if (m.data === window.currentAppDate) {
-                    allPicks.push({ ...m, stratId });
+                    const q = parseFloat(String(m.quota || '1.10').replace(',', '.'));
+                    allPicks.push({ ...m, stratId, numericalQuota: q });
                 }
             });
         }
     });
 
-    // 2. Sort by confidence/score (AI Quality)
-    allPicks.sort((a, b) => (b.score || 0) - (a.score || 0));
-
-    // 3. Remove Duplicates (same partita)
+    // 2. Remove Duplicates & Sort by AI Score
     const seen = new Set();
-    const uniquePicks = allPicks.filter(m => {
-        if (seen.has(m.partita)) return false;
-        seen.add(m.partita);
-        return true;
-    });
+    const uniquePicks = allPicks
+        .filter(m => {
+            if (seen.has(m.partita)) return false;
+            seen.add(m.partita);
+            return true;
+        })
+        .sort((a, b) => (b.score || 0) - (a.score || 0));
 
-    // 4. Fill Parlays
     if (uniquePicks.length < 2) {
         if (document.getElementById('parlays-container')) document.getElementById('parlays-container').classList.add('hidden');
         if (document.getElementById('no-tips-msg')) document.getElementById('no-tips-msg').classList.remove('hidden');
@@ -990,36 +993,88 @@ window.loadTipsPage = function () {
     if (document.getElementById('parlays-container')) document.getElementById('parlays-container').classList.remove('hidden');
     if (document.getElementById('no-tips-msg')) document.getElementById('no-tips-msg').classList.add('hidden');
 
-    Object.keys(parlays).forEach(key => {
-        const config = parlays[key];
-        const container = document.querySelector(`#${config.id} .parlay-matches`);
-        const oddsLabel = document.getElementById(`${config.id}-odds`);
+    const containerWrapper = document.getElementById('parlays-container');
+    containerWrapper.innerHTML = ''; // Start clean
 
-        if (!container) return;
+    // Helper to find best matches to reach target @2.00+
+    const selectForTarget = (pool, qty) => {
+        if (pool.length < qty) return null;
 
-        const selected = uniquePicks.slice(0, config.qty);
-        let totalOdds = 1.0;
+        // Strategy: We want the top-ranked ones that combined give >= 2.00
+        // If the top N don't reach 2.00, we scan for a combination that does
+        let selected = pool.slice(0, qty);
+        let totalOdd = selected.reduce((acc, curr) => acc * curr.numericalQuota, 1);
 
-        container.innerHTML = '';
-        selected.forEach(m => {
-            const quotaStr = String(m.quota || '1.10').replace(',', '.');
-            const quota = parseFloat(quotaStr);
-            totalOdds *= quota;
+        if (totalOdd < 2.00) {
+            // Need to swap lower odd picks with higher odd ones from the remaining pool
+            // while keeping the score as high as possible.
+            let remaining = pool.slice(qty);
+            for (let i = qty - 1; i >= 0; i--) {
+                for (let j = 0; j < remaining.length; j++) {
+                    let testSelection = [...selected];
+                    testSelection[i] = remaining[j];
+                    let testOdd = testSelection.reduce((acc, curr) => acc * curr.numericalQuota, 1);
+                    if (testOdd >= 2.00) {
+                        return testSelection;
+                    }
+                }
+            }
+        }
+        return totalOdd >= 2.00 ? selected : null;
+    };
 
-            const item = document.createElement('div');
-            item.className = 'flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5';
-            item.innerHTML = `
-        <div class="flex-1" >
-                    <div class="text-[10px] text-gray-400 uppercase font-black">${m.lega || ''}</div>
-                    <div class="text-xs font-bold text-white">${m.partita}</div>
-                    <div class="text-[10px] text-orange-300 font-bold">${m.tip}</div>
+    Object.keys(containers).forEach(key => {
+        const config = containers[key];
+        const selected = selectForTarget(uniquePicks, config.qty);
+
+        if (!selected) return;
+
+        const totalOdds = selected.reduce((acc, curr) => acc * curr.numericalQuota, 1);
+        const roi = ((totalOdds - 1) * 100).toFixed(0);
+
+        // Build the Parlay Card
+        const card = document.createElement('div');
+        card.className = `glass-parlay-card p-5 mb-6 border-l-4 border-${config.color}-500`;
+
+        const headerHtml = `
+            <div class="flex justify-between items-start mb-5">
+                <div>
+                    <span class="bg-${config.color}-500 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter">${config.label}</span>
+                    <div class="mt-2 text-[10px] text-gray-400 font-bold">ROI: <span class="text-green-400">+${roi}%</span></div>
                 </div>
-        <div class="text-xs font-black text-indigo-300 ml-4">@${m.quota || '1.10'}</div>
-    `;
-            container.appendChild(item);
-        });
+                <div class="text-right">
+                    <div class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Quota Totale</div>
+                    <div class="text-xl font-black text-white">@${totalOdds.toFixed(2)}</div>
+                </div>
+            </div>
+        `;
 
-        if (oddsLabel) oddsLabel.textContent = `Totale: @${totalOdds.toFixed(2)} `;
+        let matchesHtml = '<div class="space-y-3">';
+        selected.forEach(m => {
+            const icon = (m.tip.includes('Goal') || m.tip.includes('Over')) ? 'fa-bullseye' : 'fa-shield-halved';
+            const iconColor = (m.tip.includes('Goal') || m.tip.includes('Over')) ? 'text-orange-400' : 'text-blue-400';
+
+            matchesHtml += `
+                <div class="glass-item-premium flex items-center gap-3">
+                    <div class="tip-icon-box ${iconColor}">
+                        <i class="fa-solid ${icon}"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-[9px] text-gray-500 font-bold truncate uppercase tracking-tight">${m.lega || 'Internazionale'}</div>
+                        <div class="text-sm font-bold text-gray-100 truncate">${m.partita}</div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <span class="text-[10px] font-black text-orange-500 uppercase">${m.tip}</span>
+                            <span class="text-[10px] text-gray-500">• Confidence ${m.score || 80}%</span>
+                        </div>
+                    </div>
+                    <div class="odd-highlight text-sm">@${m.quota}</div>
+                </div>
+            `;
+        });
+        matchesHtml += '</div>';
+
+        card.innerHTML = headerHtml + matchesHtml;
+        containerWrapper.appendChild(card);
     });
 };
 
