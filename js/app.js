@@ -1097,26 +1097,78 @@ window.loadTipsPage = function () {
             const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
             const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/70';
 
+            // LIVE / OUTCOME LOGIC ("CHICCA")
+            let liveMatch = null;
+            if (window.liveScoresHub) {
+                // Try ID first
+                liveMatch = Object.values(window.liveScoresHub).find(x => (x.fixtureId && m.fixtureId && x.fixtureId == m.fixtureId));
+                // Try fuzzy name match if no ID
+                if (!liveMatch) {
+                    const norm = s => s.toLowerCase().replace(/[^a-z]/g, '');
+                    liveMatch = Object.values(window.liveScoresHub).find(x => {
+                        const n = norm(x.matchName || '');
+                        return n.includes(norm(home)) && n.includes(norm(away));
+                    });
+                }
+            }
+
+            const currentScore = liveMatch ? (liveMatch.score || liveMatch.risultato) : (m.risultato || null);
+            const [scHome, scAway] = currentScore ? currentScore.split('-') : ['', ''];
+
+            const isLive = liveMatch && ['1H', '2H', 'HT', 'ET', 'P', 'LIVE'].includes(liveMatch.status);
+            const isFT = (liveMatch && liveMatch.status === 'FT') || m.status === 'FT' || (m.risultato && m.risultato.length > 2);
+
+            // Status Badge (Minute or FT)
+            let timeBadge = '';
+            if (isFT) timeBadge = '<span class="text-emerald-400 font-bold ml-1 text-[9px]">FT</span>';
+            else if (isLive) timeBadge = `< span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]" > '${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
+            else if (m.ora) timeBadge = `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>`;
+
+            // Dynamic Styling based on outcome
+            let outcomeStatus = (m.esito || '').toUpperCase();
+            let boxClass = 'glass-item-premium transition-all duration-300'; // Default
+            let iconClass = isGoal ? 'text-orange-400' : 'text-blue-400';
+            let iconBg = 'bg-white/10';
+
+            if (outcomeStatus === 'WIN' || outcomeStatus === 'VINTO') {
+                boxClass += ' ring-1 ring-emerald-500/50 bg-emerald-500/5';
+                iconClass = 'text-emerald-400';
+                iconBg = 'bg-emerald-400/20 shadow-[0_0_15px_rgba(52,211,153,0.3)]';
+                icon = 'fa-check'; // Change icon to checkmark!
+            } else if (outcomeStatus === 'LOSE' || outcomeStatus === 'PERSO') {
+                boxClass += ' opacity-60 grayscale-[0.5] border-l-2 border-rose-500/50';
+                iconClass = 'text-rose-400';
+                iconBg = 'bg-rose-400/10';
+                icon = 'fa-xmark';
+            }
+
             matchesHtml += `
-                <div class="glass-item-premium">
-                    <div class="tip-icon-box ${iconColor} bg-white/10">
+                <div class="${boxClass}">
+                    <div class="tip-icon-box ${iconClass} ${iconBg}">
                         <i class="fa-solid ${icon}"></i>
                     </div>
                     <div class="team-vertical-box">
                         <div class="flex justify-between items-center mb-1 pr-2">
-                            <span class="text-[11px] text-white/70 font-black truncate uppercase tracking-widest italic max-w-[70%]">${m.lega || 'PRO LEAGUE'}</span>
-                            ${m.ora ? `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>` : ''}
+                            <span class="text-[11px] text-white/50 font-black truncate uppercase tracking-widest italic max-w-[70%]">${m.lega || 'PRO LEAGUE'}</span>
+                            ${timeBadge}
                         </div>
-                        <div class="team-name-row truncate">${home}</div>
-                        <div class="team-name-row truncate">${away}</div>
+                        <div class="flex justify-between items-center pr-2">
+                            <div class="team-name-row truncate max-w-[85%]">${home}</div>
+                            ${scHome ? `<span class="text-amber-300 font-black text-sm drop-shadow-sm">${scHome}</span>` : ''}
+                        </div>
+                        <div class="flex justify-between items-center pr-2">
+                             <div class="team-name-row truncate max-w-[85%]">${away}</div>
+                             ${scAway ? `<span class="text-amber-300 font-black text-sm drop-shadow-sm">${scAway}</span>` : ''}
+                        </div>
+
                         <div class="flex items-center gap-2 mt-2">
-                            <span class="tip-label-badge">${m.tip}</span>
+                            <span class="tip-label-badge ${outcomeStatus === 'WIN' ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/50' : ''}">${m.tip}</span>
                             <span class="confidence-label">AI ${m.score || 85}%</span>
                         </div>
                     </div>
                     
                     <div class="flex items-center gap-3">
-                         <div class="odd-highlight-v5">@${m.quota}</div>
+                         <div class="odd-highlight-v5 ${outcomeStatus === 'WIN' ? 'text-emerald-300 text-lg' : ''}">@${m.quota}</div>
                          <button data-match-id="${matchId}" onclick="toggleFlag('${matchId}'); event.stopPropagation();" class="hover:scale-110 transition-transform p-1">
                             <i class="${starClass} fa-star text-lg drop-shadow-sm"></i>
                          </button>
