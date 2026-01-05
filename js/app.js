@@ -956,9 +956,9 @@ window.initTradingPage = function () {
  */
 window.loadTipsPage = function () {
     const containers = {
-        x2: { id: 'parlay-x2', qty: 2, label: 'Cassa Sicura (x2)', color: 'green' },
-        x3: { id: 'parlay-x3', qty: 3, label: 'Il Tridente (x3)', color: 'blue' },
-        x4: { id: 'parlay-x4', qty: 4, label: 'La Multiplona (x4)', color: 'purple' }
+        x2: { id: 'parlay-x2', qty: 2, label: 'Cassa Sicura (x2)', color: 'green', indices: [0, 1], minOdd: 1.25 },
+        x3: { id: 'parlay-x3', qty: 3, label: 'Il Tridente (x3)', color: 'blue', indices: [0, 2, 3], minOdd: 1.25 },
+        x4: { id: 'parlay-x4', qty: 4, label: 'La Multiplona (x4)', color: 'purple', indices: [1, 2, 4, 5], minOdd: 1.25 }
     };
 
     // 1. Gather all available matches for today
@@ -974,7 +974,7 @@ window.loadTipsPage = function () {
         }
     });
 
-    // 2. Remove Duplicates & Sort by AI Score
+    // 2. Remove Duplicates & Sort by AI Score (Quality)
     const seen = new Set();
     const uniquePicks = allPicks
         .filter(m => {
@@ -996,78 +996,96 @@ window.loadTipsPage = function () {
     const containerWrapper = document.getElementById('parlays-container');
     containerWrapper.innerHTML = ''; // Start clean
 
-    // Helper to find best matches to reach target @2.00+
-    const selectForTarget = (pool, qty) => {
-        if (pool.length < qty) return null;
+    // Helper: Socio Engine v5.0 - THE SWAN KILLER (Global Odd Floor 1.25)
+    const selectForConfig = (pool, config) => {
+        // STRICT FILTER: No rubbish odds allowed.
+        const qualityPool = pool.filter(p => p.numericalQuota >= config.minOdd);
 
-        // Strategy: We want the top-ranked ones that combined give >= 2.00
-        // If the top N don't reach 2.00, we scan for a combination that does
-        let selected = pool.slice(0, qty);
+        const selected = [];
+        config.indices.forEach(idx => {
+            if (qualityPool[idx]) selected.push(qualityPool[idx]);
+        });
+
+        if (selected.length < config.qty) {
+            const extra = qualityPool.filter(p => !selected.find(s => s.partita === p.partita)).slice(0, config.qty - selected.length);
+            selected.push(...extra);
+        }
+
+        if (selected.length < config.qty) return null;
+
         let totalOdd = selected.reduce((acc, curr) => acc * curr.numericalQuota, 1);
 
-        if (totalOdd < 2.00) {
-            // Need to swap lower odd picks with higher odd ones from the remaining pool
-            // while keeping the score as high as possible.
-            let remaining = pool.slice(qty);
-            for (let i = qty - 1; i >= 0; i--) {
-                for (let j = 0; j < remaining.length; j++) {
-                    let testSelection = [...selected];
-                    testSelection[i] = remaining[j];
-                    let testOdd = testSelection.reduce((acc, curr) => acc * curr.numericalQuota, 1);
-                    if (testOdd >= 2.00) {
-                        return testSelection;
-                    }
+        if (totalOdd < 2.05 && qualityPool.length > config.qty) {
+            const poolSortedByOdds = [...qualityPool].sort((a, b) => b.numericalQuota - a.numericalQuota);
+            for (let i = 0; i < selected.length; i++) {
+                for (let betterItem of poolSortedByOdds) {
+                    if (selected.find(s => s.partita === betterItem.partita)) continue;
+                    const testSelection = [...selected];
+                    testSelection[i] = betterItem;
+                    const testOdd = testSelection.reduce((acc, curr) => acc * curr.numericalQuota, 1);
+                    if (testOdd >= 2.05) return testSelection;
                 }
             }
         }
-        return totalOdd >= 2.00 ? selected : null;
+
+        return selected;
     };
 
     Object.keys(containers).forEach(key => {
         const config = containers[key];
-        const selected = selectForTarget(uniquePicks, config.qty);
+        const selected = selectForConfig(uniquePicks, config);
 
         if (!selected) return;
 
         const totalOdds = selected.reduce((acc, curr) => acc * curr.numericalQuota, 1);
         const roi = ((totalOdds - 1) * 100).toFixed(0);
+        const avgConfidence = Math.round(selected.reduce((acc, curr) => acc + (curr.score || 85), 0) / selected.length);
 
-        // Build the Parlay Card
         const card = document.createElement('div');
-        card.className = `glass-parlay-card p-5 mb-6 border-l-4 border-${config.color}-500`;
+        card.className = `glass-parlay-card fade-in`;
 
         const headerHtml = `
-            <div class="flex justify-between items-start mb-5">
+            <div class="flex justify-between items-start mb-6">
                 <div>
-                    <span class="bg-${config.color}-500 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter">${config.label}</span>
-                    <div class="mt-2 text-[10px] text-gray-400 font-bold">ROI: <span class="text-green-400">+${roi}%</span></div>
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="bg-${config.color}-600 text-white text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg">${config.label}</span>
+                        <span class="roi-badge">+${roi}% ROI</span>
+                    </div>
+                    <div class="text-[10px] text-white/50 font-bold uppercase tracking-tight ml-2">Confidence AI: <span class="text-white font-black">${avgConfidence}%</span></div>
                 </div>
                 <div class="text-right">
-                    <div class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Quota Totale</div>
-                    <div class="text-xl font-black text-white">@${totalOdds.toFixed(2)}</div>
+                    <div class="text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-1">Quota Totale</div>
+                    <div class="text-3xl font-black text-white leading-none">@${totalOdds.toFixed(2)}</div>
                 </div>
             </div>
         `;
 
-        let matchesHtml = '<div class="space-y-3">';
+        let matchesHtml = '<div class="space-y-4">';
         selected.forEach(m => {
-            const icon = (m.tip.includes('Goal') || m.tip.includes('Over')) ? 'fa-bullseye' : 'fa-shield-halved';
-            const iconColor = (m.tip.includes('Goal') || m.tip.includes('Over')) ? 'text-orange-400' : 'text-blue-400';
+            const isGoal = m.tip.includes('Goal') || m.tip.includes('Over') || m.tip.includes('+');
+            const icon = isGoal ? 'fa-fire-flame-curved' : 'fa-shield-halved';
+            const iconColor = isGoal ? 'text-orange-400' : 'text-blue-400';
+
+            // Split teams for vertical layout
+            const teams = m.partita.split('-').map(t => t.trim());
+            const home = teams[0] || 'Team A';
+            const away = teams[1] || 'Team B';
 
             matchesHtml += `
-                <div class="glass-item-premium flex items-center gap-3">
-                    <div class="tip-icon-box ${iconColor}">
+                <div class="glass-item-premium">
+                    <div class="tip-icon-box ${iconColor} bg-white/10">
                         <i class="fa-solid ${icon}"></i>
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-[9px] text-gray-500 font-bold truncate uppercase tracking-tight">${m.lega || 'Internazionale'}</div>
-                        <div class="text-sm font-bold text-gray-100 truncate">${m.partita}</div>
-                        <div class="flex items-center gap-2 mt-0.5">
-                            <span class="text-[10px] font-black text-orange-500 uppercase">${m.tip}</span>
-                            <span class="text-[10px] text-gray-500">• Confidence ${m.score || 80}%</span>
+                    <div class="team-vertical-box">
+                        <div class="text-[9px] text-white/30 font-black truncate uppercase tracking-widest mb-1 italic">${m.lega || 'PRO LEAGUE'}</div>
+                        <div class="team-name-row truncate">${home}</div>
+                        <div class="team-name-row truncate">${away}</div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <span class="tip-label-badge">${m.tip}</span>
+                            <span class="confidence-label">AI ${m.score || 85}%</span>
                         </div>
                     </div>
-                    <div class="odd-highlight text-sm">@${m.quota}</div>
+                    <div class="odd-highlight-v5">@${m.quota}</div>
                 </div>
             `;
         });
