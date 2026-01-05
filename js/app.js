@@ -178,7 +178,7 @@ window.getLiveTradingAnalysis = async function (matchId) {
     const status = match?.status || match?.liveData?.status || 'LIVE';
     const stats = match?.liveStats || match?.liveData?.stats || {};
 
-    // Build stats string properly - Resilient Mapping v2.3
+    // Build stats string properly - Resilient Mapping v2.4 (Enhanced Stats)
     const getStat = (obj, keys, def = "0 - 0") => {
         for (const k of keys) {
             if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "" && obj[k] !== "0-0") return obj[k];
@@ -186,8 +186,10 @@ window.getLiveTradingAnalysis = async function (matchId) {
         return def;
     };
 
-    const da = getStat(stats, ["dangerousAttacks", "dangerous_attacks", "attacks", "da"]);
     const sog = getStat(stats, ["shotsOnGoal", "shots_on_goal", "sog"]);
+    const totalShots = getStat(stats, ["totalShots", "total_shots"]);
+    const shotsInside = getStat(stats, ["shotsInside", "shots_inside", "shotsInsideBox"]);
+    const corners = getStat(stats, ["corners", "corner_kicks"]);
     const pos = getStat(stats, ["possession", "ball_possession", "palla"], "50% - 50%");
     const xg = stats.xg ? `${stats.xg.home?.toFixed(2) || stats.xg.home || 0} - ${stats.xg.away?.toFixed(2) || stats.xg.away || 0}` : "0.0 - 0.0";
 
@@ -211,19 +213,21 @@ window.getLiveTradingAnalysis = async function (matchId) {
 - Minuto: ${elapsed}' | Risultato: ${score} | Status: ${status}
 - Pressione Gol: ${stats.pressureValue || 'N/A'}%
 - Strategia attiva: ${match?.strategy || match?.label || 'Monitoraggio'} ${match?.tip || ''}
-- xG: ${xg} | DA: ${da} | SOG: ${sog} | Possesso: ${pos}${eventsText}
+- xG: ${xg} | SOG: ${sog} | Tiri Totali: ${totalShots}
+- Tiri in Area: ${shotsInside} | Corner: ${corners} | Possesso: ${pos}${eventsText}
 
-**FILOSOFIA (SOCIO ENGINE v5.0):**
-- Ricorda: siamo Nemici dei "Cigni Neri" (quote < 1.25).
-- Se il match è parte di un Consiglio (Parlay), il valore è protetto dalla nostra soglia di rischio.
-- Sii estremamente critico se i dati non supportano il pronostico originale.
+**FILOSOFIA SOCIO (ENGINE v5.0):**
+- Siamo nemici dei "Cigni Neri" (quote < 1.25).
+- Ogni Consiglio (Parlay) rispetta le nostre soglie di rischio.
+- Sii critico se i dati non supportano il pronostico.
 
-**ISTRUZIONI PER LA RISPOSTA:**
+**STILE DI RISPOSTA:**
 1. Inizia con: "Ok ${userName}:"
-2. Analisi tecnica rigorosa su xG, Pressione e DA.
-3. Indicazioni operative CHIARE: (Entra, Esci, Attendi, Cashout).
-4. Spiega il PERCHÉ basandoti sui dati.
-5. Sii professionale ma con la tua solita empatia da Socio.`;
+2. **Vai DRITTO AL PUNTO**. Evita preamboli tipo "Analizzando i dati..." o "Sulla base delle statistiche...".
+3. Usa i dati (xG, Tiri in Area, Corner, SOG) per la tua analisi.
+4. **VERDICT CHIARO**: Entra/Esci/Attendi/Cashout + motivazione.
+5. Sii professionale ma anche **coinvolgente**. Sei un Socio esperto, non un robot.
+6. Libertà di espressione: parla quanto serve, ma non dilungarti se non necessario.`;
 
 
 
@@ -759,19 +763,54 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-2 text-center text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
-                     <div>
-                        <div class="text-xs text-gray-400 font-bold uppercase">Possesso</div>
-                        <div class="font-black text-gray-800 text-xs">${pos}</div>
-                     </div>
-                     <div>
-                        <div class="text-xs text-gray-400 font-bold uppercase">Tiri (Porta)</div>
-                        <div class="font-black text-gray-800 text-xs">${match.liveStats.shotsOnGoal || (match.liveStats.shots ? `${match.liveStats.shots.home}-${match.liveStats.shots.away}` : '0-0')}</div>
-                     </div>
-                     <div>
-                        <div class="text-xs text-gray-400 font-bold uppercase">XG</div>
-                        <div class="font-black text-gray-800 text-xs">${match.liveStats.xg?.home || 0} - ${match.liveStats.xg?.away || 0}</div>
-                     </div>
+                <!-- NEW: Comprehensive Stats Dashboard -->
+                <div class="px-4 mb-3">
+                    <div class="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2.5 flex items-center gap-1.5">
+                        <i class="fa-solid fa-chart-line text-[9px]"></i> Live Statistics
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <!-- xG -->
+                        <div class="bg-white/5 rounded-lg p-2 border border-white/10 text-center">
+                            <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-purple-500/10">⚡</div>
+                            <div class="text-[9px] text-white/50 font-bold uppercase tracking-wider mb-0.5">xG</div>
+                            <div class="text-xs font-black text-white">${match.liveStats.xg?.home || 0} - ${match.liveStats.xg?.away || 0}</div>
+                        </div>
+                        
+                        <!-- Shots on Goal -->
+                        <div class="bg-white/5 rounded-lg p-2 border border-white/10 text-center">
+                            <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-orange-500/10">🎯</div>
+                            <div class="text-[9px] text-white/50 font-bold uppercase tracking-wider mb-0.5">Tiri (Porta)</div>
+                            <div class="text-xs font-black text-white">${match.liveStats.shotsOnGoal || '0-0'}</div>
+                        </div>
+                        
+                        <!-- Total Shots -->
+                        <div class="bg-white/5 rounded-lg p-2 border border-white/10 text-center">
+                            <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-blue-500/10">⚽</div>
+                            <div class="text-[9px] text-white/50 font-bold uppercase tracking-wider mb-0.5">Tiri Totali</div>
+                            <div class="text-xs font-black text-white">${match.liveStats.totalShots || '0-0'}</div>
+                        </div>
+                        
+                        <!-- Corners -->
+                        <div class="bg-white/5 rounded-lg p-2 border border-white/10 text-center">
+                            <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-emerald-500/10">📐</div>
+                            <div class="text-[9px] text-white/50 font-bold uppercase tracking-wider mb-0.5">Corner</div>
+                            <div class="text-xs font-black text-white">${match.liveStats.corners || '0-0'}</div>
+                        </div>
+                        
+                        <!-- Shots Inside Box -->
+                        <div class="bg-white/5 rounded-lg p-2 border border-white/10 text-center">
+                            <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-red-500/10">🔥</div>
+                            <div class="text-[9px] text-white/50 font-bold uppercase tracking-wider mb-0.5">Tiri in Area</div>
+                            <div class="text-xs font-black text-white">${match.liveStats.shotsInside || '0-0'}</div>
+                        </div>
+                        
+                        <!-- Possession -->
+                        <div class="bg-white/5 rounded-lg p-2 border border-white/10 text-center">
+                            <div class="text-lg mx-auto w-7 h-7 rounded-full flex items-center justify-center mb-1 bg-indigo-500/10">🏃</div>
+                            <div class="text-[9px] text-white/50 font-bold uppercase tracking-wider mb-0.5">Possesso</div>
+                            <div class="text-xs font-black text-white">${pos}</div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Live Insight Button -->
