@@ -266,3 +266,30 @@ body {
     font-weight: 900;
     box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
 }
+/* --- SURGICAL FILTERS NAVIGATION --- */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.filter-chip {
+    white-space: nowrap;
+    padding: 8px 16px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
+}
+
+.filter-chip.active {
+    background: white;
+    color: #1e293b;
+    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+    border-color: white;
+}
