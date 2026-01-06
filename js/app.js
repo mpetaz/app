@@ -27,6 +27,7 @@ window.aiKnowledge = {};
 window.globalStats = { total: 0, wins: 0, losses: 0, winrate: 0 };
 
 let currentStrategyId = null;
+let currentSubFilter = 'all';
 let currentSortMode = 'time';
 
 // ANTI-FLICKER CACHE: Remember last rendered data to avoid re-renders
@@ -456,8 +457,13 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         // Altrimenti: partita futura o in corso, rimane monitorata (sarà "IN ATTESA" o mostrerà dati live)
     }
 
-    // Detect Type
-    const isMagia = (match.magicStats !== undefined) || (stratId && stratId.toLowerCase().includes('magia'));
+    // Detect Precise AI Type (Flags from getUnifiedMatches)
+    const isMagiaAI = match.isMagiaAI || stratId === 'magia_ai';
+    const isSpecialAI = match.isSpecialAI || stratId === '___magia_ai';
+    const isAIPick = isMagiaAI || isSpecialAI;
+
+    // A match uses the Magia Scanner layout only if we are inside that specific strategy
+    const isMagia = stratId === 'magia_ai';
     const isTrading = (['LAY_THE_DRAW', 'LAY_DRAW', 'BACK_OVER_25', 'HT_SNIPER', 'SECOND_HALF_SURGE', 'UNDER_35_SCALPING'].includes(match.strategy)) || options.isTrading;
     const matchId = match.id || `${match.data}_${match.partita}`;
     const isFlagged = !isTrading ? (window.selectedMatches || []).some(sm => sm.id === matchId) : tradingFavorites.includes(matchId);
@@ -536,7 +542,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         console.log(`[EsitoDebug] ${mName} | evaluation: ${liveHubData?.evaluation} | esito: ${match.esito} | isFinished: ${isFinished} | esitoClass: ${esitoClass ? 'SET' : 'EMPTY'}`);
     }
 
-    card.className = `match-card rounded-3xl shadow-2xl fade-in mb-4 overflow-hidden relative transition-all duration-300 ${isMagia ? 'magia-scanner-card' : 'glass-card-premium'} ${esitoClass}`;
+    const aiBrandingClass = isAIPick ? 'ring-2 ring-purple-600 shadow-[0_0_15px_rgba(147,51,234,0.3)]' : '';
+    card.className = `match-card rounded-3xl shadow-2xl fade-in mb-4 overflow-hidden relative transition-all duration-300 ${isMagia ? 'magia-scanner-card' : 'glass-card-premium'} ${esitoClass} ${aiBrandingClass}`;
     if (isFlagged && isTrading) card.classList.add('ring-2', 'ring-emerald-500');
 
     // --- Footer ---
@@ -670,13 +677,23 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 pb-4">
                 <!-- Magia AI Main Tip (Blue Pill) -->
                 <div class="bg-gradient-to-r from-indigo-500 to-blue-600 rounded-xl p-3 text-center shadow-lg shadow-indigo-200/50 mb-3 relative overflow-hidden group">
-                    <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                     <div class="absolute top-0 right-0 bg-purple-500 text-[8px] font-black px-1 rounded-bl text-white">MAGIA AI</div>
+                     <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
                      <span class="text-[11px] font-bold text-indigo-100 uppercase tracking-widest mb-0.5 block">PREVISIONE IA</span>
                      <div class="flex justify-center items-center gap-2">
-                        <span class="text-xl font-black text-white">${ms.tipMagiaAI || match.tip || '-'}</span>
-                        ${ms.oddMagiaAI ? `<span class="bg-white/20 px-1.5 rounded text-xs font-bold text-white backdrop-blur-sm">@ ${ms.oddMagiaAI}</span>` : ''}
+                      <span class="text-xl font-black text-white">${match.tip || '-'}</span>
+                      ${match.quota ? `<span class="bg-white/20 px-1.5 rounded text-xs font-bold text-white backdrop-blur-sm">@ ${match.quota}</span>` : ''}
                      </div>
                 </div>
+
+                <!-- SMART COMPARE: If AI tip differs from DB tip -->
+                ${(ms.tipMagiaAI && match.tip && ms.tipMagiaAI !== match.tip) ? `
+                <div class="mt-[-8px] mb-3 text-center">
+                    <div class="inline-block bg-purple-100 border border-purple-200 rounded-full px-3 py-0.5 text-[10px] font-black text-purple-600">
+                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> AI soggerisce <span class="underline">${ms.tipMagiaAI}</span> invece di ${match.tip}
+                    </div>
+                </div>
+                ` : ''}
 
                 <!-- Probability Bar (Single, Clean) -->
                 <div class="mb-4">
@@ -716,7 +733,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         primarySignalHTML = `
             <div class="px-4 pb-4 flex flex-col items-center gap-3">
                 <!-- Standard Main Tip (Blue Pill) -->
-                <div class="w-full bg-blue-600 text-white rounded-xl py-2 px-3 text-center shadow-md shadow-blue-200">
+                <div class="w-full bg-blue-600 text-white rounded-xl py-2 px-3 text-center shadow-md shadow-blue-200 relative overflow-hidden">
+                     ${isAIPick ? `<div class="absolute top-0 right-0 bg-purple-500 text-[8px] font-black px-1 rounded-bl text-white">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
                      <span class="text-xs uppercase font-bold text-blue-200 block mb-0.5">CONSIGLIO</span>
                      <span class="text-lg font-black tracking-wide">${match.tip}</span>
                      ${match.quota ? `<span class="ml-2 bg-blue-500/50 px-1.5 rounded text-sm font-bold">@ ${match.quota}</span>` : ''}
@@ -1008,218 +1026,161 @@ window.initTradingPage = function () {
 
 /**
  * TAB: I CONSIGLI
- * Generates Smart Parlays (Multiple) based on the day's top picks.
+ * Now reads pre-calculated parlays from Firebase (admin-generated)
+ * v5.0 - Server-Side Calculation
  */
-/**
- * TAB: I CONSIGLI - Socio Approved Logic v3.0 🩺
- * Generates Smart Parlays (Multiple) where ROI is ALWAYS >= @2.00
- */
-window.loadTipsPage = function () {
-    const containers = {
-        x2: { id: 'parlay-x2', qty: 2, label: 'Cassa Sicura (x2)', color: 'green', indices: [0, 1], minOdd: 1.25 },
-        x3: { id: 'parlay-x3', qty: 3, label: 'Il Tridente (x3)', color: 'blue', indices: [0, 2, 3], minOdd: 1.25 },
-        x4: { id: 'parlay-x4', qty: 4, label: 'La Multiplona (x4)', color: 'purple', indices: [1, 2, 4, 5], minOdd: 1.25 }
-    };
-
-    // 1. Gather all available matches for today
-    let allPicks = [];
-    Object.entries(window.strategiesData || {}).forEach(([stratId, strat]) => {
-        if (strat.matches) {
-            strat.matches.forEach(m => {
-                if (m.data === window.currentAppDate) {
-                    const q = parseFloat(String(m.quota || '1.10').replace(',', '.'));
-                    allPicks.push({ ...m, stratId, numericalQuota: q });
-                }
-            });
-        }
-    });
-
-    // 2. Remove Duplicates & Sort by AI Score (Quality)
-    const seen = new Set();
-    const uniquePicks = allPicks
-        .filter(m => {
-            if (seen.has(m.partita)) return false;
-            seen.add(m.partita);
-            return true;
-        })
-        .sort((a, b) => (b.score || 0) - (a.score || 0));
-
-    if (uniquePicks.length < 2) {
-        if (document.getElementById('parlays-container')) document.getElementById('parlays-container').classList.add('hidden');
-        if (document.getElementById('no-tips-msg')) document.getElementById('no-tips-msg').classList.remove('hidden');
-        return;
-    }
-
-    if (document.getElementById('parlays-container')) document.getElementById('parlays-container').classList.remove('hidden');
-    if (document.getElementById('no-tips-msg')) document.getElementById('no-tips-msg').classList.add('hidden');
-
+window.loadTipsPage = async function () {
+    const today = window.currentAppDate || new Date().toISOString().split('T')[0];
     const containerWrapper = document.getElementById('parlays-container');
-    containerWrapper.innerHTML = ''; // Start clean
+    const noTipsMsg = document.getElementById('no-tips-msg');
 
-    // Helper: Socio Engine v5.0 - THE SWAN KILLER (Global Odd Floor 1.25)
-    const selectForConfig = (pool, config) => {
-        // STRICT FILTER: No rubbish odds allowed.
-        const qualityPool = pool.filter(p => p.numericalQuota >= config.minOdd);
+    if (!containerWrapper) return;
 
-        const selected = [];
-        config.indices.forEach(idx => {
-            if (qualityPool[idx]) selected.push(qualityPool[idx]);
-        });
+    containerWrapper.innerHTML = '<div class="text-center text-white/60 py-8"><i class="fa-solid fa-spinner fa-spin text-2xl mb-2"></i><p class="text-sm">Caricamento consigli...</p></div>';
 
-        if (selected.length < config.qty) {
-            const extra = qualityPool.filter(p => !selected.find(s => s.partita === p.partita)).slice(0, config.qty - selected.length);
-            selected.push(...extra);
+    try {
+        // Fetch pre-calculated parlays from Firebase
+        const parlayDoc = await getDoc(doc(db, "daily_parlays", today));
+
+        if (!parlayDoc.exists() || !parlayDoc.data().parlays) {
+            console.log('[Tips] No pre-calculated parlays found for', today);
+            containerWrapper.classList.add('hidden');
+            if (noTipsMsg) noTipsMsg.classList.remove('hidden');
+            return;
         }
 
-        if (selected.length < config.qty) return null;
+        const data = parlayDoc.data();
+        const parlays = data.parlays;
 
-        let totalOdd = selected.reduce((acc, curr) => acc * curr.numericalQuota, 1);
+        console.log(`[Tips] Loaded ${Object.keys(parlays).length} parlays from Firebase (generated: ${data.generatedAt})`);
 
-        if (totalOdd < 2.05 && qualityPool.length > config.qty) {
-            const poolSortedByOdds = [...qualityPool].sort((a, b) => b.numericalQuota - a.numericalQuota);
-            for (let i = 0; i < selected.length; i++) {
-                for (let betterItem of poolSortedByOdds) {
-                    if (selected.find(s => s.partita === betterItem.partita)) continue;
-                    const testSelection = [...selected];
-                    testSelection[i] = betterItem;
-                    const testOdd = testSelection.reduce((acc, curr) => acc * curr.numericalQuota, 1);
-                    if (testOdd >= 2.05) return testSelection;
-                }
-            }
-        }
+        containerWrapper.classList.remove('hidden');
+        if (noTipsMsg) noTipsMsg.classList.add('hidden');
+        containerWrapper.innerHTML = '';
 
-        return selected;
-    };
+        // Render each parlay
+        Object.entries(parlays).forEach(([key, parlay]) => {
+            if (!parlay.picks || parlay.picks.length === 0) return;
 
-    Object.keys(containers).forEach(key => {
-        const config = containers[key];
-        const selected = selectForConfig(uniquePicks, config);
+            const card = document.createElement('div');
+            card.className = 'glass-parlay-card fade-in';
 
-        if (!selected) return;
-
-        const totalOdds = selected.reduce((acc, curr) => acc * curr.numericalQuota, 1);
-        const roi = ((totalOdds - 1) * 100).toFixed(0);
-        const avgConfidence = Math.round(selected.reduce((acc, curr) => acc + (curr.score || 85), 0) / selected.length);
-
-        const card = document.createElement('div');
-        card.className = `glass-parlay-card fade-in`;
-
-        const headerHtml = `
-            <div class="flex justify-between items-start mb-6">
-                <div>
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="bg-${config.color}-600 text-white text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg">${config.label}</span>
-                        <span class="roi-badge">+${roi}% ROI</span>
+            const headerHtml = `
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="bg-${parlay.color}-600 text-white text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg">${parlay.label}</span>
+                            <span class="roi-badge">+${parlay.roi}% ROI</span>
+                        </div>
+                        <div class="text-xs text-white/80 font-bold uppercase tracking-tight ml-2">Confidence AI: <span class="text-white font-black">${parlay.avgConfidence}%</span></div>
                     </div>
-                    <div class="text-xs text-white/80 font-bold uppercase tracking-tight ml-2">Confidence AI: <span class="text-white font-black">${avgConfidence}%</span></div>
-                </div>
-                <div class="text-right">
-                    <div class="text-[11px] font-black text-white/70 uppercase tracking-[0.3em] mb-1">Quota Totale</div>
-                    <div class="text-3xl font-black text-white leading-none">@${totalOdds.toFixed(2)}</div>
-                </div>
-            </div>
-        `;
-
-        let matchesHtml = '<div class="space-y-4">';
-        selected.forEach(m => {
-            const isGoal = m.tip.includes('Goal') || m.tip.includes('Over') || m.tip.includes('+');
-            let icon = isGoal ? 'fa-fire-flame-curved' : 'fa-shield-halved'; // Changed to let for outcome reassignment
-            const iconColor = isGoal ? 'text-orange-400' : 'text-blue-400';
-
-            // Split teams for vertical layout
-            const teams = m.partita.split('-').map(t => t.trim());
-            const home = teams[0] || 'Team A';
-            const away = teams[1] || 'Team B';
-
-            // Star Logic for Parlays
-            const matchId = m.id || `${m.data}_${m.partita}`;
-            const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
-            const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/70';
-
-            // LIVE / OUTCOME LOGIC ("CHICCA")
-            let liveMatch = null;
-            if (window.liveScoresHub) {
-                // Try ID first
-                liveMatch = Object.values(window.liveScoresHub).find(x => (x.fixtureId && m.fixtureId && x.fixtureId == m.fixtureId));
-                // Try fuzzy name match if no ID
-                if (!liveMatch) {
-                    const norm = s => s.toLowerCase().replace(/[^a-z]/g, '');
-                    liveMatch = Object.values(window.liveScoresHub).find(x => {
-                        const n = norm(x.matchName || '');
-                        return n.includes(norm(home)) && n.includes(norm(away));
-                    });
-                }
-            }
-
-            const currentScore = liveMatch ? (liveMatch.score || liveMatch.risultato) : (m.risultato || null);
-            const [scHome, scAway] = currentScore ? currentScore.split('-') : ['', ''];
-
-            const isLive = liveMatch && ['1H', '2H', 'HT', 'ET', 'P', 'LIVE'].includes(liveMatch.status);
-            const isFT = (liveMatch && liveMatch.status === 'FT') || m.status === 'FT' || (m.risultato && m.risultato.length > 2);
-
-            // Status Badge (Minute or FT)
-            let timeBadge = '';
-            if (isFT) timeBadge = '<span class="text-emerald-400 font-bold ml-1 text-[9px]">FT</span>';
-            else if (isLive) timeBadge = `< span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]" > '${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
-            else if (m.ora) timeBadge = `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>`;
-
-            // Dynamic Styling based on outcome
-            let outcomeStatus = (m.esito || '').toUpperCase();
-            let boxClass = 'glass-item-premium transition-all duration-300'; // Default
-            let iconClass = isGoal ? 'text-orange-400' : 'text-blue-400';
-            let iconBg = 'bg-white/10';
-
-            if (outcomeStatus === 'WIN' || outcomeStatus === 'VINTO') {
-                boxClass += ' ring-1 ring-emerald-500/50 bg-emerald-500/5';
-                iconClass = 'text-emerald-400';
-                iconBg = 'bg-emerald-400/20 shadow-[0_0_15px_rgba(52,211,153,0.3)]';
-                icon = 'fa-check'; // Change icon to checkmark!
-            } else if (outcomeStatus === 'LOSE' || outcomeStatus === 'PERSO') {
-                boxClass += ' opacity-60 grayscale-[0.5] border-l-2 border-rose-500/50';
-                iconClass = 'text-rose-400';
-                iconBg = 'bg-rose-400/10';
-                icon = 'fa-xmark';
-            }
-
-            matchesHtml += `
-                <div class="${boxClass}">
-                    <div class="tip-icon-box ${iconClass} ${iconBg}">
-                        <i class="fa-solid ${icon}"></i>
-                    </div>
-                    <div class="team-vertical-box">
-                        <div class="flex justify-between items-center mb-1 pr-2">
-                            <span class="text-[11px] text-white/50 font-black truncate uppercase tracking-widest italic max-w-[70%]">${m.lega || 'PRO LEAGUE'}</span>
-                            ${timeBadge}
-                        </div>
-                        <div class="flex justify-between items-center pr-2">
-                            <div class="team-name-row truncate max-w-[85%]">${home}</div>
-                            ${scHome ? `<span class="text-amber-300 font-black text-sm drop-shadow-sm">${scHome}</span>` : ''}
-                        </div>
-                        <div class="flex justify-between items-center pr-2">
-                             <div class="team-name-row truncate max-w-[85%]">${away}</div>
-                             ${scAway ? `<span class="text-amber-300 font-black text-sm drop-shadow-sm">${scAway}</span>` : ''}
-                        </div>
-
-                        <div class="flex items-center gap-2 mt-2">
-                            <span class="tip-label-badge ${outcomeStatus === 'WIN' ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/50' : ''}">${m.tip}</span>
-                            <span class="confidence-label">AI ${m.score || 85}%</span>
-                        </div>
-                    </div>
-                    
-                    <div class="flex items-center gap-3">
-                         <div class="odd-highlight-v5 ${outcomeStatus === 'WIN' ? 'text-emerald-300 text-lg' : ''}">@${m.quota}</div>
-                         <button data-match-id="${matchId}" onclick="toggleFlag('${matchId}'); event.stopPropagation();" class="hover:scale-110 transition-transform p-1">
-                            <i class="${starClass} fa-star text-lg drop-shadow-sm"></i>
-                         </button>
+                    <div class="text-right">
+                        <div class="text-[11px] font-black text-white/70 uppercase tracking-[0.3em] mb-1">Quota Totale</div>
+                        <div class="text-3xl font-black text-white leading-none">@${parlay.totalOdds.toFixed(2)}</div>
                     </div>
                 </div>
             `;
-        });
-        matchesHtml += '</div>';
 
-        card.innerHTML = headerHtml + matchesHtml;
-        containerWrapper.appendChild(card);
-    });
+            let matchesHtml = '<div class="space-y-4">';
+            parlay.picks.forEach(m => {
+                const isGoal = (m.tip || '').includes('Goal') || (m.tip || '').includes('Over') || (m.tip || '').includes('+');
+                let icon = isGoal ? 'fa-fire-flame-curved' : 'fa-shield-halved';
+
+                // Split teams
+                const teams = (m.partita || '').split('-').map(t => t.trim());
+                const home = teams[0] || 'Team A';
+                const away = teams[1] || 'Team B';
+
+                // Star Logic
+                const matchId = m.id || `${m.data}_${m.partita}`;
+                const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
+                const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/70';
+
+                // Live Score Integration
+                let liveMatch = null;
+                if (window.liveScoresHub) {
+                    liveMatch = Object.values(window.liveScoresHub).find(x => (x.fixtureId && m.fixtureId && x.fixtureId == m.fixtureId));
+                    if (!liveMatch) {
+                        const norm = s => (s || '').toLowerCase().replace(/[^a-z]/g, '');
+                        liveMatch = Object.values(window.liveScoresHub).find(x => {
+                            const n = norm(x.matchName || '');
+                            return n.includes(norm(home)) && n.includes(norm(away));
+                        });
+                    }
+                }
+
+                const currentScore = liveMatch ? (liveMatch.score || liveMatch.risultato) : (m.risultato || null);
+                const [scHome, scAway] = currentScore ? currentScore.split('-') : ['', ''];
+
+                const isLive = liveMatch && ['1H', '2H', 'HT', 'ET', 'P', 'LIVE'].includes(liveMatch.status);
+                const isFT = (liveMatch && liveMatch.status === 'FT') || m.status === 'FT' || (m.risultato && m.risultato.length > 2);
+
+                // Time Badge
+                let timeBadge = '';
+                if (isFT) timeBadge = '<span class="text-emerald-400 font-bold ml-1 text-[9px]">FT</span>';
+                else if (isLive) timeBadge = `<span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]">'${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
+                else if (m.ora) timeBadge = `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>`;
+
+                // Outcome Styling
+                let outcomeStatus = (m.esito || '').toUpperCase();
+                let boxClass = 'glass-item-premium transition-all duration-300';
+                let iconClass = isGoal ? 'text-orange-400' : 'text-blue-400';
+                let iconBg = 'bg-white/10';
+
+                if (outcomeStatus === 'WIN' || outcomeStatus === 'VINTO') {
+                    boxClass += ' ring-1 ring-emerald-500/50 bg-emerald-500/5';
+                    iconClass = 'text-emerald-400';
+                    iconBg = 'bg-emerald-400/20 shadow-[0_0_15px_rgba(52,211,153,0.3)]';
+                    icon = 'fa-check';
+                } else if (outcomeStatus === 'LOSE' || outcomeStatus === 'PERSO') {
+                    boxClass += ' opacity-60 grayscale-[0.5] border-l-2 border-rose-500/50';
+                    iconClass = 'text-rose-400';
+                    iconBg = 'bg-rose-400/10';
+                    icon = 'fa-xmark';
+                }
+
+                matchesHtml += `
+                    <div class="${boxClass}">
+                        <div class="tip-icon-box ${iconClass} ${iconBg}">
+                            <i class="fa-solid ${icon}"></i>
+                        </div>
+                        <div class="team-vertical-box">
+                            <div class="flex justify-between items-center mb-1 pr-2">
+                                <span class="text-[11px] text-white/50 font-black truncate uppercase tracking-widest italic max-w-[70%]">${m.lega || 'PRO LEAGUE'}</span>
+                                ${timeBadge}
+                            </div>
+                            <div class="flex justify-between items-center pr-2">
+                                <div class="team-name-row truncate max-w-[85%]">${home}</div>
+                                ${scHome ? `<span class="text-amber-300 font-black text-sm drop-shadow-sm">${scHome}</span>` : ''}
+                            </div>
+                            <div class="flex justify-between items-center pr-2">
+                                 <div class="team-name-row truncate max-w-[85%]">${away}</div>
+                                 ${scAway ? `<span class="text-amber-300 font-black text-sm drop-shadow-sm">${scAway}</span>` : ''}
+                            </div>
+                            <div class="flex items-center gap-2 mt-2">
+                                <span class="tip-label-badge ${outcomeStatus === 'WIN' ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/50' : ''}">${m.tip}</span>
+                                <span class="confidence-label">AI ${m.score || 85}%</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                             <div class="odd-highlight-v5 ${outcomeStatus === 'WIN' ? 'text-emerald-300 text-lg' : ''}">@${m.quota}</div>
+                             <button data-match-id="${matchId}" onclick="toggleFlag('${matchId}'); event.stopPropagation();" class="hover:scale-110 transition-transform p-1">
+                                <i class="${starClass} fa-star text-lg drop-shadow-sm"></i>
+                             </button>
+                        </div>
+                    </div>
+                `;
+            });
+            matchesHtml += '</div>';
+
+            card.innerHTML = headerHtml + matchesHtml;
+            containerWrapper.appendChild(card);
+        });
+
+    } catch (error) {
+        console.error('[Tips] Error loading parlays from Firebase:', error);
+        containerWrapper.innerHTML = '<div class="text-center text-red-400 py-8"><i class="fa-solid fa-exclamation-circle text-2xl mb-2"></i><p class="text-sm">Errore caricamento consigli</p></div>';
+    }
 };
 
 window.loadTradingPicks = function (date) {
@@ -1496,6 +1457,27 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
+// INITIALIZE INTERNAL FILTERS (Europa / Mondo chips)
+function initInternalFilters() {
+    document.querySelectorAll('.filter-chip').forEach(btn => {
+        btn.onclick = (e) => {
+            const filter = e.target.dataset.filter;
+            currentSubFilter = filter;
+
+            // UI Toggle
+            e.target.parentElement.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+            e.target.classList.add('active');
+
+            // Re-render using the current strategy as base
+            const baseStrat = window.strategiesData[currentStrategyId] || window.strategiesData['all'];
+            window.showRanking(currentStrategyId, baseStrat);
+        };
+    });
+}
+document.addEventListener('DOMContentLoaded', initInternalFilters);
+// Also call it immediately just in case
+initInternalFilters();
+
 // Event Listeners for Strategy & Ranking Pages
 const backToStrategiesBtn = document.getElementById('back-to-strategies');
 if (backToStrategiesBtn) {
@@ -1644,7 +1626,7 @@ async function loadData(dateToLoad = null) {
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 const rawStrategies = data.strategies || data;
-                const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'over_2_5_ai', 'top_del_giorno'];
+                const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'magia_ai', 'over_2_5_ai', 'top_del_giorno'];
 
                 window.strategiesData = {};
                 // SANITIZATION: Fix corrupt data (status missing) from backend
@@ -1658,10 +1640,16 @@ async function loadData(dateToLoad = null) {
                 };
 
                 Object.entries(rawStrategies).forEach(([id, strat]) => {
-                    if (strat && strat.name && (approved.includes(id) || id.includes('magia') || (strat.method === 'poisson'))) {
+                    // Loosen check: Allow magia strategies even if .name is missing (will use ID as name)
+                    const isMagiaStrat = id.includes('magia');
+                    if (strat && (strat.name || isMagiaStrat) && (approved.includes(id) || isMagiaStrat || strat.method === 'poisson')) {
+                        if (!strat.name) strat.name = "Magia AI";
                         // Apply sanitization
                         if (strat.matches && Array.isArray(strat.matches)) {
-                            strat.matches.forEach(sanitizeMatch);
+                            strat.matches.forEach(m => {
+                                sanitizeMatch(m);
+                                m.stratId = id; // New: link match to its source strategy
+                            });
                         }
                         window.strategiesData[id] = strat;
                     }
@@ -1876,29 +1864,28 @@ function renderStrategies() {
     const oldScroll = window.scrollY;
     const oldHeight = container.offsetHeight;
 
-    // Step 1: Hide container (prevents flash)
     container.style.visibility = 'hidden';
     if (oldHeight > 0) container.style.minHeight = `${oldHeight}px`;
 
-    // Step 2: Build new content
-    const allStrats = Object.entries(window.strategiesData).sort((a, b) => {
-        const isA_AI = a[0].includes('magia') || a[0].includes('ai');
-        const isB_AI = b[0].includes('magia') || b[0].includes('ai');
-        if (isA_AI && !isB_AI) return -1;
-        if (!isA_AI && isB_AI) return 1;
-        return 0;
-    });
+    // AGGREGATE DATA (Unified to catch all AI stats)
+    const unifiedMatches = getUnifiedMatches();
+    const topLiveStrat = window.strategiesData['top_del_giorno'];
+
+    // Counts
+    const countTopLive = topLiveStrat?.matches?.length || 0;
+    const countEuropa = unifiedMatches.filter(m => (m.lega || '').startsWith('EU-')).length;
+    const countMondo = unifiedMatches.filter(m => (m.lega || '') !== '' && !(m.lega || '').startsWith('EU-')).length;
 
     const children = [];
-    allStrats.forEach(([id, strat]) => {
-        if (id !== 'top_del_giorno') {
-            children.push(createStrategyBtn(id, strat));
-        }
-    });
 
-    if (typeof createTopDelGiornoBox === 'function') {
-        children.push(createTopDelGiornoBox());
-    }
+    // 1. TOP LIVE (Existing logic for LIVE badge)
+    children.push(createBigBucketBox('top_live', '🏆 Top Live', countTopLive, 'bg-gradient-to-br from-emerald-500 to-teal-600', '🏆', true));
+
+    // 2. EUROPA (Blue Premium)
+    children.push(createBigBucketBox('europa', '🇪🇺 Europa', countEuropa, 'bg-gradient-to-br from-indigo-600 to-blue-700', '🌍'));
+
+    // 3. RESTO DEL MONDO (Dark Premium)
+    children.push(createBigBucketBox('mondo', '🌎 Mondo', countMondo, 'bg-gradient-to-br from-slate-700 to-slate-900', '🌎'));
 
     // Step 3: Swap DOM
     container.replaceChildren(...children);
@@ -1906,11 +1893,72 @@ function renderStrategies() {
     // Step 4: Restore scroll BEFORE making visible
     if (oldScroll > 0) window.scrollTo({ top: oldScroll, behavior: 'instant' });
 
-    // Step 5: Make visible again (single paint, no flash)
+    // Step 5: Make visible again
     requestAnimationFrame(() => {
         container.style.visibility = '';
         container.style.minHeight = '';
     });
+}
+
+function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false) {
+    const div = document.createElement('div');
+    // LONG RECTANGULAR LAYOUT: Reduced padding-y (p-4 instead of p-6) and changed border radius
+    div.className = `${gradient} text-white rounded-2xl p-5 shadow-lg w-full text-left relative overflow-hidden transition-all active:scale-[0.98] cursor-pointer border border-white/20 mb-1 flex items-center justify-between group`;
+
+    let liveBadge = '';
+    if (isTopLive) {
+        const liveHubMap = window.liveScoresHub || {};
+        const LIVE_STATUSES = ['1H', '2H', 'HT', 'LIVE', 'ET', 'P'];
+        const topMatches = window.strategiesData?.['top_del_giorno']?.matches || [];
+        const hasLive = topMatches.some(am => {
+            const hubMatch = liveHubMap[am.id] || Object.values(liveHubMap).find(h => h.matchName === am.partita || h.fixtureId === am.fixtureId);
+            return hubMatch && LIVE_STATUSES.includes((hubMatch.status || '').toUpperCase());
+        });
+
+        if (hasLive) {
+            liveBadge = `
+                <div class="flex items-center gap-1.5 bg-white/20 px-2 py-0.5 rounded-full backdrop-blur-md border border-white/30 ml-2">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                    </span>
+                    <span class="text-[9px] font-black uppercase tracking-tighter">LIVE NOW</span>
+                </div>`;
+        }
+    }
+
+    div.innerHTML = `
+        <div class="relative z-10 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-3xl shadow-inner border border-white/10 group-hover:scale-110 transition-transform duration-300">
+                ${icon}
+            </div>
+            <div class="flex flex-col">
+                <div class="flex items-center">
+                    <span class="text-xl font-black text-white leading-tight uppercase tracking-tight">${title}</span>
+                    ${liveBadge}
+                </div>
+                <span class="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mt-0.5">${count} Partite Disponibili</span>
+            </div>
+        </div>
+        
+        <!-- Subtle Right Arrow -->
+        <div class="relative z-10 opacity-40 group-hover:translate-x-1 transition-transform duration-300">
+            <i class="fa-solid fa-chevron-right text-xl"></i>
+        </div>
+
+        <!-- Decorative background icon -->
+        <div class="absolute right-[-10px] bottom-[-10px] text-7xl opacity-5 rotate-12 group-hover:rotate-0 transition-transform duration-500">${icon}</div>
+    `;
+
+    div.onclick = () => {
+        if (id === 'top_live') {
+            window.showRanking('top_del_giorno', window.strategiesData['top_del_giorno']);
+        } else {
+            window.showRanking(id, window.strategiesData['all']);
+        }
+    };
+
+    return div;
 }
 
 
@@ -1981,37 +2029,85 @@ function createTopDelGiornoBox() {
 
 
 window.showRanking = function (stratId, strat, sortMode = 'score') {
+    if (!stratId) return;
+
+    // If strat is missing, try to recover from global data
+    if (!strat) strat = window.strategiesData[stratId] || window.strategiesData['all'];
+    if (!strat) return;
+
+    // If switching strategy, reset sub-filter to 'all'
+    if (currentStrategyId !== stratId) {
+        currentSubFilter = 'all';
+        document.querySelectorAll('.filter-chip').forEach(c => {
+            c.classList.toggle('active', c.dataset.filter === 'all');
+        });
+    }
+
     currentStrategyId = stratId;
     window.showPage('ranking');
     const container = document.getElementById('matches-container');
     if (!container) return;
-    document.getElementById('strategy-title').textContent = strat.name;
 
-    // ANTI-FLICKER: Skip render if data hasn't changed
-    const dataHash = getDataHash(strat.matches) + getDataHash(window.liveScoresHub);
+    // --- INTERNAL FILTERS UI LOGIC ---
+    const filterBar = document.getElementById('internal-filter-bar');
+    const europaFilters = document.getElementById('filters-europa');
+    const mondoFilters = document.getElementById('filters-mondo');
+    const titleNode = document.getElementById('strategy-title');
+
+    if (filterBar) {
+        if (stratId === 'europa' || stratId === 'mondo') {
+            filterBar.classList.remove('hidden');
+            europaFilters.classList.toggle('hidden', stratId !== 'europa');
+            mondoFilters.classList.toggle('hidden', stratId !== 'mondo');
+
+            if (stratId === 'europa') titleNode.textContent = '🇪🇺 Europa & AI';
+            else titleNode.textContent = '🌎 Resto del Mondo';
+        } else {
+            filterBar.classList.add('hidden');
+            titleNode.textContent = strat.name || 'Strategia';
+        }
+    }
+
+    // BASE FILTERING (Europa vs Mondo) - Use Unified Data for Buckets
+    let filtered = [];
+    if (stratId === 'europa' || stratId === 'mondo') {
+        filtered = getUnifiedMatches();
+    } else {
+        filtered = [...(strat.matches || [])];
+    }
+
+    if (stratId === 'europa') {
+        filtered = filtered.filter(m => (m.lega || '').startsWith('EU-'));
+    } else if (stratId === 'mondo') {
+        filtered = filtered.filter(m => (m.lega || '') !== '' && !(m.lega || '').startsWith('EU-'));
+    }
+
+    // SUB-FILTERING (Italiane, Coppe, AI, etc.)
+    filtered = applyInternalFiltering(filtered, currentSubFilter);
+
+    // ANTI-FLICKER
+    const dataHash = getDataHash(filtered) + getDataHash(window.liveScoresHub) + currentSubFilter;
     if (_lastRenderCache.rankingHash === dataHash) {
-        console.log('[Ranking Render] ⏭️ SKIPPED (data unchanged)');
         return;
     }
     _lastRenderCache.rankingHash = dataHash;
 
-    // INVISIBLE UPDATE PROTOCOL
     const oldScroll = window.scrollY;
+    // ...
     const oldHeight = container.offsetHeight;
     container.style.visibility = 'hidden';
     if (oldHeight > 0) container.style.minHeight = `${oldHeight}px`;
 
-    if (!strat.matches || strat.matches.length === 0) {
+    if (filtered.length === 0) {
         container.replaceChildren();
         const msg = document.createElement('div');
         msg.className = 'text-center py-10 text-gray-400';
-        msg.textContent = 'Nessuna partita.';
+        msg.textContent = 'Nessuna partita per questo filtro.';
         container.appendChild(msg);
     } else {
-        const filtered = strat.matches.filter(m => !isMatchStale(m));
-        const sorted = [...filtered].sort((a, b) => (a.ora || '').localeCompare(b.ora || ''));
-        const cards = sorted.map((m, idx) => window.createUniversalCard(m, idx, stratId));
-        container.replaceChildren(...cards);
+        const sorted = [...filtered].sort((a, b) => (a.ora || '').localeCompare(b.ora || '')); // Fixed sort by time
+        const children = sorted.map((m, idx) => createUniversalCard(m, idx, stratId));
+        container.replaceChildren(...children);
     }
 
     // Restore scroll BEFORE making visible
@@ -3479,3 +3575,80 @@ window.populateAccountPage = async function () {
     window.accountListenersInitialized = true;
 };
 
+
+// HELPER: APPLY INTERNAL FILTERING (Geo-specific chips)
+function applyInternalFiltering(matches, filter) {
+    if (!filter || filter === 'all') return matches;
+
+    if (filter === 'italiane') {
+        return matches.filter(m => (m.lega || '').startsWith('EU-ITA'));
+    }
+
+    if (filter === 'coppe') {
+        const coppeKeywords = ['Champions League', 'Europa League', 'Conference League', 'UCL', 'UEL', 'Conference'];
+        return matches.filter(m => {
+            const l = (m.lega || '').toLowerCase();
+            return coppeKeywords.some(kw => l.includes(kw.toLowerCase()));
+        });
+    }
+
+    if (filter === 'principali') {
+        // Premier, Liga, Bundesliga, Ligue 1, Eredivisie, Super League Swiss
+        const topLeagues = ['Premier League', 'La Liga', 'Bundesliga', 'Ligue 1', 'Eredivisie', 'Super League'];
+        return matches.filter(m => {
+            const l = (m.lega || '').toLowerCase();
+            return topLeagues.some(tl => l.includes(tl.toLowerCase()));
+        });
+    }
+
+    if (filter === 'ai') {
+        // AI Choices (Special AI + Magia AI) - Precise flags from getUnifiedMatches
+        return matches.filter(m => m.isSpecialAI || m.isMagiaAI);
+    }
+
+    return matches;
+}
+
+// HELPER: GET UNIFIED MATCHES (Merge all strategies to preserve AI metadata)
+function getUnifiedMatches() {
+    if (!window.strategiesData) return [];
+
+    const masterMap = new Map();
+    const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'magia_ai', 'over_2_5_ai', 'top_del_giorno'];
+
+    Object.entries(window.strategiesData).forEach(([id, strat]) => {
+        if (!strat || !strat.matches) return;
+
+        // Match relevant strategies
+        const isApproved = approved.includes(id) || id.includes('magia');
+        if (!isApproved) return;
+
+        strat.matches.forEach(m => {
+            const nName = (m.partita || '').toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
+            const mId = m.id || `${m.data || 'today'}_${nName}`;
+
+            if (!masterMap.has(mId)) {
+                // Fuzzy check: maybe we already have this match with a different ID
+                const existingKey = Array.from(masterMap.keys()).find(k => k.includes(nName));
+                if (existingKey) {
+                    const existing = masterMap.get(existingKey);
+                    if (id === 'magia_ai') { existing.isMagiaAI = true; if (m.tip) existing.tip = m.tip; }
+                    if (id === '___magia_ai') { existing.isSpecialAI = true; if (m.tip) existing.tip = m.tip; }
+                    return;
+                }
+                masterMap.set(mId, { ...m });
+            }
+
+            const entry = masterMap.get(mId);
+            if (id === 'magia_ai') { entry.isMagiaAI = true; if (m.tip) entry.tip = m.tip; }
+            if (id === '___magia_ai') { entry.isSpecialAI = true; if (m.tip) entry.tip = m.tip; }
+
+            // Sync metadata
+            if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+            if (m.confidence) entry.confidence = m.confidence;
+            if (m.score) entry.score = m.score;
+        });
+    });
+
+    return Array.from(masterMap.values());
+}

@@ -861,89 +861,187 @@ function createUnder35TradingStrategy(match) {
 }
 
 // Funzione principale: Trasforma partita in strategia trading
+// TRADING 3.0: Puro calcolo statistico, INDIPENDENTE dal tip originale
 function transformToTradingStrategy(match, allMatches) {
-    // 1. Dati base e normalizzazione resiliente
-    // Handles: "over 2.5", "o 2.5", "+2.5", "over2.5", "+ 2.5", "o2.5"
-    const rawTip = (match.tip || "").toLowerCase().replace(/\s+/g, ' ').trim();
-    const quota = match.quota;
-    const prob = match.probabilita;
+    const prob = match.probabilita || 0;
     const htProb = extractHTProb(match.info_ht);
     const magicData = match.magicStats;
+    const score = match.score || 0;
 
-    // DETECT INTENT (Regex Based) - Supports dot and comma (2.5 / 2,5)
-    const isOver25Tip = /over\s*2[.,]5/.test(rawTip) || /\+\s*2[.,]5/.test(rawTip) || /^o\s*2[.,]5/.test(rawTip) || rawTip.includes('o2.5') || rawTip.includes('o2,5');
-    const isUnder35Tip = /under\s*3[.,]5/.test(rawTip) || /\-\s*3[.,]5/.test(rawTip) || /^u\s*3[.,]5/.test(rawTip) || rawTip.includes('u3.5') || rawTip.includes('u3,5');
-    const isOver15Tip = /over\s*1[.,]5/.test(rawTip) || /\+\s*1[.,]5/.test(rawTip);
+    // ════════════════════════════════════════════════════════════════
+    // TRADING 3.0: Calcola TUTTE le strategie e scegli la migliore
+    // Basato SOLO su Monte Carlo + Storico (ignora tip originale)
+    // ════════════════════════════════════════════════════════════════
 
-    // --- PRIORITY 1: STRICT TIP MATCHING ---
+    const strategies = [];
 
-    // CASO BACK OVER 2.5 (Priorità assoluta se il tip è Over 2.5)
-    if (isOver25Tip) {
-        console.log(`[DEBUG Over 2.5] ${match.partita} | Prob: ${prob}, Score: ${match.score}, MagicOver25: ${magicData?.over25Prob || 'N/A'}, HT: ${htProb}`);
-
-        // Criteri morbidi perché l'intento è già dichiarato dal tipster
-        if (prob >= 60 || (magicData && magicData.over25Prob >= 60) || match.score >= 60) {
-            console.log(`[DEBUG Over 2.5] ✅ ACCEPTED as BACK_OVER_25`);
-            return createBackOver25Strategy(match, htProb, allMatches);
-        }
-        // Fallback: Se prob < 60 ma è un Over 2.5, proviamo Second Half Surge
-        if (match.score >= 55) {
-            console.log(`[DEBUG Over 2.5] ✅ ACCEPTED as SURGE (fallback)`);
-            return createSecondHalfSurgeStrategy(match, allMatches);
-        }
-
-        // BUGFIX CRITICO: NON bloccare le Over 2.5 deboli!
-        // Lascia che provino HT Sniper o LTD invece di scartarle
-        console.log(`[DEBUG Over 2.5] ⚠️ WEAK Over 2.5 - Trying other strategies (HT Sniper/LTD)...`);
-        // REMOVED: if (htProb < 85) return null; <-- QUESTO STAVA BUTTANDO VIA LE OVER 2.5!
-    }
-
-    // CASO OVER 1.5 VALUE (diventa BO25 se strong)
-    if (isOver15Tip) {
-        if (quota <= 1.35 && prob >= 70) {
-            return createBackOver25Strategy(match, htProb, allMatches);
+    // ─── STRATEGIA 1: BACK OVER 2.5 ───
+    // Basato su: Monte Carlo over25Prob + score AI
+    const over25Prob = magicData?.over25Prob || 0;
+    if (over25Prob >= 50 || score >= 65) {
+        const confidence = Math.round((over25Prob * 0.6) + (score * 0.4));
+        if (confidence >= 55) {
+            strategies.push({
+                type: 'BACK_OVER_25',
+                confidence: Math.min(95, confidence),
+                data: { over25Prob, score },
+                create: () => createBackOver25Strategy(match, htProb, allMatches)
+            });
         }
     }
 
-    // CASO UNDER 3.5 SCALPING
-    if (isUnder35Tip) {
-        if (prob >= 65) return createUnder35TradingStrategy(match);
+    // ─── STRATEGIA 2: HT SNIPER (Gol 1° Tempo) ───
+    // Basato su: HT probability da BetMines + magicData htGoalProb
+    const htGoalProb = magicData?.htGoalProb || htProb;
+    if (htProb >= 65 || htGoalProb >= 60) {
+        const confidence = Math.round(Math.max(htProb, htGoalProb));
+        strategies.push({
+            type: 'HT_SNIPER',
+            confidence: Math.min(95, confidence),
+            data: { htProb, htGoalProb },
+            create: () => createHTSniperStrategy(match, htProb)
+        });
     }
 
-    // --- PRIORITY 2: STATISTICAL OPPORTUNITIES (Se il tip è neutro o diverso) ---
-
-    // CASO HT SNIPER: Molto probabile gol nel primo tempo
-    // Alziamo la soglia per evitare che mangi tutto (cannibalizzazione)
-    // Richiede stats da Sniper VERO (80%+) o Magia AI conferma
-    if (htProb >= 80 || (magicData && magicData.htGoalProb >= 75)) {
-        return createHTSniperStrategy(match, htProb);
-    }
-
-    // CASO 2ND HALF SURGE (Puro statistico)
-    if (prob >= 65 && prob < 80 && match.score >= 65) {
-        return createSecondHalfSurgeStrategy(match, allMatches);
-    }
-
-    // CASO 3 (HYBRID): LAY THE DRAW
+    // ─── STRATEGIA 3: LAY THE DRAW ───
+    // Basato su: Monte Carlo drawProb + storico pareggi squadre
     const teams = match.partita.split(' - ');
     if (teams.length === 2) {
         const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
         const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
-        const avgRate = (homeDrawRate.rate + awayDrawRate.rate) / 2;
+        const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
+        const mcDrawProb = magicData?.drawProb || 30;
 
-        // Trigger 1: Magia AI Elite
-        const aiLowDraw = magicData && magicData.drawProb < 20;
-        // Trigger 2: Storico Solido
-        const histLowDraw = avgRate < 25 && prob >= 70;
-
-        if (aiLowDraw || histLowDraw) {
-            const convergent = aiLowDraw && histLowDraw;
-            return createLayTheDrawStrategy(match, avgRate, homeDrawRate, awayDrawRate, convergent);
+        // LTD è buono quando Draw prob è BASSA
+        // Quindi confidence = 100 - drawProb
+        if (mcDrawProb < 28 || avgHistDraw < 28) {
+            const confidence = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3)));
+            strategies.push({
+                type: 'LAY_THE_DRAW',
+                confidence: Math.min(95, confidence),
+                data: { mcDrawProb, avgHistDraw, homeDrawRate, awayDrawRate },
+                create: () => createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 22 && avgHistDraw < 25)
+            });
         }
     }
 
+    // ─── STRATEGIA 4: SECOND HALF SURGE (O0.5 2T) ───
+    // Basato su: Score alto + probabilità media (partite bloccate 1T)
+    if (score >= 60 && prob >= 55 && prob < 85) {
+        const confidence = Math.round((score * 0.5) + (prob * 0.3) + 20);
+        strategies.push({
+            type: 'SECOND_HALF_SURGE',
+            confidence: Math.min(90, confidence),
+            data: { score, prob },
+            create: () => createSecondHalfSurgeStrategy(match, allMatches)
+        });
+    }
+
+    // ─── STRATEGIA 5: UNDER 3.5 SCALPING ───
+    // Basato su: Monte Carlo under prob (inverse of over25)
+    const under35Prob = 100 - (magicData?.over25Prob || 50) + 15; // +15 per margine U3.5 vs O2.5
+    if (under35Prob >= 65 && score >= 50) {
+        const confidence = Math.round((under35Prob * 0.6) + (score * 0.2) + 15);
+        strategies.push({
+            type: 'UNDER_35_SCALPING',
+            confidence: Math.min(90, confidence),
+            data: { under35Prob, score },
+            create: () => createUnder35TradingStrategy(match)
+        });
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // SELEZIONE: Scegli la strategia con CONFIDENCE più alta
+    // ════════════════════════════════════════════════════════════════
+
+    if (strategies.length === 0) {
+        console.log(`[Trading 3.0] ❌ ${match.partita}: Nessuna strategia qualificata`);
+        return null;
+    }
+
+    // Ordina per confidence decrescente
+    strategies.sort((a, b) => b.confidence - a.confidence);
+
+    const bestStrategy = strategies[0];
+
+    // Crea e ritorna la strategia vincentear
+    const result = bestStrategy.create();
+    if (result) {
+        result._allPossibleStrategies = strategies.map(s => {
+            const stratObj = s.create();
+            return {
+                type: s.type,
+                confidence: s.confidence,
+                label: stratObj?.badge?.text || stratObj?.tradingInstruction?.action || s.type,
+                reasoning: stratObj?.reasoning || ''
+            };
+        });
+        return result;
+    }
     return null;
 }
+
+/**
+ * NEW: Calculate ALL qualified strategies for a match (not just the best one)
+ */
+function calculateAllTradingStrategies(match, allMatches) {
+    const prob = match.probabilita || 0;
+    const htProb = extractHTProb(match.info_ht);
+    const magicData = match.magicStats;
+    const score = match.score || 0;
+
+    const qualified = [];
+
+    // Check all strategies defined in transformToTradingStrategy
+
+    // 1. BACK OVER 2.5
+    const over25Prob = magicData?.over25Prob || 0;
+    if (over25Prob >= 45 || score >= 60) {
+        const conf = Math.round((over25Prob * 0.6) + (score * 0.4));
+        const s = createBackOver25Strategy(match, htProb, allMatches);
+        if (s) qualified.push({ type: 'BACK_OVER_25', confidence: conf, strategy: s });
+    }
+
+    // 2. HT SNIPER
+    const htGoalProb = magicData?.htGoalProb || htProb;
+    if (htProb >= 60 || htGoalProb >= 55) {
+        const conf = Math.round(Math.max(htProb, htGoalProb));
+        const s = createHTSniperStrategy(match, htProb);
+        if (s) qualified.push({ type: 'HT_SNIPER', confidence: conf, strategy: s });
+    }
+
+    // 3. LAY THE DRAW
+    const teams = match.partita.split(' - ');
+    if (teams.length === 2) {
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
+        const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
+        const mcDrawProb = magicData?.drawProb || 30;
+        if (mcDrawProb < 32 || avgHistDraw < 32) {
+            const conf = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3)));
+            const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 25 && avgHistDraw < 28);
+            if (s) qualified.push({ type: 'LAY_THE_DRAW', confidence: conf, strategy: s });
+        }
+    }
+
+    // 4. SECOND HALF SURGE
+    if (score >= 55 && prob >= 50) {
+        const conf = Math.round((score * 0.5) + (prob * 0.3) + 15);
+        const s = createSecondHalfSurgeStrategy(match, allMatches);
+        if (s) qualified.push({ type: 'SECOND_HALF_SURGE', confidence: conf, strategy: s });
+    }
+
+    // 5. UNDER 3.5 SCALPING
+    const under35Prob = 100 - (magicData?.over25Prob || 50) + 15;
+    if (under35Prob >= 60 && score >= 45) {
+        const conf = Math.round((under35Prob * 0.6) + (score * 0.2) + 10);
+        const s = createUnder35TradingStrategy(match);
+        if (s) qualified.push({ type: 'UNDER_35_SCALPING', confidence: conf, strategy: s });
+    }
+
+    return qualified.sort((a, b) => b.confidence - a.confidence);
+}
+
 
 function generateTradingBadge(match, is05HT = false, team1Stats = null, team2Stats = null) {
     const tip = (match.tip || '').trim().toUpperCase();
@@ -1084,7 +1182,7 @@ function dixonColesCorrection(hg, ag, rho, lambdaHome, lambdaAway) {
  * Runs a TRUE Monte Carlo simulation for a match
  * Returns raw data for density analysis
  */
-function simulateMatch(lambdaHome, lambdaAway, iterations = 5000, seedString = "") {
+function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = "") {
     // Determine seed for reproducible results
     // If no seed provided, utilize Math.random via SeededRandom wrapper or just null to use fallback
     const rng = seedString ? new SeededRandom(seedString) : null;
@@ -1242,7 +1340,7 @@ function generateMagiaAI(matches, allMatchesHistory) {
             const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
                 homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
 
-            sim = simulateMatch(lambdaHome, lambdaAway, 5000, match.partita);
+            sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita);
 
             // =====================================================================
             // HYBRID PROBABILITY REFINEMENT (User Feedback: "Draws are too high")
@@ -1290,46 +1388,151 @@ function generateMagiaAI(matches, allMatchesHistory) {
             { label: 'No Gol', prob: sim.noGol, type: 'GOALS' }
         ].sort((a, b) => b.prob - a.prob);
 
-        const bestSignal = allSignals[0];
+        // ═══════════════════════════════════════════════════════════════════════
+        // MAGIA AI 2.0: SMART SCORE SYSTEM
+        // Considera: Confidence + Value Edge + Quota Playability
+        // ═══════════════════════════════════════════════════════════════════════
 
-        // 1. ELITE CONFIDENCE THRESHOLD
-        // Dynamic threshold based on market type to ensure quality
-        let threshold = 85;
-        if (['DC', 'GOALS'].includes(bestSignal.type)) {
-            // Demanda più certezza per mercati "facili" come Doppia Chance o Over 1.5
-            if (bestSignal.label.includes('1.5') || bestSignal.label.includes('Duplicate')) threshold = 90; // Over 1.5 requires 90%
-            if (bestSignal.type === 'DC') threshold = 88; // DC requires 88%
+        // 1. SOGLIE STRETTE (Aggiornate 6 Gen 2026)
+        // Più conservative per evitare troppi falsi positivi
+        const getThreshold = (signal) => {
+            // Over 1.5 - Soglia alta (mercato "facile")
+            if (signal.label.includes('1.5')) return 85;
+
+            // Double Chance - Soglia media-alta
+            if (signal.type === 'DC') return 82;
+
+            // 1X2 puro - Soglia media
+            if (signal.type === '1X2') return 78;
+
+            // Over 2.5 - Soglia standard
+            if (signal.label === 'Over 2.5') return 75;
+
+            // Under 3.5 - Soglia media
+            if (signal.label === 'Under 3.5') return 78;
+
+            // Gol/No Gol - Soglia più bassa (mercato volatile)
+            if (signal.label === 'Gol' || signal.label === 'No Gol') return 72;
+
+            return 75; // Default
+        };
+
+        // 2. ANALIZZA LE TOP 5 OPZIONI
+        let topCandidates = allSignals.slice(0, 5).filter(s => s.prob >= getThreshold(s));
+
+        // 3. FALLBACK HT: Se nessun candidato sopra soglia, usa Over 0.5 HT se >= 88%
+        const htProb = match.info_ht ? parseInt((match.info_ht.match(/(\d+)%/) || [])[1] || 0) : 0;
+        if (topCandidates.length === 0 && htProb >= 88) {
+            console.log(`[Magia AI] Fallback HT per ${match.partita}: htProb=${htProb}%`);
+            topCandidates = [{
+                label: 'Over 0.5 HT',
+                prob: htProb,
+                type: 'HT_FALLBACK',
+                estimatedOdd: (100 / htProb).toFixed(2)
+            }];
         }
 
-        if (bestSignal.prob < threshold) return;
+        if (topCandidates.length === 0) return; // Nessun candidato (nemmeno HT)
 
-        // 2. VETO LOGIC: If AI says UNDER but DB Tip says OVER (or vice versa), SKIP.
+        // 3. CALCOLA SMART SCORE PER OGNI CANDIDATO
+        const matchQuota = parseFloat(String(match.quota).replace(',', '.')) || 2.0;
+
+        const scoredCandidates = topCandidates.map(signal => {
+            // Stima quota per questo mercato (approssimazione)
+            // La quota reale verrà arricchita da API in admin
+            let estimatedOdd = 100 / signal.prob; // Quota implicita
+
+            // QUOTA BONUS: Premia quote giocabili (range 1.40 - 2.50)
+            let quotaBonus = 0;
+            if (estimatedOdd >= 1.40 && estimatedOdd <= 2.50) {
+                quotaBonus = 20; // Range perfetto
+            } else if (estimatedOdd >= 1.25 && estimatedOdd < 1.40) {
+                quotaBonus = 10; // Accettabile
+            } else if (estimatedOdd > 2.50 && estimatedOdd <= 3.50) {
+                quotaBonus = 5;  // Rischiosa ma giocabile
+            } else if (estimatedOdd < 1.20) {
+                quotaBonus = -30; // PENALITÀ: quota troppo bassa
+            }
+
+            // VALUE EDGE: Quanto siamo "avanti" rispetto alla quota implicita
+            // (Sarà ricalcolato con quote reali in admin)
+            const impliedProb = (1 / estimatedOdd) * 100;
+            const valueEdge = signal.prob - impliedProb;
+
+            // SMART SCORE FORMULA
+            let edgePenalty = 0;
+            if (valueEdge < 0) {
+                edgePenalty = valueEdge * 2; // Penalità doppia per edge negativo
+            }
+
+            const smartScore =
+                (signal.prob * 0.50) +     // 50% peso alla confidence
+                (valueEdge * 0.30) +       // 30% peso al value edge
+                (quotaBonus * 0.20) +      // 20% peso alla giocabilità quota
+                edgePenalty;               // Penalità extra se edge negativo
+
+            return {
+                ...signal,
+                estimatedOdd: estimatedOdd.toFixed(2),
+                impliedProb: impliedProb.toFixed(1),
+                valueEdge: valueEdge.toFixed(1),
+                quotaBonus,
+                smartScore: smartScore.toFixed(1)
+            };
+        });
+
+        // 4. ORDINA PER SMART SCORE (non più per confidence pura!)
+        scoredCandidates.sort((a, b) => parseFloat(b.smartScore) - parseFloat(a.smartScore));
+
+        const bestPick = scoredCandidates[0];
+        const alternativePicks = scoredCandidates.slice(1, 3); // Top 2 alternative
+
+        // 5. FILTRO FINALE: Escludi quote < 1.20 (inutili)
+        if (parseFloat(bestPick.estimatedOdd) < 1.20) {
+            // Prova con la seconda opzione
+            if (alternativePicks.length > 0 && parseFloat(alternativePicks[0].estimatedOdd) >= 1.20) {
+                // Swap: usa alternativa
+                const temp = bestPick;
+                Object.assign(bestPick, alternativePicks[0]);
+                alternativePicks[0] = temp;
+            } else {
+                return; // Nessuna opzione giocabile
+            }
+        }
+
+        // 6. VETO LOGIC: Conflitto Over/Under con DB tip
         const dbTip = (match.tip || '').trim();
-        if (dbTip.startsWith('+') && bestSignal.label.startsWith('Under')) return;
-        if (dbTip.startsWith('-') && bestSignal.label.startsWith('Over')) return;
+        if (dbTip.startsWith('+') && bestPick.label.startsWith('Under')) return;
+        if (dbTip.startsWith('-') && bestPick.label.startsWith('Over')) return;
 
-        // 3. ODDS FLOOR (1.20)
-        const matchQuota = parseFloat(String(match.quota).replace(',', '.'));
-        if (!isNaN(matchQuota) && matchQuota < 1.20) return;
-
-        // 4. STRUCTURE DATA (FLATTENED)
+        // 7. STRUCTURE DATA (CON SMART SCORE)
         magicMatches.push({
             ...match,
             magicStats: {
-                // Headlines
-                exactScore: sim.mostFrequentScore.score,
-                exactScorePerc: sim.mostFrequentScore.percent,
+                // ══ MAGIA AI 2.0 HEADLINES ══
+                tipMagiaAI: bestPick.label,
+                oddMagiaAI: match.quota, // Sarà arricchita con API reale in admin
 
-                // Dedicated Magia AI Fields (Source of Truth for this strategy)
-                tipMagiaAI: bestSignal.label,
-                oddMagiaAI: match.quota, // Default to CSV odd, will be enriched in admin if API is available
+                // SMART SCORE DATA
+                confidence: bestPick.prob,
+                smartScore: parseFloat(bestPick.smartScore),
+                estimatedOdd: bestPick.estimatedOdd,
+                valueEdge: parseFloat(bestPick.valueEdge),
+                quotaBonus: bestPick.quotaBonus,
 
-                // Top Signals (The Professional Scanner view) - PURE STATISTICAL TOP 3
+                // ALTERNATIVE PICKS (per admin review)
+                alternativePicks: alternativePicks.map(p => ({
+                    label: p.label,
+                    prob: p.prob,
+                    smartScore: p.smartScore,
+                    estimatedOdd: p.estimatedOdd
+                })),
+
+                // Top 3 Signals (vista scanner pro)
                 topSignals: allSignals.slice(0, 3),
-                aiSignal: bestSignal.label,
-                confidence: bestSignal.prob,
+                aiSignal: bestPick.label,
 
-                // Flattened Probabilities
+                // Flattened Probabilities (per arricchimento API)
                 winHomeProb: sim.winHome,
                 drawProb: sim.draw,
                 winAwayProb: sim.winAway,
@@ -1343,10 +1546,12 @@ function generateMagiaAI(matches, allMatchesHistory) {
                 dc12Prob: sim.dc12,
 
                 // Metadata
+                exactScore: sim.mostFrequentScore.score,
+                exactScorePerc: sim.mostFrequentScore.percent,
                 safetyLevel: calculateSafetyLevel(sim),
                 topScores: sim.exactScores.filter(s => s.percent >= 12).slice(0, 3)
             },
-            score: bestSignal.prob // Sorting
+            score: parseFloat(bestPick.smartScore) // Sorting by SMART SCORE
         });
     });
 
@@ -1382,7 +1587,7 @@ function getMagiaStats(match, allMatchesHistory) {
     const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
         homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
 
-    const sim = simulateMatch(lambdaHome, lambdaAway, 5000, match.partita);
+    const sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita);
 
     // Hybrid refinement (Draw Penalty)
     const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
@@ -1431,5 +1636,14 @@ window.engine = {
     checkLiquidity,
     simulateMatch,
     getMagiaStats,
-    generateMagiaAI
+    generateMagiaAI,
+    // Trading Strategy Functions
+    transformToTradingStrategy,
+    createBackOver25Strategy,
+    createHTSniperStrategy,
+    createLayTheDrawStrategy,
+    createSecondHalfSurgeStrategy,
+    createUnder35TradingStrategy,
+    extractHTProb,
+    analyzeDrawRate
 };
