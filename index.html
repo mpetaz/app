@@ -144,7 +144,7 @@
 
             <h2 class="text-2xl font-black mb-6 text-center text-white tracking-tight">📊 Seleziona una Strategia
             </h2>
-            <div id="strategies-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div id="strategies-grid" class="flex flex-col gap-4">
                 <!-- Populated dynamically -->
             </div>
         </div>
@@ -158,7 +158,23 @@
                 <h2 id="strategy-title" class="text-xl font-bold">-</h2>
             </div>
 
-            <!-- Sorting Forced to Time (Hidden UI) -->
+            <!-- Resilient Internal Filter Bar (Sticky) -->
+            <div id="internal-filter-bar"
+                class="hidden sticky top-[72px] z-30 -mx-4 px-4 py-3 mb-4 overflow-x-auto no-scrollbar flex items-center gap-2 bg-indigo-900/80 backdrop-blur-xl border-b border-white/10 shadow-lg">
+                <!-- Europa Filters -->
+                <div id="filters-europa" class="hidden flex gap-2">
+                    <button class="filter-chip active" data-filter="all">Tutto</button>
+                    <button class="filter-chip" data-filter="italiane">🇮🇹 ITA</button>
+                    <button class="filter-chip" data-filter="coppe">🏆 Coppe</button>
+                    <button class="filter-chip" data-filter="principali">🌍 Top</button>
+                    <button class="filter-chip" data-filter="ai">✨ AI Pick</button>
+                </div>
+                <!-- Mondo Filters -->
+                <div id="filters-mondo" class="hidden flex gap-2">
+                    <button class="filter-chip active" data-filter="all">Tutto</button>
+                    <button class="filter-chip" data-filter="ai">✨ AI Pick</button>
+                </div>
+            </div>
 
             <div id="matches-container" class="space-y-4">
                 <!-- Populated dynamically -->
