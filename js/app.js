@@ -2097,10 +2097,12 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
     const titleNode = document.getElementById('strategy-title');
 
     if (filterBar) {
+        const italiaFilters = document.getElementById('filters-italia');
         if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia') {
             filterBar.classList.remove('hidden');
-            europaFilters.classList.toggle('hidden', stratId !== 'europa' && stratId !== 'italia');
-            mondoFilters.classList.toggle('hidden', stratId !== 'mondo');
+            if (europaFilters) europaFilters.classList.toggle('hidden', stratId !== 'europa');
+            if (italiaFilters) italiaFilters.classList.toggle('hidden', stratId !== 'italia');
+            if (mondoFilters) mondoFilters.classList.toggle('hidden', stratId !== 'mondo');
 
             if (stratId === 'europa') titleNode.textContent = '🇪🇺 Europa & AI';
             else if (stratId === 'italia') titleNode.textContent = '🇮🇹 Calcio Italiano';
