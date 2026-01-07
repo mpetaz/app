@@ -677,7 +677,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 pb-4">
                 <!-- Magia AI Main Tip (Blue Pill) -->
                 <div class="bg-gradient-to-r from-indigo-500 to-blue-600 rounded-xl p-3 text-center shadow-lg shadow-indigo-200/50 mb-3 relative overflow-hidden group">
-                     <div class="absolute top-0 right-0 bg-purple-500 text-[8px] font-black px-1 rounded-bl text-white">MAGIA AI</div>
+                     <div class="absolute top-0 right-0 bg-purple-600 text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-bl shadow-lg text-white ring-1 ring-white/20">MAGIA AI</div>
                      <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
                      <span class="text-[11px] font-bold text-indigo-100 uppercase tracking-widest mb-0.5 block">PREVISIONE IA</span>
                      <div class="flex justify-center items-center gap-2">
@@ -734,7 +734,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <div class="px-4 pb-4 flex flex-col items-center gap-3">
                 <!-- Standard Main Tip (Blue Pill) -->
                 <div class="w-full bg-blue-600 text-white rounded-xl py-2 px-3 text-center shadow-md shadow-blue-200 relative overflow-hidden">
-                     ${isAIPick ? `<div class="absolute top-0 right-0 bg-purple-500 text-[8px] font-black px-1 rounded-bl text-white">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
+                     ${isAIPick ? `<div class="absolute top-0 right-0 bg-purple-600 text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-bl shadow-lg text-white ring-1 ring-white/20">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
                      <span class="text-xs uppercase font-bold text-blue-200 block mb-0.5">CONSIGLIO</span>
                      <span class="text-lg font-black tracking-wide">${match.tip}</span>
                      ${match.quota ? `<span class="ml-2 bg-blue-500/50 px-1.5 rounded text-sm font-bold">@ ${match.quota}</span>` : ''}
@@ -1874,19 +1874,26 @@ function renderStrategies() {
 
     // Counts
     const countTopLive = topLiveStrat?.matches?.length || 0;
-    const countEuropa = unifiedMatches.filter(m => (m.lega || '').startsWith('EU-')).length;
+    const countItalia = unifiedMatches.filter(m => (m.lega || '').startsWith('EU-ITA')).length;
+    const countEuropa = unifiedMatches.filter(m => {
+        const l = m.lega || '';
+        return l.startsWith('EU-') && !l.startsWith('EU-ITA');
+    }).length;
     const countMondo = unifiedMatches.filter(m => (m.lega || '') !== '' && !(m.lega || '').startsWith('EU-')).length;
 
     const children = [];
 
-    // 1. TOP LIVE (Existing logic for LIVE badge)
-    children.push(createBigBucketBox('top_live', '🏆 Top Live', countTopLive, 'bg-gradient-to-br from-emerald-500 to-teal-600', '🏆', true));
+    // 1. TOP LIVE (Emerald/Teal)
+    children.push(createBigBucketBox('top_live', '🚀 Live Now', countTopLive, 'bg-gradient-to-br from-emerald-500 to-teal-600', '📡', true));
 
-    // 2. EUROPA (Blue Premium)
-    children.push(createBigBucketBox('europa', '🇪🇺 Europa', countEuropa, 'bg-gradient-to-br from-indigo-600 to-blue-700', '🌍'));
+    // 2. ITALIA (Azzurro Premium)
+    children.push(createBigBucketBox('italia', '🇮🇹 Italia', countItalia, 'bg-gradient-to-br from-blue-600 to-indigo-800', '🇮🇹'));
 
-    // 3. RESTO DEL MONDO (Dark Premium)
-    children.push(createBigBucketBox('mondo', '🌎 Mondo', countMondo, 'bg-gradient-to-br from-slate-700 to-slate-900', '🌎'));
+    // 3. EUROPA (Blue Premium)
+    children.push(createBigBucketBox('europa', '🇪🇺 Europa', countEuropa, 'bg-gradient-to-br from-blue-800 to-indigo-950', '🇪🇺'));
+
+    // 4. RESTO DEL MONDO (Yellow/Amber)
+    children.push(createBigBucketBox('mondo', '🌎 Mondo', countMondo, 'bg-gradient-to-br from-amber-400 to-orange-600', '🌎'));
 
     // Step 3: Swap DOM
     container.replaceChildren(...children);
@@ -1927,28 +1934,62 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
                 </div>`;
         }
     }
+    let extraDecoration = '';
+    let bgImage = '';
+
+    // ASSET PATHS (Updated with generated premium visuals)
+    const ASSETS = {
+        italia: 'file:///Users/Moreno/.gemini/antigravity/brain/e4ffc347-6feb-4a27-bae7-e7e42f22a605/flag_italy_waving_premium_1767780794628.png',
+        europa: 'file:///Users/Moreno/.gemini/antigravity/brain/e4ffc347-6feb-4a27-bae7-e7e42f22a605/flag_europe_waving_premium_1767780812418.png',
+        mondo: 'file:///Users/Moreno/.gemini/antigravity/brain/e4ffc347-6feb-4a27-bae7-e7e42f22a605/globe_football_gold_premium_1767780831124.png'
+    };
+
+    if (id === 'italia') {
+        bgImage = ASSETS.italia;
+        extraDecoration = `<div class="absolute top-0 left-0 w-full h-[4px] flex z-20 shadow-sm">
+            <div class="h-full w-1/3 bg-[#009246]"></div>
+            <div class="h-full w-1/3 bg-white"></div>
+            <div class="h-full w-1/3 bg-[#ce2b37]"></div>
+        </div>`;
+    } else if (id === 'europa') {
+        bgImage = ASSETS.europa;
+        extraDecoration = `<div class="absolute inset-0 z-0 opacity-20 mix-blend-overlay pointer-events-none animate-pulse-slow" style="background-image: radial-gradient(circle, #ffcc00 1.5px, transparent 1.5px); background-size: 30px 30px;"></div>`;
+    } else if (id === 'mondo') {
+        bgImage = ASSETS.mondo;
+    }
+
+    const bgLayer = bgImage ? `<div class="absolute inset-0 z-0 bg-cover bg-center opacity-60 mix-blend-luminosity scale-110 group-hover:scale-100 transition-transform duration-700" style="background-image: url('${bgImage}')"></div>` : '';
+    const overlayLayer = `<div class="absolute inset-0 z-10 bg-gradient-to-t from-black/60 via-transparent to-black/20 group-hover:from-black/40 transition-all duration-500"></div>`;
 
     div.innerHTML = `
-        <div class="relative z-10 flex items-center gap-4">
-            <div class="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-3xl shadow-inner border border-white/10 group-hover:scale-110 transition-transform duration-300">
-                ${icon}
-            </div>
-            <div class="flex flex-col">
-                <div class="flex items-center">
-                    <span class="text-xl font-black text-white leading-tight uppercase tracking-tight">${title}</span>
-                    ${liveBadge}
-                </div>
-                <span class="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mt-0.5">${count} Partite Disponibili</span>
-            </div>
-        </div>
+        ${bgLayer}
+        ${overlayLayer}
+        ${extraDecoration}
         
-        <!-- Subtle Right Arrow -->
-        <div class="relative z-10 opacity-40 group-hover:translate-x-1 transition-transform duration-300">
-            <i class="fa-solid fa-chevron-right text-xl"></i>
+        <div class="relative z-20 flex items-center justify-between w-full">
+            <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-4xl shadow-[inset_0_0_15px_rgba(255,255,255,0.2)] border border-white/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 backdrop-blur-md">
+                    ${icon}
+                </div>
+                <div class="flex flex-col">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl font-black text-white leading-tight uppercase tracking-tight drop-shadow-lg">${title}</span>
+                        ${liveBadge}
+                    </div>
+                    <span class="text-[11px] text-white/80 font-bold uppercase tracking-[0.2em] mt-1 drop-shadow-md">
+                        <span class="inline-block w-2 h-2 rounded-full bg-white/50 mr-1 animate-pulse"></span>
+                        ${count} Partite Disponibili
+                    </span>
+                </div>
+            </div>
+            
+            <div class="opacity-80 group-hover:opacity-100 group-hover:translate-x-2 transition-all duration-500">
+                <i class="fa-solid fa-chevron-right text-2xl drop-shadow-lg"></i>
+            </div>
         </div>
 
-        <!-- Decorative background icon -->
-        <div class="absolute right-[-10px] bottom-[-10px] text-7xl opacity-5 rotate-12 group-hover:rotate-0 transition-transform duration-500">${icon}</div>
+        <!-- Hero background icon -->
+        <div class="absolute right-[-20px] bottom-[-20px] text-9xl opacity-20 blur-[2px] transition-all duration-700 group-hover:opacity-30 group-hover:scale-110 group-hover:rotate-0 rotate-12 pointer-events-none z-0">${icon}</div>
     `;
 
     div.onclick = () => {
@@ -2056,12 +2097,13 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
     const titleNode = document.getElementById('strategy-title');
 
     if (filterBar) {
-        if (stratId === 'europa' || stratId === 'mondo') {
+        if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia') {
             filterBar.classList.remove('hidden');
-            europaFilters.classList.toggle('hidden', stratId !== 'europa');
+            europaFilters.classList.toggle('hidden', stratId !== 'europa' && stratId !== 'italia');
             mondoFilters.classList.toggle('hidden', stratId !== 'mondo');
 
             if (stratId === 'europa') titleNode.textContent = '🇪🇺 Europa & AI';
+            else if (stratId === 'italia') titleNode.textContent = '🇮🇹 Calcio Italiano';
             else titleNode.textContent = '🌎 Resto del Mondo';
         } else {
             filterBar.classList.add('hidden');
@@ -2069,16 +2111,21 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
         }
     }
 
-    // BASE FILTERING (Europa vs Mondo) - Use Unified Data for Buckets
+    // BASE FILTERING (Italia vs Europa vs Mondo)
     let filtered = [];
-    if (stratId === 'europa' || stratId === 'mondo') {
+    if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia') {
         filtered = getUnifiedMatches();
     } else {
         filtered = [...(strat.matches || [])];
     }
 
-    if (stratId === 'europa') {
-        filtered = filtered.filter(m => (m.lega || '').startsWith('EU-'));
+    if (stratId === 'italia') {
+        filtered = filtered.filter(m => (m.lega || '').startsWith('EU-ITA'));
+    } else if (stratId === 'europa') {
+        filtered = filtered.filter(m => {
+            const l = m.lega || '';
+            return l.startsWith('EU-') && !l.startsWith('EU-ITA');
+        });
     } else if (stratId === 'mondo') {
         filtered = filtered.filter(m => (m.lega || '') !== '' && !(m.lega || '').startsWith('EU-'));
     }
