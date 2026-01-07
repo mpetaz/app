@@ -1347,7 +1347,7 @@ window.renderTradingCards = function (picks) {
 
 // Helper to generate consistent Trading Pick IDs (Matches backend logic)
 window.getTradingPickId = function (partita) {
-    const cleanName = (partita || "").toLowerCase().replace(/[^a-z]/g, "");
+    const cleanName = (partita || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     return `trading_${cleanName}`;
 };
 
@@ -1742,7 +1742,8 @@ async function renderStats() {
             document.getElementById('stat-wins').textContent = stats.wins || 0;
             document.getElementById('stat-losses').textContent = stats.losses || 0;
             document.getElementById('stat-winrate').textContent = (stats.winrate || 0) + '%';
-            document.getElementById('last-update').textContent = formatDateLong(stats.lastUpdate || new Date().toISOString().split('T')[0]);
+            const displayDate = window.currentAppDate || stats.lastUpdate || new Date().toISOString().split('T')[0];
+            document.getElementById('last-update').textContent = formatDateLong(displayDate);
         } else {
             console.warn('[Stats] No global_stats found in system collection');
             // Set defaults
