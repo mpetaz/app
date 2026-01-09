@@ -127,7 +127,13 @@ self.addEventListener('fetch', event => {
                 return response;
             })
             .catch(() => {
-                return caches.match(event.request);
+                return caches.match(event.request).then(response => {
+                    return response || new Response('Offline o Errore Rete', {
+                        status: 503,
+                        statusText: 'Service Unavailable',
+                        headers: { 'Content-Type': 'text/plain' }
+                    });
+                });
             })
     );
 });
