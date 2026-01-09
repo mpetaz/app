@@ -65,6 +65,29 @@ const LocalDB = {
         });
     },
 
+    async updateMatches(matches) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], "readwrite");
+            const store = transaction.objectStore(this.storeName);
+
+            // Access to fetch at 'https://v3.football.api-sports.io/odds?fixture=...' - Update only, NO CLEAR
+            matches.forEach(match => {
+                store.put(match);
+            });
+
+            transaction.oncomplete = () => {
+                console.log(`[LocalDB] Updated ${matches.length} matches`);
+                resolve(true);
+            };
+
+            transaction.onerror = (event) => {
+                console.error("[LocalDB] Update Error", event);
+                reject(event);
+            };
+        });
+    },
+
     async loadMatches() {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {

@@ -686,16 +686,16 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                      </div>
                 </div>
 
-                <!-- SMART COMPARE -->
+                <!-- SMART COMPARE: If AI tip differs from DB tip -->
                 ${(ms.tipMagiaAI && match.tip && ms.tipMagiaAI !== match.tip) ? `
                 <div class="mt-[-8px] mb-3 text-center">
                     <div class="inline-block bg-purple-100 border border-purple-200 rounded-full px-3 py-0.5 text-[10px] font-black text-purple-600">
-                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> AI suggerisce <span class="underline">${ms.tipMagiaAI}</span> invece di ${match.tip}
+                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> AI soggerisce <span class="underline">${ms.tipMagiaAI}</span> invece di ${match.tip}
                     </div>
                 </div>
                 ` : ''}
 
-                <!-- Prob Bar -->
+                <!-- Probability Bar (Single, Clean) -->
                 <div class="mb-4">
                     <div class="prob-bar-container h-2 bg-slate-100 rounded-full overflow-hidden flex">
                         <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
@@ -709,82 +709,23 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     </div>
                 </div>
 
+                <!-- Magia Stats Grid (Italian Labels) -->
                 <div class="grid grid-cols-3 gap-2">
+                     <!-- Confidence -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                          <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">AFFIDABILITÀ</div>
                          <div class="text-sm font-black text-indigo-600">${ms.confidence || 0}%</div>
                     </div>
+                     <!-- No Gol/Goal -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                          <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">PROB. NO GOL</div>
                          <div class="text-sm font-black text-slate-700">${ms.noGolProb || 0}%</div>
                     </div>
+                     <!-- Top Signal -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                          <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">SEGNALE EXTRA</div>
                          <div class="text-xs font-black text-purple-600 whitespace-nowrap overflow-hidden text-ellipsis">${(ms.topSignals && ms.topSignals[1]) ? ms.topSignals[1].label : '-'}</div>
                     </div>
-                </div>
-            </div>
-        `;
-    } else if (isTrading && match.tradingInstruction) {
-        // --- NEW: PROFESSIONAL GREEN BOX FOR TRADING ---
-        const instr = match.tradingInstruction;
-        primarySignalHTML = `
-            <div class="px-4 pb-4">
-                <div class="bg-gradient-to-br from-emerald-500/10 to-teal-600/20 border border-emerald-500/30 rounded-2xl p-4 shadow-inner relative overflow-hidden group">
-                    <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <i class="fa-solid fa-chart-line text-4xl text-emerald-900"></i>
-                    </div>
-
-                    <!-- Strategy Header -->
-                    <div class="flex justify-between items-start mb-4">
-                        <div class="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-lg flex items-center gap-1.5 uppercase tracking-widest ring-1 ring-white/20">
-                            <i class="fa-solid fa-bolt-lightning text-[9px] animate-pulse"></i> Trading 3.0
-                        </div>
-                        <div class="text-right">
-                             <div class="text-emerald-700 font-black text-base drop-shadow-sm uppercase tracking-tighter">${instr.action || match.tip}</div>
-                             <div class="text-[9px] font-bold text-emerald-600/60 uppercase">Segnale Operativo</div>
-                        </div>
-                    </div>
-
-                    <!-- Grid Parameters -->
-                    <div class="grid grid-cols-2 gap-3 mb-2 relative z-10">
-                        <!-- Entry Box -->
-                        <div class="bg-white/50 backdrop-blur-md rounded-xl p-3 border border-white/60 shadow-sm flex flex-col justify-center">
-                            <div class="text-[10px] font-bold text-emerald-800/70 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                                <i class="fa-solid fa-right-to-bracket text-[9px]"></i> Ingresso
-                            </div>
-                            <div class="text-sm font-black text-emerald-900 bg-emerald-100/50 rounded px-1.5 py-0.5 inline-block w-fit">
-                                @ ${Array.isArray(instr.entryRange) ? instr.entryRange.join(' - ') : (instr.entryRange || match.quota || '1.50+')}
-                            </div>
-                        </div>
-
-                        <!-- Exit Box -->
-                        <div class="bg-white/50 backdrop-blur-md rounded-xl p-3 border border-white/60 shadow-sm flex flex-col justify-center">
-                            <div class="text-[10px] font-bold text-orange-800/70 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                                <i class="fa-solid fa-right-from-bracket text-[9px]"></i> Uscita
-                            </div>
-                            <div class="text-xs font-black text-orange-900 line-clamp-1">
-                                ${instr.exitTarget || 'Cash-out Live'}
-                            </div>
-                        </div>
-
-                        <!-- Timing Box (Full Width) -->
-                        <div class="bg-white/50 backdrop-blur-md rounded-xl p-3 border border-white/60 shadow-sm col-span-2">
-                            <div class="text-[10px] font-bold text-indigo-800/70 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                                <i class="fa-solid fa-clock text-[9px]"></i> Timing Operativo
-                            </div>
-                            <div class="text-[11px] font-bold text-indigo-950 leading-snug">
-                                ${instr.timing || 'Entrata dinamica basata sul mercato'}
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Why/Reasoning -->
-                    ${match.reasoning ? `
-                    <div class="mt-2 pt-3 border-t border-emerald-500/10 text-[10px] italic text-emerald-900/60 leading-relaxed">
-                        <i class="fa-solid fa-quote-left mr-1 opacity-50"></i> ${match.reasoning}
-                    </div>
-                    ` : ''}
                 </div>
             </div>
         `;
@@ -1499,7 +1440,7 @@ onAuthStateChanged(auth, async (user) => {
         // Init logic
         await loadData();
         initTradingPage(); // Start trading listener
-        initLiveHubListener(); // Start global live scores sync
+        // initLiveHubListener(); // Moved to loadData to avoid double init
 
         // Navigation Handler
         document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -1998,9 +1939,9 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
 
     // ASSET PATHS (Updated with generated premium visuals)
     const ASSETS = {
-        italia: 'file:///Users/Moreno/.gemini/antigravity/brain/e4ffc347-6feb-4a27-bae7-e7e42f22a605/flag_italy_waving_premium_1767780794628.png',
-        europa: 'file:///Users/Moreno/.gemini/antigravity/brain/e4ffc347-6feb-4a27-bae7-e7e42f22a605/flag_europe_waving_premium_1767780812418.png',
-        mondo: 'file:///Users/Moreno/.gemini/antigravity/brain/e4ffc347-6feb-4a27-bae7-e7e42f22a605/globe_football_gold_premium_1767780831124.png'
+        italia: 'assets/flags/italia.png',
+        europa: 'assets/flags/europa.png',
+        mondo: 'assets/flags/mondo.png'
     };
 
     if (id === 'italia') {
@@ -3183,6 +3124,7 @@ async function loadLiveHubMatches() {
     });
     container.innerHTML = html;
 }
+window.loadLiveHubMatches = loadLiveHubMatches;
 
 
 
@@ -3200,14 +3142,8 @@ window.toggleLiveFavorite = async function (matchName, tip) {
         let matchId = null;
         if (window.strategiesData) {
             for (const stratId in window.strategiesData) {
-                // ID-FIRST: Priorità fixtureId, fallback nome
-                let found = null;
-                if (match.fixtureId) {
-                    found = window.strategiesData[stratId].matches?.find(m => m.fixtureId === match.fixtureId);
-                }
-                if (!found) {
-                    found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
-                }
+                // Search by name since we don't have the full match object here
+                const found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
                 if (found) {
                     matchId = found.id || `${found.data}_${found.partita}`;
                     break;
