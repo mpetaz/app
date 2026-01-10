@@ -92,7 +92,7 @@ window.chatWithGemini = async (payload) => {
 };
 
 // ==================== TRADING 2.0 UTILS ====================
-function calculateGoalCookingPressure(stats, minute) {
+window.calculateGoalCookingPressure = function (stats, minute) {
     if (!stats || !minute || minute < 1) return 0;
 
     // Use pre-calculated value from backend if available for maximum consistency
@@ -100,30 +100,56 @@ function calculateGoalCookingPressure(stats, minute) {
         return Math.round(parseFloat(stats.pressureValue) || 0);
     }
 
-    const parsePair = (str) => {
-        if (!str || typeof str !== 'string') return [0, 0];
-        const parts = str.split('-').map(p => parseInt(p.trim()) || 0);
-        return parts.length === 2 ? parts : [0, 0];
+    // --- FALLBACK CALCULATION (If Backend doesn't provide it) ---
+    // Extract totals safely
+    const homeShots = parsePair(stats.shots?.total || "0 - 0");
+    const awayShots = parsePair(stats.shots?.total || "0 - 0"); // BUG in original logic? Assuming total is one string
+    // Let's use robust parsing assuming key might be missing
+    const getVal = (pair, idx) => {
+        if (!pair) return 0;
+        const parts = pair.split(' - ').map(n => parseInt(n) || 0);
+        return parts[idx] || 0;
     };
 
-    const [hDA, aDA] = parsePair(stats.dangerousAttacks);
-    const [hSOG, aSOG] = parsePair(stats.shotsOnGoal);
+    // Total shots
+    const tHome = getVal(stats.shots?.total, 0);
+    const tAway = getVal(stats.shots?.total, 1);
 
-    const daPerMin = (hDA + aDA) / minute;
-    const sogPerMin = (hSOG + aSOG) / minute;
+    // On Goal
+    const gHome = getVal(stats.on_goal?.home ? `${stats.on_goal.home} - 0` : null, 0) || getVal(stats.shots?.on_goal, 0);
+    const gAway = getVal(stats.on_goal?.away ? `0 - ${stats.on_goal.away}` : null, 1) || getVal(stats.shots?.on_goal, 1);
 
-    // Heat formula: Weighted combination of dangerous attacks and shots on goal frequency
-    // Normalized to 0-100 scale
-    let pressure = (daPerMin * 45) + (sogPerMin * 180);
+    // Inside Box (Dangerous)
+    const bHome = getVal(stats.shots?.inside_box, 0);
+    const bAway = getVal(stats.shots?.inside_box, 1);
 
-    // Bonus for high xG
-    if (stats.xg) {
-        const totalXG = parseFloat(stats.xg.home || 0) + parseFloat(stats.xg.away || 0);
-        pressure += (totalXG / minute) * 100;
-    }
+    // Corners
+    const cHome = getVal(stats.corners?.home ? `${stats.corners.home} - 0` : null, 0) || getVal(stats.corners, 0);
+    const cAway = getVal(stats.corners?.away ? `0 - ${stats.corners.away}` : null, 1) || getVal(stats.corners, 1);
 
-    return Math.min(100, Math.round(pressure));
+    // Dangerous Attacks (if available)
+    // const dHome = ...
+
+    const totalActivity = (tHome + tAway) * 1 + (gHome + gAway) * 3 + (bHome + bAway) * 2 + (cHome + cAway) * 1.5;
+
+    // Normalize by time (intensity per minute)
+    let intensity = totalActivity / minute;
+
+    // Scale to 0-100 (Arbitrary scaling factor based on "good" game stats)
+    // A game with 1 shot/min combined is insanely high pace. 0.5 is decent.
+    let pressure = Math.min(100, Math.round((intensity / 0.8) * 100));
+
+    return pressure;
+};
+
+function parsePair(str) {
+    if (!str) return [0, 0];
+    return str.split(' - ').map(x => parseInt(x.trim()) || 0);
 }
+window.parsePair = parsePair;
+
+const DEFAULT_LOGO_BASE64 = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+window.DEFAULT_LOGO_BASE64 = DEFAULT_LOGO_BASE64;
 
 function getRankingColor(score) {
     if (!score && score !== 0) return 'gray-400';
@@ -686,16 +712,16 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                      </div>
                 </div>
 
-                <!-- SMART COMPARE: If AI tip differs from DB tip -->
+                <!-- SMART COMPARE -->
                 ${(ms.tipMagiaAI && match.tip && ms.tipMagiaAI !== match.tip) ? `
                 <div class="mt-[-8px] mb-3 text-center">
                     <div class="inline-block bg-purple-100 border border-purple-200 rounded-full px-3 py-0.5 text-[10px] font-black text-purple-600">
-                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> AI soggerisce <span class="underline">${ms.tipMagiaAI}</span> invece di ${match.tip}
+                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> AI suggerisce <span class="underline">${ms.tipMagiaAI}</span> invece di ${match.tip}
                     </div>
                 </div>
                 ` : ''}
 
-                <!-- Probability Bar (Single, Clean) -->
+                <!-- Prob Bar -->
                 <div class="mb-4">
                     <div class="prob-bar-container h-2 bg-slate-100 rounded-full overflow-hidden flex">
                         <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
@@ -709,23 +735,82 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     </div>
                 </div>
 
-                <!-- Magia Stats Grid (Italian Labels) -->
                 <div class="grid grid-cols-3 gap-2">
-                     <!-- Confidence -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                          <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">AFFIDABILITÀ</div>
                          <div class="text-sm font-black text-indigo-600">${ms.confidence || 0}%</div>
                     </div>
-                     <!-- No Gol/Goal -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                          <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">PROB. NO GOL</div>
                          <div class="text-sm font-black text-slate-700">${ms.noGolProb || 0}%</div>
                     </div>
-                     <!-- Top Signal -->
                     <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                          <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">SEGNALE EXTRA</div>
                          <div class="text-xs font-black text-purple-600 whitespace-nowrap overflow-hidden text-ellipsis">${(ms.topSignals && ms.topSignals[1]) ? ms.topSignals[1].label : '-'}</div>
                     </div>
+                </div>
+            </div>
+        `;
+    } else if (isTrading && match.tradingInstruction) {
+        // --- NEW: PROFESSIONAL GREEN BOX FOR TRADING ---
+        const instr = match.tradingInstruction;
+        primarySignalHTML = `
+            <div class="px-4 pb-4">
+                <div class="bg-gradient-to-br from-emerald-500/10 to-teal-600/20 border border-emerald-500/30 rounded-2xl p-4 shadow-inner relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <i class="fa-solid fa-chart-line text-4xl text-emerald-900"></i>
+                    </div>
+
+                    <!-- Strategy Header -->
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-lg flex items-center gap-1.5 uppercase tracking-widest ring-1 ring-white/20">
+                            <i class="fa-solid fa-bolt-lightning text-[9px] animate-pulse"></i> Trading 3.0
+                        </div>
+                        <div class="text-right">
+                             <div class="text-emerald-700 font-black text-base drop-shadow-sm uppercase tracking-tighter">${instr.action || match.tip}</div>
+                             <div class="text-[9px] font-bold text-emerald-600/60 uppercase">Segnale Operativo</div>
+                        </div>
+                    </div>
+
+                    <!-- Grid Parameters -->
+                    <div class="grid grid-cols-2 gap-3 mb-2 relative z-10">
+                        <!-- Entry Box -->
+                        <div class="bg-white/50 backdrop-blur-md rounded-xl p-3 border border-white/60 shadow-sm flex flex-col justify-center">
+                            <div class="text-[10px] font-bold text-emerald-800/70 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                                <i class="fa-solid fa-right-to-bracket text-[9px]"></i> Ingresso
+                            </div>
+                            <div class="text-sm font-black text-emerald-900 bg-emerald-100/50 rounded px-1.5 py-0.5 inline-block w-fit">
+                                @ ${Array.isArray(instr.entryRange) ? instr.entryRange.join(' - ') : (instr.entryRange || match.quota || '1.50+')}
+                            </div>
+                        </div>
+
+                        <!-- Exit Box -->
+                        <div class="bg-white/50 backdrop-blur-md rounded-xl p-3 border border-white/60 shadow-sm flex flex-col justify-center">
+                            <div class="text-[10px] font-bold text-orange-800/70 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                                <i class="fa-solid fa-right-from-bracket text-[9px]"></i> Uscita
+                            </div>
+                            <div class="text-xs font-black text-orange-900 line-clamp-1">
+                                ${instr.exitTarget || 'Cash-out Live'}
+                            </div>
+                        </div>
+
+                        <!-- Timing Box (Full Width) -->
+                        <div class="bg-white/50 backdrop-blur-md rounded-xl p-3 border border-white/60 shadow-sm col-span-2">
+                            <div class="text-[10px] font-bold text-indigo-800/70 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                                <i class="fa-solid fa-clock text-[9px]"></i> Timing Operativo
+                            </div>
+                            <div class="text-[11px] font-bold text-indigo-950 leading-snug">
+                                ${instr.timing || 'Entrata dinamica basata sul mercato'}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Why/Reasoning -->
+                    ${match.reasoning ? `
+                    <div class="mt-2 pt-3 border-t border-emerald-500/10 text-[10px] italic text-emerald-900/60 leading-relaxed">
+                        <i class="fa-solid fa-quote-left mr-1 opacity-50"></i> ${match.reasoning}
+                    </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -1422,8 +1507,47 @@ window.renderTradingFavoritesInStarTab = function () {
         return;
     }
 
-    const cards = activeFavs.map(pick => window.createUniversalCard(pick, 0, null, { isTrading: true, isFavorite: true, detailedTrading: true }));
-    container.replaceChildren(...cards);
+    // Use unified renderLiveHubCard for trading favorites - sort by time
+    const sortedFavs = [...activeFavs].sort((a, b) => (a.ora || '').localeCompare(b.ora || ''));
+    let html = '';
+    sortedFavs.forEach(pick => {
+        // Merge with live data if available
+        let liveData = null;
+        const fId = pick.fixtureId ? String(pick.fixtureId) : null;
+        if (fId && window.liveScoresHub) {
+            liveData = window.liveScoresHub[fId] || Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === fId);
+        }
+
+        const preparedMatch = {
+            ...pick,
+            matchName: pick.partita,
+            home: pick.partita?.split(' - ')?.[0] || '',
+            away: pick.partita?.split(' - ')?.[1] || '',
+            // Handle multiple score formats
+            homeScore: liveData?.homeScore ??
+                (liveData?.score ? parseInt(liveData.score.split('-')[0]) : null) ??
+                (pick.risultato ? parseInt(pick.risultato.split('-')[0]) : null) ??
+                pick.homeScore ?? 0,
+            awayScore: liveData?.awayScore ??
+                (liveData?.score ? parseInt(liveData.score.split('-')[1]) : null) ??
+                (pick.risultato ? parseInt(pick.risultato.split('-')[1]) : null) ??
+                pick.awayScore ?? 0,
+            elapsed: liveData?.elapsed ?? pick.elapsed ?? 0,
+            status: liveData?.status ?? pick.status ?? 'NS',
+            liveStats: liveData?.liveStats ?? pick.liveStats ?? {},
+            events: liveData?.events ?? pick.events ?? [],
+            homeLogo: liveData?.homeLogo || pick.homeLogo,
+            awayLogo: liveData?.awayLogo || pick.awayLogo,
+            hasTradingStrategy: true,
+            strategy: pick.strategy,
+            tradingInstruction: pick.tradingInstruction,
+            reasoning: pick.reasoning,
+            ora: pick.ora,
+            matchDate: pick.data
+        };
+        html += window.renderLiveHubCard(preparedMatch);
+    });
+    container.innerHTML = html;
 };
 
 // ==================== MAIN FUNCTIONS ====================
@@ -1440,7 +1564,7 @@ onAuthStateChanged(auth, async (user) => {
         // Init logic
         await loadData();
         initTradingPage(); // Start trading listener
-        // initLiveHubListener(); // Moved to loadData to avoid double init
+        initLiveHubListener(); // Start global live scores sync
 
         // Navigation Handler
         document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -1642,6 +1766,10 @@ async function loadData(dateToLoad = null) {
                 Object.entries(rawStrategies).forEach(([id, strat]) => {
                     // Loosen check: Allow magia strategies even if .name is missing (will use ID as name)
                     const isMagiaStrat = id.includes('magia');
+
+                    // SOCIO: Salta top_del_giorno qui, lo carichiamo da daily_trading_picks (nuova fonte dati)
+                    if (id === 'top_del_giorno') return;
+
                     if (strat && (strat.name || isMagiaStrat) && (approved.includes(id) || isMagiaStrat || strat.method === 'poisson')) {
                         if (!strat.name) strat.name = "Magia AI";
                         // Apply sanitization
@@ -1654,6 +1782,50 @@ async function loadData(dateToLoad = null) {
                         window.strategiesData[id] = strat;
                     }
                 });
+
+                // SOCIO: Carica top_del_giorno da daily_trading_picks e normalizza i dati (tradingInstruction oggetto -> stringa)
+                getDoc(doc(db, "daily_trading_picks", targetDate)).then(tradingSnap => {
+                    if (tradingSnap.exists()) {
+                        const tradingData = tradingSnap.data();
+                        const picks = tradingData.picks || [];
+                        console.log(`[LoadData] Loaded ${picks.length} Trading picks from daily_trading_picks`);
+
+                        // Normalizzazione dati
+                        picks.forEach(p => {
+                            // FIX: tradingInstruction è un oggetto, estrai il testo leggibile
+                            const ti = p.tradingInstruction;
+                            if (ti && typeof ti === 'object') {
+                                const action = ti.action || 'Trading';
+                                const entryTiming = ti.entry?.timing || '';
+                                const exitTiming = ti.exit?.timing || '';
+                                p.tradingInstruction = `${action} | ${entryTiming} → ${exitTiming}`.replace(/\|  →/g, '').trim();
+                                // Salva l'oggetto originale se serve dopo
+                                p._originalInstructionObj = ti;
+                            } else if (!ti) {
+                                p.tradingInstruction = "MONITORAGGIO ATTIVO";
+                            }
+
+                            p.hasTradingStrategy = true;
+                            // Assicura che strategy sia settata
+                            if (!p.strategy || p.strategy === 'undefined') {
+                                p.strategy = p.strategyLabel || 'TRADING'; // Fallback
+                            }
+                        });
+
+                        window.strategiesData['top_del_giorno'] = {
+                            name: '🚀 Trading',
+                            matches: picks
+                        };
+                    }
+                    // Re-renderizza dopo aver caricato il trading
+                    renderStrategies();
+
+                    // Se siamo nella pagina Ranking del Trading, aggiornala
+                    if (currentStrategyId === 'top_del_giorno' && document.getElementById('page-ranking')?.classList.contains('active')) {
+                        window.showRanking('top_del_giorno', window.strategiesData['top_del_giorno'], currentSortMode);
+                    }
+                });
+
 
                 renderStrategies();
                 if (window.updateDateDisplay) window.updateDateDisplay(targetDate, true);
@@ -1764,14 +1936,38 @@ async function renderStats() {
     }
 }
 
+// INIT LIVE HUB LISTENER
+// Purpose: Listen for real-time score updates from Firestore
+// INIT LIVE HUB LISTENER
+// Purpose: Listen for real-time score updates from Firestore
 function initLiveHubListener() {
     if (liveHubUnsubscribe) liveHubUnsubscribe();
 
     console.log('[LiveHub] Initializing real-time listener...');
     liveHubUnsubscribe = onSnapshot(collection(db, "live_scores_hub"), (snapshot) => {
+        const changesCount = snapshot.docChanges().length;
+        const now = new Date();
+        console.log(`[LiveHub] 📡 Received ${changesCount} changes from Firestore at ${now.toLocaleTimeString()}`);
+
+        // Check for MODIFIED events specifically
+        let modifiedCount = 0;
+        let addedCount = 0;
+
         snapshot.docChanges().forEach((change) => {
             const data = change.doc.data();
             const id = change.doc.id;
+
+            if (change.type === 'modified') modifiedCount++;
+            if (change.type === 'added') addedCount++;
+
+            // Debug: Log each change with timestamp
+            if (change.type !== "removed") {
+                const updatedAt = data.updatedAt?.toDate ? data.updatedAt.toDate().toLocaleTimeString() : 'N/A';
+                // Only log for specific matches to reduce noise
+                if ((data.matchName || '').toLowerCase().includes('atalanta')) {
+                    console.log(`[LiveHub] 🔍 ATALANTA: ${change.type.toUpperCase()}: ${data.matchName || id} - ${data.score || '?-?'} (${data.elapsed || 0}') - Last Update: ${updatedAt}`);
+                }
+            }
 
             if (change.type === "removed") {
                 delete window.liveScoresHub[id];
@@ -1780,41 +1976,63 @@ function initLiveHubListener() {
             }
         });
 
-        // ALL re-renders are now DEBOUNCED to stop the 'cough' - INCREASED to 2s
+        console.log(`[LiveHub] 📊 Summary: ${addedCount} ADDED, ${modifiedCount} MODIFIED`);
+
+        // SIMPLIFIED LIVE UPDATE: Refresh ALL active views when data changes
         clearTimeout(_liveUpdateDebounceTimer);
         _liveUpdateDebounceTimer = setTimeout(() => {
-            // Dashboard
-            if (document.getElementById('page-strategies')?.classList.contains('active')) {
-                const dataHash = getDataHash(window.liveScoresHub);
-                if (_lastRenderCache.dashboardHash !== dataHash) {
-                    renderStrategies();
-                    _lastRenderCache.dashboardHash = dataHash;
-                }
-            }
+            console.log('[LiveHub] Live data updated, refreshing active views...');
 
-            // Ranking page
-            if (document.getElementById('page-ranking')?.classList.contains('active')) {
-                window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
-            }
+            const activePage = document.querySelector('.page.active');
+            const activePageId = activePage?.id || 'unknown';
 
-            // My Matches page
-            if (document.getElementById('page-my-matches')?.classList.contains('active')) {
-                window.showMyMatches();
-            }
+            console.log(`[LiveHub] Active page: ${activePageId}`); // DEBUG LOG
 
-            // Trading page
-            if (document.getElementById('page-trading')?.classList.contains('active')) {
-                if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
-            }
+            switch (activePageId) {
+                case 'page-strategies': // Handles "Top Live" cards
+                    // Search for strategy matches displayed, usually Top Live
+                    console.log('[LiveHub] Updating Strategy Page Cards...');
+                    // Iterate all live hub data to update visible cards
+                    Object.values(window.liveScoresHub).forEach(updatedMatch => {
+                        const strategiesContainer = document.getElementById('strategies-container');
+                        if (!strategiesContainer) return;
 
-            // Star/Favorites page
-            if (document.getElementById('page-star')?.classList.contains('active')) {
-                if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
-            }
+                        // Try to find the card by data-match-id (assumed) or similar
+                        // Since I don't see IDs, I will LOG what I find
+                        const probableId = updatedMatch.matchName?.replace(/[^a-z0-9]/gi, '');
+                        console.log(`[LiveHub] Looking for card for: ${updatedMatch.matchName} (Probable ID key: ${probableId})`);
+                    });
+                    break;
+                case 'page-ranking': // Handles "Ranking" list cards
+                    console.log('[LiveHub] Active page:', activePageId);
 
-            // Live Hub page
-            if (document.getElementById('page-live')?.classList.contains('active')) {
-                loadLiveHubMatches();
+                    // ALWAYS update trading favorites container if it exists (regardless of page)
+                    if (window.renderTradingFavoritesInStarTab && document.getElementById('trading-favorites-container')) {
+                        window.renderTradingFavoritesInStarTab();
+                    }
+
+                    // Update based on active page
+                    switch (activePageId) {
+                        case 'page-strategies':
+                            renderStrategies();
+                            break;
+                        case 'page-ranking':
+                            if (currentStrategyId && window.strategiesData?.[currentStrategyId]) {
+                                window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
+                            }
+                            break;
+                        case 'page-my-matches':
+                        case 'page-star':
+                            window.showMyMatches();
+                            break;
+                        case 'page-live':
+                            loadLiveHubMatches();
+                            break;
+                        case 'page-trading':
+                            if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
+                            break;
+                    }
+                    break;
             }
         }, DEBOUNCE_MS);
 
@@ -1883,8 +2101,8 @@ function renderStrategies() {
 
     const children = [];
 
-    // 1. TOP LIVE (Emerald/Teal)
-    children.push(createBigBucketBox('top_live', '🚀 Live Now', countTopLive, 'bg-gradient-to-br from-emerald-500 to-teal-600', '📡', true));
+    // 1. TOP LIVE (Emerald/Teal) -> TRADING
+    children.push(createBigBucketBox('top_live', '🚀 TRADING', countTopLive, 'bg-gradient-to-br from-emerald-500 to-teal-600', '📡', true));
 
     // 2. ITALIA (Azzurro Premium)
     children.push(createBigBucketBox('italia', '🇮🇹 Italia', countItalia, 'bg-gradient-to-br from-blue-600 to-indigo-800', '🇮🇹'));
@@ -1938,10 +2156,11 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
     let bgImage = '';
 
     // ASSET PATHS (Updated with generated premium visuals)
+    // ASSET PATHS (Updated with generated premium visuals)
     const ASSETS = {
-        italia: 'assets/flags/italia.png',
-        europa: 'assets/flags/europa.png',
-        mondo: 'assets/flags/mondo.png'
+        italia: 'img/flag_italy.png',
+        europa: 'img/flag_europe.png',
+        mondo: 'img/globe_world.png'
     };
 
     if (id === 'italia') {
@@ -2061,7 +2280,7 @@ function createTopDelGiornoBox() {
                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
                     <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
                 </span>
-                <span class="text-[10px] font-bold uppercase">LIVE</span>
+                <span class="text-[10px] font-bold">Live Ora</span>
             </div>` : ''}
         </div>
         <div class="absolute right-[-8px] bottom-[-8px] text-5xl opacity-10 rotate-12">🏆</div>
@@ -2070,12 +2289,258 @@ function createTopDelGiornoBox() {
 }
 
 
-window.showRanking = function (stratId, strat, sortMode = 'score') {
+
+// ==================== LIVE HUB CARD RENDERER (Unified for Trading) ====================
+window.renderLiveHubCard = function (match) {
+    const isTrading = match.hasTradingStrategy; // Ora usiamo solo questo flag (o stratKey)
+    const stratKey = match.strategy || 'TRADING'; // Chiave visuale
+
+    // Trading Badge Colors
+    let badgeClass = 'bg-gray-100 text-gray-600';
+    let icon = 'fa-chart-line';
+
+    if (stratKey === 'HT_SNIPER') { badgeClass = 'bg-purple-100 text-purple-700 border border-purple-200'; icon = 'fa-crosshairs'; }
+    else if (stratKey === 'LAY_THE_DRAW' || stratKey === 'LTD') { badgeClass = 'bg-orange-100 text-orange-700 border border-orange-200'; icon = 'fa-hand-paper'; }
+    else if (stratKey === 'BACK_OVER_25') { badgeClass = 'bg-blue-100 text-blue-700 border border-blue-200'; icon = 'fa-arrow-up'; }
+    else if (stratKey === 'SECOND_HALF_SURGE') { badgeClass = 'bg-red-100 text-red-700 border border-red-200'; icon = 'fa-fire'; }
+    else if (stratKey === 'UNDER_35_SCALPING') { badgeClass = 'bg-emerald-100 text-emerald-700 border border-emerald-200'; icon = 'fa-shield-alt'; }
+    else if (isTrading) { badgeClass = 'bg-indigo-100 text-indigo-700 border border-indigo-200'; icon = 'fa-robot'; }
+
+    // Genera trading badge HTML
+    const tradingBadge = isTrading ? `
+        <div class="absolute -top-3 left-4 z-20 flex items-center gap-2 px-3 py-1 rounded-full shadow-sm text-xs font-bold uppercase tracking-wider ${badgeClass}">
+            <i class="fa-solid ${icon}"></i>
+            <span>${stratKey.replace(/_/g, ' ')}</span>
+        </div>
+    ` : '';
+
+    // Status Badge
+    let statusBadge = '';
+    const min = match.elapsed || 0;
+    const status = match.status || 'NS';
+
+    if (status === 'FT' || status === 'AET' || status === 'PEN') {
+        const isWin = ['WIN', 'VINTO', 'CASH_OUT'].includes(match.esito);
+        const isLose = ['LOSE', 'PERSO'].includes(match.esito);
+        if (isWin) statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✅ WIN</span>`;
+        else if (isLose) statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">❌ LOSS</span>`;
+        else statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-200">🏁 FINITA</span>`;
+    } else if (['1H', '2H', 'HT', 'ET', 'P'].includes(status) || min > 0) {
+        statusBadge = `
+            <span class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-600 border border-red-100">
+                <span class="relative flex h-2 w-2">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                </span>
+                ${status === 'HT' ? 'HT' : min + "'"}
+            </span>
+        `;
+    } else {
+        statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">⏰ ${match.ora || ''}</span>`;
+    }
+
+    // Pressione Gol (Simulata o Reale)
+    const pressure = match.liveStats?.pressure || window.calculateGoalCookingPressure(match.liveStats, min) || 0;
+    const pressureColor = pressure > 75 ? 'bg-red-500' : (pressure > 50 ? 'bg-orange-500' : 'bg-green-500');
+
+    // Instruction Box (Unified)
+    const instruction = match.tradingInstruction || `Monitoraggio attivo per ${stratKey.replace(/_/g, ' ')}`;
+
+    return `
+    <div class="relative bg-white rounded-2xl shadow-sm border border-slate-100 overflow-visible mb-6 mt-4">
+        ${tradingBadge}
+        
+        <!-- Header: League, Time & Status -->
+        <div class="flex items-center justify-between px-4 pt-5 pb-2">
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">${match.lega || 'LEAGUE'}</span>
+                ${match.ora ? `<span class="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">⏰ ${match.ora}</span>` : ''}
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="window.toggleFlag('${match.id?.trim() || (match.data + '_' + match.matchName).trim()}')" class="text-slate-300 hover:text-amber-400 transition-colors">
+                    <i class="${(window.selectedMatches || []).some(x => (x.id || `${x.data}_${x.partita}`).trim() === (match.id?.trim() || (match.data + '_' + match.matchName).trim())) ? 'fa-solid text-amber-400' : 'fa-regular'} fa-star text-sm"></i>
+                </button>
+                ${statusBadge}
+            </div>
+        </div>
+
+        <!-- Match Score -->
+        <div class="flex items-center justify-between px-6 py-2">
+            <div class="flex flex-col items-center gap-1 w-1/3">
+                <img src="${match.homeLogo || window.DEFAULT_LOGO_BASE64}" class="w-10 h-10 object-contain" onerror="this.src=window.DEFAULT_LOGO_BASE64">
+                <span class="text-xs font-bold text-slate-700 text-center leading-tight line-clamp-2">${match.home}</span>
+            </div>
+            <div class="flex flex-col items-center justify-center w-1/3">
+                 <div class="text-3xl font-black text-slate-800 tracking-tighter shadow-sm bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">
+                    ${match.homeScore} - ${match.awayScore}
+                 </div>
+            </div>
+            <div class="flex flex-col items-center gap-1 w-1/3">
+                <img src="${match.awayLogo || window.DEFAULT_LOGO_BASE64}" class="w-10 h-10 object-contain" onerror="this.src=window.DEFAULT_LOGO_BASE64">
+                <span class="text-xs font-bold text-slate-700 text-center leading-tight line-clamp-2">${match.away}</span>
+            </div>
+        </div>
+
+        <!-- Blue Action Box -->
+        <div class="px-4 pb-4">
+            <div class="bg-blue-600 rounded-xl p-3 shadow-lg shadow-blue-200 mt-2 text-center relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-tr from-blue-700 to-blue-500 opacity-50 group-hover:opacity-60 transition-opacity"></div>
+                <div class="relative z-10">
+                    <div class="text-[10px] uppercase text-blue-100 font-bold tracking-widest mb-1 opacity-80">STRATEGIA OPERATIVA</div>
+                    <div class="text-sm font-bold text-white leading-snug">
+                        ${instruction}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pressure Bar -->
+        <div class="px-5 pb-3">
+             <div class="flex justify-between items-end mb-1">
+                <div class="flex items-center gap-1.5">
+                    <i class="fa-solid fa-fire-flame-curved text-orange-500 text-xs animate-pulse"></i>
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Pressione Gol</span>
+                </div>
+                <span class="text-[10px] font-bold text-slate-700">${pressure}%</span>
+            </div>
+            <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full ${pressureColor} transition-all duration-1000 ease-out rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" style="width: ${pressure}%"></div>
+            </div>
+        </div>
+
+        <!-- NEW: LIVE STATISTICS GRID (High Contrast from Screenshot) -->
+        ${(match.liveStats && Object.keys(match.liveStats).length > 0) ? `
+        <div class="px-5 pt-3 pb-2">
+            <div class="flex items-center gap-2 opacity-70">
+                <i class="fa-solid fa-chart-line text-slate-500 text-[11px]"></i>
+                <span class="text-[11px] font-bold text-slate-600 uppercase tracking-widest">LIVE STATISTICS</span>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-3 gap-3 px-4 pb-4">
+            <!-- XG -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col items-center shadow-sm hover:shadow-md transition-shadow">
+                <div class="w-9 h-9 rounded-full bg-yellow-50 flex items-center justify-center mb-1.5 text-yellow-500 ring-1 ring-yellow-100">
+                     <i class="fa-solid fa-bolt text-sm"></i>
+                </div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase mb-0.5 tracking-tight">XG</span>
+                <span class="text-[13px] font-black text-slate-800 tracking-tight">
+                    ${(typeof match.liveStats.xg === 'object') ?
+                `${match.liveStats.xg.home || 0} - ${match.liveStats.xg.away || 0}` :
+                (match.liveStats.xg || '-')}
+                </span>
+            </div>
+            
+            <!-- TIRI PORTA -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col items-center shadow-sm hover:shadow-md transition-shadow">
+                 <div class="w-9 h-9 rounded-full bg-red-50 flex items-center justify-center mb-1.5 text-red-500 ring-1 ring-red-100">
+                     <i class="fa-solid fa-bullseye text-sm"></i>
+                </div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase mb-0.5 tracking-tight">Tiri (Porta)</span>
+                 <span class="text-[13px] font-black text-slate-800 tracking-tight">${match.liveStats.shotsOnGoal || '0 - 0'}</span>
+            </div>
+
+            <!-- TIRI TOTALI -->
+             <div class="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col items-center shadow-sm hover:shadow-md transition-shadow">
+                 <div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center mb-1.5 text-slate-500 ring-1 ring-slate-200">
+                     <i class="fa-regular fa-futbol text-sm"></i>
+                </div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase mb-0.5 tracking-tight">Tiri Totali</span>
+                 <span class="text-[13px] font-black text-slate-800 tracking-tight">${match.liveStats.totalShots || '-'}</span>
+            </div>
+
+            <!-- CORNER -->
+             <div class="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col items-center shadow-sm hover:shadow-md transition-shadow">
+                 <div class="w-9 h-9 rounded-full bg-emerald-50 flex items-center justify-center mb-1.5 text-emerald-500 ring-1 ring-emerald-100">
+                     <i class="fa-solid fa-ruler-combined text-sm"></i>
+                </div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase mb-0.5 tracking-tight">Corner</span>
+                 <span class="text-[13px] font-black text-slate-800 tracking-tight">${match.liveStats.corners || '0 - 0'}</span>
+            </div>
+
+            <!-- TIRI IN AREA -->
+             <div class="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col items-center shadow-sm hover:shadow-md transition-shadow">
+                 <div class="w-9 h-9 rounded-full bg-orange-50 flex items-center justify-center mb-1.5 text-orange-500 ring-1 ring-orange-100">
+                     <i class="fa-solid fa-fire text-sm"></i>
+                </div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase mb-0.5 tracking-tight">Tiri in Area</span>
+                 <span class="text-[13px] font-black text-slate-800 tracking-tight">${match.liveStats.shotsInside || '-'}</span>
+            </div>
+
+            <!-- POSSESSO -->
+             <div class="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col items-center shadow-sm hover:shadow-md transition-shadow">
+                 <div class="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center mb-1.5 text-blue-600 ring-1 ring-blue-100">
+                     <i class="fa-solid fa-person-running text-sm"></i>
+                </div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase mb-0.5 tracking-tight">Possesso</span>
+                 <span class="text-[13px] font-black text-slate-800 tracking-tight">${match.liveStats.possession || '50% - 50%'}</span>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- EVENTS LIST (Replicated Style) -->
+        ${(match.events && match.events.length > 0) ? `
+        <div class="border-t border-slate-100 pt-3 px-5 pb-4">
+             <div class="flex items-center gap-2 opacity-70 mb-2">
+                <i class="fa-solid fa-list text-slate-500 text-[11px]"></i>
+                <span class="text-[11px] font-bold text-slate-600 uppercase tracking-widest">EVENTI</span>
+            </div>
+            <div class="space-y-2">
+                ${match.events.slice(-4).reverse().map(ev => `
+                    <div class="flex items-start gap-3 text-xs group">
+                        <span class="font-bold text-slate-400 w-6 text-right pt-[1px] font-mono">${ev.time?.elapsed || ev.elapsed}'</span>
+                        <div class="min-w-[14px] flex justify-center pt-[2px]">
+                            ${(ev.type === 'Goal' || ev.detail === 'Goal') ? '<i class="fa-solid fa-futbol text-emerald-500 drop-shadow-sm"></i>' :
+                        (ev.type === 'Card' && ev.detail.includes('Yellow')) ? '<div class="w-3 h-3.5 bg-yellow-400 rounded-sm shadow-sm border border-yellow-500/20"></div>' :
+                            (ev.type === 'Card' && ev.detail.includes('Red')) ? '<div class="w-3 h-3.5 bg-red-500 rounded-sm shadow-sm border border-red-600/20"></div>' :
+                                '<i class="fa-solid fa-info-circle text-slate-300"></i>'}
+                        </div>
+                        <div class="flex flex-col">
+                             <div class="font-bold text-slate-700 leading-tight">${ev.player?.name || ev.player || ev.detail || 'Evento'}</div>
+                             ${(ev.type === 'Goal') ? `<div class="text-[10px] text-emerald-600 font-bold uppercase tracking-wide">Goal!</div>` : ''}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+        ` : ''}
+
+         <!-- FOOTER: IL PERCHÈ (Reasoning) + Chat Button -->
+    <div class="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-b-2xl border-t border-purple-100 px-4 py-3 relative">
+        ${match.reasoning ? `
+        <div class="flex items-start gap-3 pr-12">
+            <div class="flex-shrink-0 w-7 h-7 rounded-full bg-white border border-purple-200 flex items-center justify-center shadow-sm">
+                <i class="fa-solid fa-brain text-purple-600 text-xs"></i>
+            </div>
+            <div class="flex flex-col">
+                <span class="text-[10px] font-bold text-purple-600 uppercase tracking-widest mb-1">Il Perché di euGENIO</span>
+                <p class="text-[11px] text-slate-600 leading-snug">${match.reasoning}</p>
+            </div>
+        </div>
+        ` : `
+        <div class="flex items-center gap-2 text-[11px] text-slate-500 pr-12">
+            <i class="fa-solid fa-eye text-purple-400"></i>
+            <span><span class="font-bold text-purple-600">TIPSTER AI</span> • Monitoraggio attivo</span>
+        </div>
+        `}
+
+        <!-- Chat Floating Action Button -->
+        <button onclick="window.openDetails('${match.id}')" class="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all shadow-indigo-500/30">
+            <i class="fa-solid fa-comment-dots text-sm"></i>
+        </button>
+    </div>
+        
+    </div>
+    `;
+};
+
+
+window.showRanking = function (stratId, data, sortMode = 'confidence') {
     if (!stratId) return;
 
     // If strat is missing, try to recover from global data
-    if (!strat) strat = window.strategiesData[stratId] || window.strategiesData['all'];
-    if (!strat) return;
+    if (!data) data = window.strategiesData[stratId] || window.strategiesData['all'];
+    if (!data) return;
 
     // If switching strategy, reset sub-filter to 'all'
     if (currentStrategyId !== stratId) {
@@ -2109,7 +2574,7 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
             else titleNode.textContent = '🌎 Resto del Mondo';
         } else {
             filterBar.classList.add('hidden');
-            titleNode.textContent = strat.name || 'Strategia';
+            titleNode.textContent = data.name || 'Strategia';
         }
     }
 
@@ -2118,7 +2583,7 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
     if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia') {
         filtered = getUnifiedMatches();
     } else {
-        filtered = [...(strat.matches || [])];
+        filtered = [...(data.matches || [])];
     }
 
     if (stratId === 'italia') {
@@ -2146,7 +2611,7 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
     // ...
     const oldHeight = container.offsetHeight;
     container.style.visibility = 'hidden';
-    if (oldHeight > 0) container.style.minHeight = `${oldHeight}px`;
+    if (oldHeight > 0) container.style.minHeight = `${oldHeight} px`;
 
     if (filtered.length === 0) {
         container.replaceChildren();
@@ -2155,19 +2620,77 @@ window.showRanking = function (stratId, strat, sortMode = 'score') {
         msg.textContent = 'Nessuna partita per questo filtro.';
         container.appendChild(msg);
     } else {
-        const sorted = [...filtered].sort((a, b) => (a.ora || '').localeCompare(b.ora || '')); // Fixed sort by time
-        const children = sorted.map((m, idx) => createUniversalCard(m, idx, stratId));
-        container.replaceChildren(...children);
+        const sorted = [...filtered].sort((a, b) => (a.ora || '').localeCompare(b.ora || ''));
+
+        // SOCIO: Se siamo nel Trading (top_del_giorno), usiamo la scheda Live Hub
+        if (stratId === 'top_del_giorno') {
+            let html = '';
+            sorted.forEach((m, idx) => {
+                // Merge live data via fixtureId (identico a Live Hub)
+                let liveData = null;
+                // Normalizza fixtureId a stringa per confronto sicuro
+                const fId = m.fixtureId ? String(m.fixtureId) : null;
+
+                if (fId && window.liveScoresHub) {
+                    // Cerca nel liveScoresHub (che usa fixtureId come chiave o proprietà)
+                    // window.liveScoresHub è un oggetto mappa per fixtureId
+                    liveData = window.liveScoresHub[fId] || Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === fId);
+                }
+
+                const mergedMatch = {
+                    ...m,
+                    matchName: m.partita,
+                    home: m.partita?.split(' - ')?.[0] || '',
+                    away: m.partita?.split(' - ')?.[1] || '',
+                    // Priorità ai dati live, fallback ai dati salvati - gestisci formati multipli
+                    homeScore: liveData?.homeScore ??
+                        (liveData?.score ? parseInt(liveData.score.split('-')[0]) : null) ??
+                        (m.risultato ? parseInt(m.risultato.split('-')[0]) : null) ??
+                        m.homeScore ?? 0,
+                    awayScore: liveData?.awayScore ??
+                        (liveData?.score ? parseInt(liveData.score.split('-')[1]) : null) ??
+                        (m.risultato ? parseInt(m.risultato.split('-')[1]) : null) ??
+                        m.awayScore ?? 0,
+                    elapsed: liveData?.elapsed ?? m.elapsed ?? 0,
+                    status: liveData?.status ?? m.status ?? 'NS',
+                    liveStats: liveData?.liveStats ?? m.liveStats ?? {},
+                    events: liveData?.events ?? m.events ?? [],
+                    homeLogo: liveData?.homeLogo || m.homeLogo,
+                    awayLogo: liveData?.awayLogo || m.awayLogo,
+                    hasTradingStrategy: true,
+                    // Preserva istruzioni trading
+                    strategy: m.strategy, // Assicurati di passare la strategia
+                    tradingInstruction: m.tradingInstruction,
+                    reasoning: m.reasoning,
+                    ora: m.ora,
+                    matchDate: m.data
+                };
+
+                try {
+                    const cardHtml = window.renderLiveHubCard(mergedMatch);
+                    html += cardHtml;
+                } catch (e) {
+                    console.error("Error rendering trading card:", m.partita, e);
+                }
+            });
+
+            if (!html) {
+                html = '<div class="text-center py-10 text-gray-400">Nessuna partita disponibile al momento.</div>';
+            }
+            container.innerHTML = html;
+        } else {
+            // Logica standard per le altre strategie
+            const children = sorted.map((m, idx) => createUniversalCard(m, idx, stratId));
+            container.replaceChildren(...children);
+        }
     }
 
     // Restore scroll BEFORE making visible
     if (oldScroll > 0) window.scrollTo({ top: oldScroll, behavior: 'instant' });
 
     // Make visible again
-    requestAnimationFrame(() => {
-        container.style.visibility = '';
-        container.style.minHeight = '';
-    });
+    container.style.visibility = '';
+    container.style.minHeight = '';
 }
 
 
@@ -2180,7 +2703,7 @@ window.toggleFlag = async function (matchId) {
         for (const [stratId, strat] of Object.entries(window.strategiesData)) {
             const matches = strat.matches || (Array.isArray(strat) ? strat : []);
             const m = matches.find(x => {
-                const id = x.id || `${x.data}_${x.partita}`;
+                const id = x.id || `${x.data}_${x.partita} `;
                 return id.trim() === matchId.trim();
             });
             if (m) {
@@ -2194,16 +2717,16 @@ window.toggleFlag = async function (matchId) {
     // Fallback: Check if already in selectedMatches
     if (!foundMatch) {
         foundMatch = window.selectedMatches.find(m => {
-            const id = m.id || `${m.data}_${m.partita}`;
+            const id = m.id || `${m.data}_${m.partita} `;
             return id.trim() === matchId.trim();
         });
     }
 
     if (foundMatch) {
         // Ensure ID is consistent
-        const consistentId = foundMatch.id || `${foundMatch.data}_${foundMatch.partita}`;
+        const consistentId = foundMatch.id || `${foundMatch.data}_${foundMatch.partita} `;
 
-        const idx = window.selectedMatches.findIndex(m => (m.id || `${m.data}_${m.partita}`).trim() === consistentId.trim());
+        const idx = window.selectedMatches.findIndex(m => (m.id || `${m.data}_${m.partita} `).trim() === consistentId.trim());
 
 
         if (idx >= 0) {
@@ -2586,40 +3109,40 @@ const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
         };
 
         const liveTradingPersona = `Sei un esperto di TRADING SPORTIVO PROFESSIONALE.
-Quando analizzi dati live (DA, SOG, xG), focalizzati su:
-1. Pressione offensiva (Goal Cooking).
+Quando analizzi dati live(DA, SOG, xG), focalizzati su:
+1. Pressione offensiva(Goal Cooking).
 2. Valore della quota rispetto al tempo rimanente.
-3. Consigli operativi secchi (Entra, Resta, Cashout).
-4. **Anti-Black Swan**: Sei nemico giurato delle quote "esca" (sotto 1.25). Portano rischio inutile.`;
+3. Consigli operativi secchi(Entra, Resta, Cashout).
+4. ** Anti - Black Swan **: Sei nemico giurato delle quote "esca"(sotto 1.25).Portano rischio inutile.`;
 
         let strategiesText = Object.entries(strategies)
             .map(([id, s]) => {
                 const def = strategyDefinitions[id] || s.description || 'Analisi statistica.';
-                return `- **${s.name}**: ${def}`;
+                return `- ** ${s.name}**: ${def} `;
             })
             .join('\n') || "Strategie standard attive.";
 
         const basePrompt = eugenioPromptCache?.prompt ||
-            `Sei **euGENIO 🧞‍♂️**, l'interfaccia AI di Tipster-AI. Accompagni il trader nelle scelte quotidiane.
+            `Sei ** euGENIO 🧞‍♂️**, l'interfaccia AI di Tipster-AI. Accompagni il trader nelle scelte quotidiane.
 
-**IDENTITÀ:**
-- Tu: euGENIO (AI Trader Pro e Socio)
-- Utente: **${userName}** (il tuo Socio)
+    ** IDENTITÀ:**
+        - Tu: euGENIO(AI Trader Pro e Socio)
+            - Utente: ** ${userName}** (il tuo Socio)
 
-**FILOSOFIA OPERATIVA (Socio Engine v5.0):**
-- **No Junk Odds**: Puliamo il palinsesto dai "Cigni Neri" (quote < 1.25).
-- **ROI Target**: Puntiamo a raddoppiare (@2.00+) ogni ticket consigliato.
-- **Data-Driven**: Analizzi xG, Pressione Gol, DA, SOG per trovare valore reale.
+** FILOSOFIA OPERATIVA(Socio Engine v5.0):**
+- ** No Junk Odds **: Puliamo il palinsesto dai "Cigni Neri"(quote < 1.25).
+- ** ROI Target **: Puntiamo a raddoppiare(@2.00 +) ogni ticket consigliato.
+- ** Data - Driven **: Analizzi xG, Pressione Gol, DA, SOG per trovare valore reale.
 
-**TUE COMPETENZE:**
-${liveTradingPersona}
+** TUE COMPETENZE:**
+    ${liveTradingPersona}
 
-**PERFORMANCE APP:**
-- ${stats.total} match analizzati | Winrate ${stats.winrate}%
-- Logica Parlay: Cassa Sicura (x2), Tridente (x3), Multiplona (x4).
+** PERFORMANCE APP:**
+    - ${stats.total} match analizzati | Winrate ${stats.winrate}%
+        - Logica Parlay: Cassa Sicura(x2), Tridente(x3), Multiplona(x4).
 
-**STRATEGIE DISPONIBILI OGGI:**
-${strategiesText}`;
+** STRATEGIE DISPONIBILI OGGI:**
+    ${strategiesText} `;
 
         return `${basePrompt}
 
@@ -2627,13 +3150,13 @@ ${eugenioPromptCache?.customInstructions || ''}
 ${eugenioPromptCache?.additionalContext || ''}
 ${eugenioPromptCache?.tradingKnowledge || ''}
 
-**REGOLE COMUNICAZIONE:**
-1. Conversazione normale: saluta ${userName} solo al primo messaggio
-2. Analisi Profonda Live: 
-   - Inizia con "Ok ${userName}:"
-   - NO presentazioni, NO saluti ripetuti
-   - Vai dritto ai dati e alle indicazioni
-3. NON ripetere mai dati visibili (minuto, punteggio)
+** REGOLE COMUNICAZIONE:**
+    1. Conversazione normale: saluta ${userName} solo al primo messaggio
+2. Analisi Profonda Live:
+- Inizia con "Ok ${userName}:"
+    - NO presentazioni, NO saluti ripetuti
+        - Vai dritto ai dati e alle indicazioni
+3. NON ripetere mai dati visibili(minuto, punteggio)
 4. SPIEGA SEMPRE il PERCHÉ basandoti sui dati tecnici
 5. Usa linguaggio professionale ma empatico
 6. NO limiti di lunghezza - scrivi tutto quello che serve
@@ -2682,13 +3205,13 @@ ${eugenioPromptCache?.tradingKnowledge || ''}
         const div = document.createElement('div');
         div.id = 'ai-loading';
         div.className = 'flex justify-start';
-        div.innerHTML = `<div class="bg-white border border-gray-200 rounded-2xl rounded-tl-none p-3 shadow-sm" >
-        <div class="flex gap-1">
-            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
-            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
-        </div>
-        </div> `;
+        div.innerHTML = `< div class="bg-white border border-gray-200 rounded-2xl rounded-tl-none p-3 shadow-sm" >
+    <div class="flex gap-1">
+        <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+        <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+        <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+    </div>
+        </div > `;
         messagesContainer.appendChild(div);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
@@ -2845,7 +3368,7 @@ window.loadHistory = async function () {
         // Listeners for expand/collapse
         dateData.forEach((data, index) => {
             if (data.hasData) {
-                const card = container.querySelector(`[data-date= "${data.date}"]`);
+                const card = container.querySelector(`[data-date="${data.date}"]`);
                 card.addEventListener('click', () => toggleDateDetails(data.date, data.strategies, card));
             }
         });
@@ -2864,7 +3387,7 @@ function createHistoryDateCard(data, index) {
     const monthName = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'][dateObj.getMonth()];
 
     if (!hasData) {
-        return `<div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3" > <div class="flex justify-between"><div><div class="text-sm text-gray-500">${dayName}, ${dayNum} ${monthName}</div></div><div class="text-sm text-gray-500">Nessun dato</div></div></div> `;
+        return `< div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3" > <div class="flex justify-between"><div><div class="text-sm text-gray-500">${dayName}, ${dayNum} ${monthName}</div></div><div class="text-sm text-gray-500">Nessun dato</div></div></div > `;
     }
 
     const totalMatches = totalWins + totalLosses;
@@ -2872,7 +3395,7 @@ function createHistoryDateCard(data, index) {
     let winrateColor = winrate >= 70 ? 'text-green-400' : (winrate >= 50 ? 'text-yellow-400' : 'text-red-400');
 
     return `
-        <div data-date="${date}" class="bg-gradient-to-r from-blue-900/50 to-purple-900/50 rounded-xl p-4 cursor-pointer hover:scale-[1.02] transition-transform mb-3" >
+    <div data-date="${date}" class="bg-gradient-to-r from-blue-900/50 to-purple-900/50 rounded-xl p-4 cursor-pointer hover:scale-[1.02] transition-transform mb-3">
             <div class="flex items-center justify-between mb-2">
                 <div class="text-lg font-bold">${dayName}, ${dayNum} ${monthName}</div>
                 <div class="text-right">
@@ -2886,12 +3409,12 @@ function createHistoryDateCard(data, index) {
                 ${totalPending > 0 ? `<span class="text-gray-400">⏳ ${totalPending}</span>` : ''}
             </div>
             <div id="details-${date}" class="hidden mt-4 pt-4 border-t border-white/20"></div>
-        </div>
-        `;
+        </div >
+    `;
 }
 
 function toggleDateDetails(date, strategies, card) {
-    const container = card.querySelector(`#details-${date} `);
+    const container = card.querySelector(`#details-${date}`);
     if (!container.classList.contains('hidden')) { container.classList.add('hidden'); return; }
 
     container.innerHTML = Object.entries(strategies).map(([id, strat]) => {
@@ -2909,7 +3432,7 @@ function toggleDateDetails(date, strategies, card) {
 
 
         return `
-        <div class="strategy-card bg-white/10 rounded-lg p-3 mb-2" data-strategy="${id}" data-date="${date}" >
+    <div class="strategy-card bg-white/10 rounded-lg p-3 mb-2" data-strategy="${id}" data-date="${date}">
                 <div class="flex justify-between items-center cursor-pointer" onclick="event.stopPropagation(); window.toggleStrategyMatchesHistory('${id}', '${date}', this)">
                     <div>
                         <div class="font-bold text-purple-300">${strat.name || id}</div>
@@ -2934,13 +3457,13 @@ function toggleDateDetails(date, strategies, card) {
         }).join('')}
                 </div>
 
-            </div> `;
+            </div > `;
     }).join('');
     container.classList.remove('hidden');
 }
 
 window.toggleStrategyMatchesHistory = function (id, date, el) {
-    const container = el.parentElement.querySelector(`#matches-${id}-${date} `);
+    const container = el.parentElement.querySelector(`#matches - ${id} -${date} `);
     container.classList.toggle('hidden');
 };
 
@@ -2977,9 +3500,9 @@ window.loadTradingHistory = async function () {
         }
 
         container.innerHTML = dateData.map(d => {
-            if (!d.hasData || d.picks.length === 0) return `<div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3 text-sm text-gray-500" > ${d.date}: Nessun dato</div> `;
+            if (!d.hasData || d.picks.length === 0) return `< div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3 text-sm text-gray-500" > ${d.date}: Nessun dato</div > `;
             return `
-        <div class="bg-gradient-to-r from-orange-900/40 to-red-900/40 border border-orange-500/20 rounded-xl p-4 mb-3 cursor-pointer" onclick= "this.querySelector('.details').classList.toggle('hidden')" >
+    < div class="bg-gradient-to-r from-orange-900/40 to-red-900/40 border border-orange-500/20 rounded-xl p-4 mb-3 cursor-pointer" onclick = "this.querySelector('.details').classList.toggle('hidden')" >
                     <div class="flex justify-between items-center">
                         <div class="font-bold">${d.date}</div>
                         <div class="flex gap-1">
@@ -2994,7 +3517,7 @@ window.loadTradingHistory = async function () {
                             </div>
                         `).join('')}
                     </div>
-                </div>`;
+                </div > `;
         }).join('');
     } catch (e) {
         console.error(e);
@@ -3063,7 +3586,7 @@ async function loadLiveHubMatches() {
         // Create a stable key regardless of home/away order
         const teams = name.split(/vs|-|:/).map(t => t.trim()).sort().join('_');
         if (seenMatches.has(teams)) {
-            console.log(`[LiveHub] Skipping duplicate: ${match.matchName}`);
+            console.log(`[LiveHub] Skipping duplicate: ${match.matchName} `);
             return false;
         }
         seenMatches.set(teams, true);
@@ -3093,15 +3616,15 @@ async function loadLiveHubMatches() {
         return MAJOR_LEAGUES.includes(match.leagueId);
     });
 
-    console.log(`[LiveHub] All: ${allGames.length}, Today: ${todayGames.length}, Unique: ${liveGames.length}, Major Leagues: ${majorLeagueGames.length}`);
+    console.log(`[LiveHub] All: ${allGames.length}, Today: ${todayGames.length}, Unique: ${liveGames.length}, Major Leagues: ${majorLeagueGames.length} `);
 
     if (majorLeagueGames.length === 0) {
         container.innerHTML = `
-            <div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl">
+    < div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl" >
                 <i class="fa-solid fa-radar text-6xl mb-4 text-white/70 animate-pulse"></i>
                 <p class="font-black text-xl text-white">Nessun match attivo oggi</p>
                 <p class="text-sm text-white/60 mt-2 max-w-xs mx-auto">Il radar sta scansionando i campionati principali. Torna più tardi!</p>
-            </div>`;
+            </div > `;
         return;
     }
 
@@ -3112,19 +3635,65 @@ async function loadLiveHubMatches() {
         const orderB = statusOrder[b.status?.toUpperCase()] || 5;
         if (orderA !== orderB) return orderA - orderB;
 
-        // If same status, sort by pressure (high first for live) or time
+        // If same status, sort by kickoff time first
+        const timeA = a.ora || a.matchTime || '';
+        const timeB = b.ora || b.matchTime || '';
+        if (timeA !== timeB) return timeA.localeCompare(timeB);
+
+        // Then by pressure (high first for live)
         const pA = a.liveStats?.pressureValue || 0;
         const pB = b.liveStats?.pressureValue || 0;
         return pB - pA;
     });
 
     let html = '';
+
+    // Get trading picks to merge trading instructions
+    const tradingPicks = window.strategiesData?.['top_del_giorno']?.matches || [];
+
     sorted.forEach(match => {
-        html += renderLiveHubCard(match);
+        // Try to find matching trading pick by fixtureId or matchName
+        let tradingPick = null;
+        const matchNameNorm = (match.matchName || '').toLowerCase().replace(/\s+/g, '');
+
+        if (match.fixtureId) {
+            tradingPick = tradingPicks.find(p => String(p.fixtureId) === String(match.fixtureId));
+        }
+        if (!tradingPick) {
+            tradingPick = tradingPicks.find(p => {
+                const pName = (p.partita || '').toLowerCase().replace(/\s+/g, '');
+                return pName === matchNameNorm || matchNameNorm.includes(pName) || pName.includes(matchNameNorm);
+            });
+        }
+
+        // Prepare match for unified card renderer - merge trading data if found
+        const preparedMatch = {
+            ...match,
+            home: match.homeTeam || match.matchName?.split(/\s*[-vs]+\s*/)?.[0] || '',
+            away: match.awayTeam || match.matchName?.split(/\s*[-vs]+\s*/)?.[1] || '',
+            // Handle multiple score formats including tradingPick.risultato
+            homeScore: match.homeScore ??
+                (match.score ? parseInt(match.score.split('-')[0]) : null) ??
+                (tradingPick?.risultato ? parseInt(tradingPick.risultato.split('-')[0]) : null) ??
+                tradingPick?.homeScore ?? 0,
+            awayScore: match.awayScore ??
+                (match.score ? parseInt(match.score.split('-')[1]) : null) ??
+                (tradingPick?.risultato ? parseInt(tradingPick.risultato.split('-')[1]) : null) ??
+                tradingPick?.awayScore ?? 0,
+            // Merge trading data
+            hasTradingStrategy: !!tradingPick || !!(match.tip && (match.tip.toLowerCase().includes('back') || match.tip.toLowerCase().includes('lay'))),
+            tradingInstruction: tradingPick?.tradingInstruction || match.tip || '',
+            strategy: tradingPick?.strategy || match.strategy || 'TRADING',
+            reasoning: tradingPick?.reasoning || match.reasoning || '',
+            liveStats: match.liveStats || {},
+            elapsed: match.elapsed || 0,
+            id: tradingPick?.id || match.id,
+            fixtureId: match.fixtureId || tradingPick?.fixtureId
+        };
+        html += window.renderLiveHubCard(preparedMatch);
     });
     container.innerHTML = html;
 }
-window.loadLiveHubMatches = loadLiveHubMatches;
 
 
 
@@ -3135,17 +3704,23 @@ window.toggleLiveFavorite = async function (matchName, tip) {
 
     if (isTrading) {
         // Construct Trading ID: trading_normalizedname
-        const mKey = `trading_${matchName.toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '')}`;
+        const mKey = `trading_${matchName.toLowerCase().replace(/\s+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '')} `;
         await window.toggleTradingFavorite(mKey);
     } else {
         // Search for this match in all strategies to find its ID
         let matchId = null;
         if (window.strategiesData) {
             for (const stratId in window.strategiesData) {
-                // Search by name since we don't have the full match object here
-                const found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
+                // ID-FIRST: Priorità fixtureId, fallback nome
+                let found = null;
+                if (match.fixtureId) {
+                    found = window.strategiesData[stratId].matches?.find(m => m.fixtureId === match.fixtureId);
+                }
+                if (!found) {
+                    found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
+                }
                 if (found) {
-                    matchId = found.id || `${found.data}_${found.partita}`;
+                    matchId = found.id || `${found.data}_${found.partita} `;
                     break;
                 }
             }
@@ -3194,8 +3769,8 @@ function renderLiveHubCard(match) {
     // Team logos
     const homeLogo = match.homeLogo || null;
     const awayLogo = match.awayLogo || null;
-    const homeLogoHtml = homeLogo ? `<img src="${homeLogo}" alt="${homeTeam}" class="w-8 h-8 object-contain" onerror="this.style.display='none'">` : '';
-    const awayLogoHtml = awayLogo ? `<img src="${awayLogo}" alt="${awayTeam}" class="w-8 h-8 object-contain" onerror="this.style.display='none'">` : '';
+    const homeLogoHtml = homeLogo ? `< img src = "${homeLogo}" alt = "${homeTeam}" class="w-8 h-8 object-contain" onerror = "this.style.display='none'" > ` : '';
+    const awayLogoHtml = awayLogo ? `< img src = "${awayLogo}" alt = "${awayTeam}" class="w-8 h-8 object-contain" onerror = "this.style.display='none'" > ` : '';
 
     // Pressure bar color - HIGH CONTRAST (no yellow on white!)
     let pressureColor = 'bg-slate-400';
@@ -3210,7 +3785,7 @@ function renderLiveHubCard(match) {
     // Status display
     const status = (match.status || 'LIVE').toUpperCase();
     const elapsed = match.elapsed || '?';
-    let statusLabel = `LIVE ${elapsed}'`;
+    let statusLabel = `LIVE ${elapsed} '`;
     let statusClass = 'bg-red-500 text-white';
     if (status === 'FT') { statusLabel = 'FINITA'; statusClass = 'bg-slate-600 text-white'; }
     else if (status === 'HT') { statusLabel = 'INTERVALLO'; statusClass = 'bg-amber-500 text-white'; }
@@ -3697,3 +4272,5 @@ function getUnifiedMatches() {
 
     return Array.from(masterMap.values());
 }
+
+
