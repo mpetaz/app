@@ -175,6 +175,5 @@ window.probabilityToOdds = probabilityToOdds;
 window.getTipDisplayName = getTipDisplayName;
 window.parseTeams = parseTeams;
 window.parseResult = parseResult;
-window.levenshteinDistance = levenshteinDistance;
 window.fuzzyMatchTeam = fuzzyMatchTeam;
 window.parseCSVSafe = parseCSVSafe;

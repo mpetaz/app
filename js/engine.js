@@ -1,4 +1,5 @@
 // ==================== CONFIGURATION & CONSTANTS ====================
+// Now using global STRATEGY_CONFIG from js/config.js
 
 const LEAGUE_GOAL_FACTORS = {
     'premier league': 1.12,
@@ -17,11 +18,7 @@ const LEAGUE_GOAL_FACTORS = {
     'conference league': 1.15
 };
 
-const DIXON_COLES_RHO = -0.11; // Correction for under-represented low scores (0-0, 1-1)
-
-// ==================== VALUE EDGE CALCULATION ====================
-// Minimum Value Edge required for a strategy to be considered "tradable"
-const MIN_VALUE_EDGE = 3; // 3% minimum edge over market
+// DIXON_COLES_RHO and MIN_VALUE_EDGE are now in STRATEGY_CONFIG
 
 /**
  * Calculates the Value Edge between AI probability and Betfair odds
@@ -37,7 +34,8 @@ function calculateValueEdge(aiProbability, betfairOdds) {
     const impliedProb = (1 / betfairOdds) * 100;
     const valueEdge = aiProbability - impliedProb;
     const roi = (valueEdge / impliedProb) * 100; // ROI percentage
-    const hasProfitableEdge = valueEdge >= MIN_VALUE_EDGE;
+    const minEdge = (typeof STRATEGY_CONFIG !== 'undefined') ? STRATEGY_CONFIG.TRADING.MIN_VALUE_EDGE : 3;
+    const hasProfitableEdge = valueEdge >= minEdge;
 
     return {
         valueEdge: Math.round(valueEdge * 10) / 10,
@@ -909,6 +907,7 @@ function transformToTradingStrategy(match, allMatches) {
     // ─── STRATEGIA 1 (PRIORITÀ ALTA): BACK OVER 2.5 ───
     // Più facile da giocare con cashout, Eugenio può suggerire quando uscire
     const over25Prob = magicData?.over25Prob || 0;
+    const cfgOver25 = STRATEGY_CONFIG.TRADING.STRATEGIES.BACK_OVER_25;
 
     // VALUE EDGE CHECK: Confronta AI prob con odds Betfair
     const over25Edge = betfairOdds.over25
@@ -919,14 +918,16 @@ function transformToTradingStrategy(match, allMatches) {
     let over25Confidence;
     if (over25Prob >= 50) {
         over25Confidence = Math.round(over25Prob + 15);
-    } else if (over25Prob >= 40) {
+    } else if (over25Prob >= (cfgOver25.minProb || 40)) {
         over25Confidence = Math.round(over25Prob + 10);
     } else {
         over25Confidence = Math.round((over25Prob * 0.8) + (prob * 0.2));
     }
 
-    const over25Passes = over25Prob >= 40 && over25Confidence >= 50 && over25Edge.hasProfitableEdge;
+    const over25Passes = over25Prob >= (cfgOver25.minProb || 40) && over25Confidence >= (cfgOver25.minConfidence || 50) && over25Edge.hasProfitableEdge;
     console.log(`  [OVER 2.5] prob=${over25Prob}%, edge=${over25Edge.valueEdge}% (vs @${betfairOdds.over25 || 'N/A'}) | Passa: ${over25Passes}`);
+
+    const minValueEdge = STRATEGY_CONFIG.TRADING.MIN_VALUE_EDGE || 3;
 
     if (over25Passes) {
         strategies.push({
@@ -936,7 +937,7 @@ function transformToTradingStrategy(match, allMatches) {
             create: () => createBackOver25Strategy(match, htProb, allMatches)
         });
     } else if (betfairOdds.over25 && !over25Edge.hasProfitableEdge) {
-        console.log(`  [OVER 2.5] ❌ SCARTATO: Edge insufficiente (${over25Edge.valueEdge}% < ${MIN_VALUE_EDGE}%)`);
+        console.log(`  [OVER 2.5] ❌ SCARTATO: Edge insufficiente (${over25Edge.valueEdge}% < ${minValueEdge}%)`);
     }
 
     // ─── STRATEGIA 5 (FALLBACK - PRIORITÀ BASSA): HT SNIPER (Gol 1° Tempo) ───
@@ -1084,7 +1085,17 @@ function calculateAllTradingStrategies(match, allMatches) {
     if (over25Prob >= 45 || score >= 60) {
         const conf = Math.round((over25Prob * 0.6) + (score * 0.4));
         const s = createBackOver25Strategy(match, htProb, allMatches);
-        if (s) qualified.push({ type: 'BACK_OVER_25', confidence: conf, strategy: s });
+        if (s) {
+            qualified.push({
+                type: 'BACK_OVER_25',
+                confidence: conf,
+                // Flatten: spread properties to top level
+                entryRange: s.tradingInstruction?.entry || null,
+                exitTarget: s.tradingInstruction?.exit || null,
+                reasoning: s.reasoning || null,
+                tradingInstruction: s.tradingInstruction // Keep complete object for consistency
+            });
+        }
     }
 
     // 2. HT SNIPER
@@ -1092,7 +1103,16 @@ function calculateAllTradingStrategies(match, allMatches) {
     if (htProb >= 60 || htGoalProb >= 55) {
         const conf = Math.round(Math.max(htProb, htGoalProb));
         const s = createHTSniperStrategy(match, htProb);
-        if (s) qualified.push({ type: 'HT_SNIPER', confidence: conf, strategy: s });
+        if (s) {
+            qualified.push({
+                type: 'HT_SNIPER',
+                confidence: conf,
+                entryRange: s.tradingInstruction?.entry || null,
+                exitTarget: s.tradingInstruction?.exit || null,
+                reasoning: s.reasoning || null,
+                tradingInstruction: s.tradingInstruction
+            });
+        }
     }
 
     // 3. LAY THE DRAW
@@ -1105,7 +1125,16 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (mcDrawProb < 32 || avgHistDraw < 32) {
             const conf = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3)));
             const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 25 && avgHistDraw < 28);
-            if (s) qualified.push({ type: 'LAY_THE_DRAW', confidence: conf, strategy: s });
+            if (s) {
+                qualified.push({
+                    type: 'LAY_THE_DRAW',
+                    confidence: conf,
+                    entryRange: s.tradingInstruction?.entry || null,
+                    exitTarget: s.tradingInstruction?.exit || null,
+                    reasoning: s.reasoning || null,
+                    tradingInstruction: s.tradingInstruction
+                });
+            }
         }
     }
 
@@ -1113,7 +1142,16 @@ function calculateAllTradingStrategies(match, allMatches) {
     if (score >= 55 && prob >= 50) {
         const conf = Math.round((score * 0.5) + (prob * 0.3) + 15);
         const s = createSecondHalfSurgeStrategy(match, allMatches);
-        if (s) qualified.push({ type: 'SECOND_HALF_SURGE', confidence: conf, strategy: s });
+        if (s) {
+            qualified.push({
+                type: 'SECOND_HALF_SURGE',
+                confidence: conf,
+                entryRange: s.tradingInstruction?.entry || null,
+                exitTarget: s.tradingInstruction?.exit || null,
+                reasoning: s.reasoning || null,
+                tradingInstruction: s.tradingInstruction
+            });
+        }
     }
 
     // 5. UNDER 3.5 SCALPING
@@ -1121,7 +1159,16 @@ function calculateAllTradingStrategies(match, allMatches) {
     if (under35Prob >= 60 && score >= 45) {
         const conf = Math.round((under35Prob * 0.6) + (score * 0.2) + 10);
         const s = createUnder35TradingStrategy(match);
-        if (s) qualified.push({ type: 'UNDER_35_SCALPING', confidence: conf, strategy: s });
+        if (s) {
+            qualified.push({
+                type: 'UNDER_35_SCALPING',
+                confidence: conf,
+                entryRange: s.tradingInstruction?.entry || null,
+                exitTarget: s.tradingInstruction?.exit || null,
+                reasoning: s.reasoning || null,
+                tradingInstruction: s.tradingInstruction
+            });
+        }
     }
 
     return qualified.sort((a, b) => b.confidence - a.confidence);
@@ -1281,7 +1328,7 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
     };
 
     // Dixon-Coles Rho
-    const rho = DIXON_COLES_RHO || -0.11;
+    const rho = (typeof STRATEGY_CONFIG !== 'undefined' ? STRATEGY_CONFIG.ENGINE.DIXON_COLES_RHO : -0.11);
 
     for (let i = 0; i < iterations; i++) {
         const hg = poissonRandom(lambdaHome, rng);
@@ -1374,6 +1421,10 @@ function calculateSafetyLevel(simStats) {
  * Generates the "Magia AI" Strategy
  * "THE PROFESSIONAL SCANNER" Logic
  */
+/**
+ * Generates the "Magia AI" Strategy
+ * "THE PROFESSIONAL SCANNER" Logic
+ */
 function generateMagiaAI(matches, allMatchesHistory) {
     const magicMatches = [];
 
@@ -1382,92 +1433,36 @@ function generateMagiaAI(matches, allMatchesHistory) {
         const teams = parseTeams(match.partita);
         if (!teams) return;
 
-        const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory);
-        const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory);
+        // Ensure magicStats exists (it should from Step 1)
+        if (!match.magicStats) {
+            // 🔥 DEBUG: Log missing magicStats
+            console.log(`[Magia AI] Skip: ${match.partita} - NO magicStats (Step 1 non eseguito o non salvato)`);
+            return;
+        }
 
-        if (homeStats.currForm.matchCount < 3 || awayStats.currForm.matchCount < 3) return;
+        let sim = match.magicStats;
 
         // ═══════════════════════════════════════════════════════════════════════
-        // MAGIA AI 3.0: REQUIRE REAL API ODDS (No Estimates Allowed)
+        // MAGIA AI 3.0: FILTRO VALORE (Tartufo da 10.000€!)
         // ═══════════════════════════════════════════════════════════════════════
-        const hasBasicOdds = match.quota1 && match.quotaX && match.quota2;
-        if (!hasBasicOdds) {
-            console.log(`[Magia AI] ⏭️ Skipping ${match.partita}: Missing real API odds (1/X/2)`);
-            return; // Skip this match entirely
+
+        // 🔥 FILTRO 1: RICHIEDI QUOTE API REALI (no stimate)
+        const hasRealApiOdds = match.quota1 && match.quotaX && match.quota2 &&
+            parseFloat(match.quota1) > 1 &&
+            parseFloat(match.quotaX) > 1 &&
+            parseFloat(match.quota2) > 1;
+
+        if (!hasRealApiOdds) {
+            // Match senza quote API reali → escluso da Magia AI
+            // Sarà comunque nelle altre strategie (ALL, Italia, etc.)
+            console.log(`[Magia AI] Skip: ${match.partita} - NO quote API reali`);
+            return;
         }
 
-        // League Goal Factor (Elite Upgrade)
-        const leagueNorm = (match.lega || '').toLowerCase();
-        let goalFactor = 1.0;
-        for (const [l, factor] of Object.entries(LEAGUE_GOAL_FACTORS)) {
-            if (leagueNorm.includes(l)) {
-                goalFactor = factor;
-                break;
-            }
-        }
+        // 🔥 FILTRO 2: QUOTA MINIMA GIOCABILE (il vero tartufo!)
+        const MIN_PLAYABLE_ODD = 1.25;
 
-        // 1. Prioritize Pre-Calculated Stats (Source of Truth)
-        let sim;
-        if (match.magicStats && match.magicStats.drawProb) {
-            sim = {
-                winHome: match.magicStats.winHomeProb,
-                draw: match.magicStats.drawProb,
-                winAway: match.magicStats.winAwayProb,
-                dc1X: match.magicStats.winHomeProb + match.magicStats.drawProb,
-                dcX2: match.magicStats.winAwayProb + match.magicStats.drawProb,
-                dc12: match.magicStats.winHomeProb + match.magicStats.winAwayProb,
-                // Restored Goal Probs
-                over15: match.magicStats.over15Prob || 0,
-                over25: match.magicStats.over25Prob || 0,
-                under35: match.magicStats.under35Prob || 0,
-                btts: match.magicStats.bttsProb || 0,
-                noGol: match.magicStats.noGolProb || 0,
-
-                mostFrequentScore: { score: "N/A", percent: 0 },
-                exactScores: []
-            };
-            // Restore goal probs if available (should be added to pre-calc if needed)
-        } else {
-            // 2. Fallback Calculation (if running standalone)
-            const lambdaHome = ((homeStats.currForm.avgScored * 0.6 + homeStats.season.avgScored * 0.4 +
-                awayStats.currForm.avgConceded * 0.6 + awayStats.season.avgConceded * 0.4) / 2) * goalFactor;
-            const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
-                homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
-
-            sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita);
-
-            // =====================================================================
-            // HYBRID PROBABILITY REFINEMENT (User Feedback: "Draws are too high")
-            // =====================================================================
-            // Blend Simulation (70%) with Historical Draw Frequency (30%)
-            const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
-            const histAwayDraw = (awayStats.season.draws / awayStats.season.matches) * 100 || 25;
-            const avgHistDraw = (histHomeDraw + histAwayDraw) / 2;
-
-            // New Weighted Draw Probability
-            let hybridDraw = (sim.draw * 0.7) + (avgHistDraw * 0.3);
-
-            // Tipster Awareness: If Tip is "1" or "2", penalize Draw further
-            // "considerare il calcolo precedente"
-            const tip = (match.tip || '').trim();
-            if (tip === '1' || tip === '2') {
-                hybridDraw = hybridDraw * 0.90; // Reduce by 10%
-            }
-
-            // Normalize back to 100%
-            const remainder = 100 - hybridDraw;
-            const ratio = remainder / (sim.winHome + sim.winAway);
-            sim.draw = hybridDraw;
-            sim.winHome = sim.winHome * ratio;
-            sim.winAway = sim.winAway * ratio;
-            // Re-calc DCs
-            sim.dc1X = sim.winHome + sim.draw;
-            sim.dcX2 = sim.winAway + sim.draw;
-            sim.dc12 = sim.winHome + sim.winAway;
-            // =====================================================================
-        }
-
-        // MAP ALL SIGNALS (Translating to Italian)
+        // MAP ALL SIGNALS
         const allSignals = [
             { label: '1', prob: sim.winHome, type: '1X2' },
             { label: 'X', prob: sim.draw, type: '1X2' },
@@ -1482,230 +1477,295 @@ function generateMagiaAI(matches, allMatchesHistory) {
             { label: 'No Gol', prob: sim.noGol, type: 'GOALS' }
         ].sort((a, b) => b.prob - a.prob);
 
-        // ═══════════════════════════════════════════════════════════════════════
-        // MAGIA AI 2.0: SMART SCORE SYSTEM
-        // Considera: Confidence + Value Edge + Quota Playability
-        // ═══════════════════════════════════════════════════════════════════════
+        const THRESHOLDS = STRATEGY_CONFIG.MAGIA_AI.THRESHOLDS;
+        const FALLBACK = STRATEGY_CONFIG.MAGIA_AI.FALLBACK;
 
-        // 1. SOGLIE STRETTE (Aggiornate 6 Gen 2026)
-        // Più conservative per evitare troppi falsi positivi
         const getThreshold = (signal) => {
-            // Over 1.5 - Soglia alta (mercato "facile")
-            if (signal.label.includes('1.5')) return 85;
-
-            // Double Chance - Soglia media-alta
-            if (signal.type === 'DC') return 82;
-
-            // 1X2 puro - Soglia media
-            if (signal.type === '1X2') return 78;
-
-            // Over 2.5 - Soglia standard
-            if (signal.label === 'Over 2.5') return 75;
-
-            // Under 3.5 - Soglia media
-            if (signal.label === 'Under 3.5') return 78;
-
-            // Gol/No Gol - Soglia più bassa (mercato volatile)
-            if (signal.label === 'Gol' || signal.label === 'No Gol') return 72;
-
-            return 75; // Default
+            const cfg = THRESHOLDS.find(t =>
+                (t.type === signal.type && t.label === signal.label) ||
+                (t.type === signal.type && !t.label)
+            );
+            return cfg ? cfg.minProb : 75;
         };
 
-        // 2. ANALIZZA LE TOP 5 OPZIONI
+        // 2. FILTER CANDIDATES
         let topCandidates = allSignals.slice(0, 5).filter(s => s.prob >= getThreshold(s));
 
-        // 3. FALLBACK HT: Se nessun candidato sopra soglia, usa Over 0.5 HT se >= 88%
+        // 3. FALLBACK HT
         const htProb = match.info_ht ? parseInt((match.info_ht.match(/(\d+)%/) || [])[1] || 0) : 0;
-        if (topCandidates.length === 0 && htProb >= 88) {
-            console.log(`[Magia AI] Fallback HT per ${match.partita}: htProb=${htProb}%`);
+        if (topCandidates.length === 0 && htProb >= (FALLBACK.minProb || 88)) {
             topCandidates = [{
-                label: 'Over 0.5 HT',
+                label: FALLBACK.label || 'Over 0.5 HT',
                 prob: htProb,
-                type: 'HT_FALLBACK',
+                type: FALLBACK.type || 'HT_FALLBACK',
                 estimatedOdd: (100 / htProb).toFixed(2)
             }];
         }
 
-        if (topCandidates.length === 0) return; // Nessun candidato (nemmeno HT)
+        if (topCandidates.length === 0) return;
 
-        // 3. CALCOLA SMART SCORE PER OGNI CANDIDATO
-        const matchQuota = parseFloat(String(match.quota).replace(',', '.')) || 2.0;
-
+        // 3. CALCOLA SMART SCORE
         const scoredCandidates = topCandidates.map(signal => {
-            // ═══════════════════════════════════════════════════════════════════════
-            // MAGIA AI 3.0: COMPLETE ODDS MAPPING (All Signal Types)
-            // ═══════════════════════════════════════════════════════════════════════
             let realOdd = null;
 
-            // 1X2 Markets (REQUIRED - we validated these exist)
-            if (signal.label === '1') realOdd = parseFloat(match.quota1);
-            else if (signal.label === 'X') realOdd = parseFloat(match.quotaX);
-            else if (signal.label === '2') realOdd = parseFloat(match.quota2);
+            // Try to use match odds if available (Basic Manual or API)
+            // Note: In Step 2, we might not have 'quota1' populated from API yet.
+            // We can fall back to 'match.quota' if it matches the current tip, but unreliable.
 
-            // Double Chance (calculated from 1X2)
-            else if (signal.label === '1X') realOdd = 1 / ((1 / match.quota1) + (1 / match.quotaX));
-            else if (signal.label === 'X2') realOdd = 1 / ((1 / match.quotaX) + (1 / match.quota2));
-            else if (signal.label === '12') realOdd = 1 / ((1 / match.quota1) + (1 / match.quota2));
-
-            // Over/Under Markets (if available from API)
-            else if (signal.label === 'Over 2.5' && match.betfairOver25) realOdd = parseFloat(match.betfairOver25);
-            else if (signal.label === 'Under 2.5' && match.betfairUnder25) realOdd = parseFloat(match.betfairUnder25);
-            else if (signal.label === 'Under 3.5' && match.betfairUnder25) {
-                // Approximate Under 3.5 from Under 2.5 (typically ~30% lower odds)
-                realOdd = parseFloat(match.betfairUnder25) * 0.65;
-            }
-            else if (signal.label === 'Over 1.5' && match.betfairOver25) {
-                // Approximate Over 1.5 from Over 2.5 (typically ~50% lower odds)
-                realOdd = parseFloat(match.betfairOver25) * 0.55;
+            if (hasRealApiOdds) {
+                const bet365Odds = {
+                    '1': parseFloat(match.quota1),
+                    'X': parseFloat(match.quotaX),
+                    '2': parseFloat(match.quota2)
+                };
+                if (signal.label === '1') realOdd = bet365Odds['1'];
+                else if (signal.label === 'X') realOdd = bet365Odds['X'];
+                else if (signal.label === '2') realOdd = bet365Odds['2'];
+                else if (signal.label === '1X') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['X']));
+                else if (signal.label === 'X2') realOdd = 1 / ((1 / bet365Odds['X']) + (1 / bet365Odds['2']));
+                else if (signal.label === '12') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['2']));
             }
 
-            // BTTS Markets (if available from API)
-            else if (signal.label === 'Gol' && match.betfairGG) realOdd = parseFloat(match.betfairGG);
-            else if (signal.label === 'No Gol' && match.betfairNG) realOdd = parseFloat(match.betfairNG);
-
-            // Fallback: estimate from probability (only for markets without API data)
             const estimatedOdd = realOdd || (100 / signal.prob);
-            const hasRealOdd = !!realOdd;
 
-            // ═══════════════════════════════════════════════════════════════════════
-            // MAGIA AI 3.0: CONTINUOUS QUOTA BONUS (No More Steps)
-            // Optimal range: 1.50-2.20 (sweet spot for value betting)
-            // ═══════════════════════════════════════════════════════════════════════
-            let quotaBonus;
-            if (estimatedOdd >= 1.50 && estimatedOdd <= 2.20) {
-                // Sweet spot: max bonus
-                quotaBonus = 20;
-            } else if (estimatedOdd >= 1.30 && estimatedOdd < 1.50) {
-                // Linear ramp up from 1.30 to 1.50
-                quotaBonus = 10 + ((estimatedOdd - 1.30) / 0.20) * 10;
-            } else if (estimatedOdd > 2.20 && estimatedOdd <= 3.00) {
-                // Linear ramp down from 2.20 to 3.00
-                quotaBonus = 20 - ((estimatedOdd - 2.20) / 0.80) * 15;
-            } else if (estimatedOdd > 3.00 && estimatedOdd <= 4.00) {
-                // Still playable but risky
-                quotaBonus = 5 - ((estimatedOdd - 3.00) / 1.00) * 10;
-            } else if (estimatedOdd < 1.30) {
-                // Too low: penalty proportional to how low
-                quotaBonus = -10 - ((1.30 - estimatedOdd) * 50);
-            } else {
-                // > 4.00: too risky
-                quotaBonus = -10;
+            const cfg = THRESHOLDS.find(t => t.type === signal.type && t.label === signal.label);
+            const minOdd = cfg ? cfg.minOdd : 1.20;
+
+            let totalScore = signal.prob;
+
+            // Value Trap Check (only if we have high confidence in the odd)
+            if (hasRealApiOdds && estimatedOdd < minOdd) {
+                totalScore -= 50;
             }
-
-            // Real odds bonus (having actual market data is valuable)
-            if (hasRealOdd) quotaBonus += 5;
-
-            // ═══════════════════════════════════════════════════════════════════════
-            // MAGIA AI 3.0: BALANCED VALUE EDGE CALCULATION
-            // ═══════════════════════════════════════════════════════════════════════
-            const impliedProb = (1 / estimatedOdd) * 100;
-            const valueEdge = signal.prob - impliedProb;
-
-            // Penalty for negative edge: proportional but not double
-            // Negative edge is bad, but small negative edges (-5%) are tolerable
-            let edgePenalty = 0;
-            if (valueEdge < -5) {
-                // Only penalize if significantly negative
-                edgePenalty = (valueEdge + 5) * 1.5; // 1.5x penalty for edge below -5
+            // Value Bet Bonus
+            if (estimatedOdd > 1.80 && signal.prob > 60) {
+                totalScore += 10;
             }
-
-            // ═══════════════════════════════════════════════════════════════════════
-            // MAGIA AI 3.0: REFINED SMART SCORE FORMULA
-            // Weights: 45% confidence, 35% value edge, 20% quota playability
-            // ═══════════════════════════════════════════════════════════════════════
-            const smartScore =
-                (signal.prob * 0.45) +      // 45% weight to confidence
-                (valueEdge * 0.35) +        // 35% weight to value edge
-                (quotaBonus * 0.20) +       // 20% weight to quota playability
-                edgePenalty;                // Penalty for significantly negative edge
 
             return {
                 ...signal,
-                estimatedOdd: estimatedOdd.toFixed(2),
-                impliedProb: impliedProb.toFixed(1),
-                valueEdge: valueEdge.toFixed(1),
-                quotaBonus: quotaBonus.toFixed(1),
-                hasRealOdd,
-                smartScore: smartScore.toFixed(1)
+                finalScore: totalScore,
+                estimatedOdd: typeof estimatedOdd === 'number' ? estimatedOdd.toFixed(2) : estimatedOdd,
+                isValue: estimatedOdd >= minOdd // Soft filter: prefer values, but dont kill purely on missing odd
             };
         });
 
-        // 4. ORDINA PER SMART SCORE (non più per confidence pura!)
-        scoredCandidates.sort((a, b) => parseFloat(b.smartScore) - parseFloat(a.smartScore));
+        // 🔥 FILTRO 2: Applica quota minima giocabile
+        const winners = scoredCandidates
+            .filter(s => {
+                const odd = parseFloat(s.estimatedOdd);
+                if (odd < MIN_PLAYABLE_ODD) {
+                    console.log(`[Magia AI] Skip segnale ${match.partita}: ${s.label} @${odd} (< ${MIN_PLAYABLE_ODD})`);
+                    return false;
+                }
+                return s.finalScore > 0;
+            })
+            .sort((a, b) => b.finalScore - a.finalScore);
 
-        const bestPick = scoredCandidates[0];
-        const alternativePicks = scoredCandidates.slice(1, 3); // Top 2 alternative
+        if (winners.length > 0) {
+            const bestPick = winners[0];
 
-        // 5. FILTRO FINALE: Escludi quote < 1.20 (inutili)
-        if (parseFloat(bestPick.estimatedOdd) < 1.20) {
-            // Prova con la seconda opzione
-            if (alternativePicks.length > 0 && parseFloat(alternativePicks[0].estimatedOdd) >= 1.20) {
-                // Swap: usa alternativa
-                const temp = bestPick;
-                Object.assign(bestPick, alternativePicks[0]);
-                alternativePicks[0] = temp;
-            } else {
-                return; // Nessuna opzione giocabile
-            }
+            // 🔥 Top 3 Risultati Esatti per Admin Card
+            const top3Scores = (sim.exactScores || []).slice(0, 3).map(s => ({
+                score: s.score,
+                percent: s.percent
+            }));
+
+            // 🔥 Segnale Rafforzato: AI tip = DB tip?
+            const isReinforced = bestPick.label === match.tip ||
+                bestPick.label === match.tip?.replace('+', 'Over ').replace('-', 'Under ');
+
+            magicMatches.push({
+                ...match,
+                // Override main props for UI display (Strategy View)
+                tip: bestPick.label,        // Magia AI Tip
+                quota: bestPick.estimatedOdd, // Magia AI Odd
+                score: Math.min(100, Math.round(bestPick.finalScore)),
+
+                // Keep Original Data for comparison in UI (Card)
+                originalDBTip: match.tip,
+                originalDBQuota: match.quota,
+
+                // Magia Metadata
+                strategy: 'magia_ai',
+                magicStats: {
+                    ...sim,
+                    tipMagiaAI: bestPick.label,
+                    probMagiaAI: bestPick.prob,
+                    oddMagiaAI: bestPick.estimatedOdd,
+                    smartScore: bestPick.finalScore,
+                    top3Scores: top3Scores,           // 🔥 Top 3 risultati esatti
+                    isReinforced: isReinforced        // 🔥 Badge convergenza
+                },
+                reasoning: `Magia AI: ${bestPick.label} (${bestPick.prob}%)`,
+
+                // 🔥 Campi extra per Admin Card
+                top3Scores: top3Scores,
+                isReinforced: isReinforced
+            });
         }
-
-        // 6. VETO LOGIC: Conflitto Over/Under con DB tip
-        const dbTip = (match.tip || '').trim();
-        if (dbTip.startsWith('+') && bestPick.label.startsWith('Under')) return;
-        if (dbTip.startsWith('-') && bestPick.label.startsWith('Over')) return;
-
-        // 7. STRUCTURE DATA (CON SMART SCORE)
-        magicMatches.push({
-            ...match,
-            magicStats: {
-                // ══ MAGIA AI 2.0 HEADLINES ══
-                tipMagiaAI: bestPick.label,
-                oddMagiaAI: match.quota, // Sarà arricchita con API reale in admin
-
-                // SMART SCORE DATA
-                confidence: bestPick.prob,
-                smartScore: parseFloat(bestPick.smartScore),
-                estimatedOdd: bestPick.estimatedOdd,
-                valueEdge: parseFloat(bestPick.valueEdge),
-                quotaBonus: bestPick.quotaBonus,
-
-                // ALTERNATIVE PICKS (per admin review)
-                alternativePicks: alternativePicks.map(p => ({
-                    label: p.label,
-                    prob: p.prob,
-                    smartScore: p.smartScore,
-                    estimatedOdd: p.estimatedOdd
-                })),
-
-                // Top 3 Signals (vista scanner pro)
-                topSignals: allSignals.slice(0, 3),
-                aiSignal: bestPick.label,
-
-                // Flattened Probabilities (per arricchimento API)
-                winHomeProb: sim.winHome,
-                drawProb: sim.draw,
-                winAwayProb: sim.winAway,
-                over15Prob: sim.over15,
-                over25Prob: sim.over25,
-                under35Prob: sim.under35,
-                bttsProb: sim.btts,
-                noGolProb: sim.noGol,
-                dc1XProb: sim.dc1X,
-                dcX2Prob: sim.dcX2,
-                dc12Prob: sim.dc12,
-
-                // Metadata
-                exactScore: sim.mostFrequentScore.score,
-                exactScorePerc: sim.mostFrequentScore.percent,
-                safetyLevel: calculateSafetyLevel(sim),
-                topScores: sim.exactScores.filter(s => s.percent >= 12).slice(0, 3)
-            },
-            score: parseFloat(bestPick.smartScore) // Sorting by SMART SCORE
-        });
     });
 
-    return magicMatches.sort((a, b) => b.score - a.score);
+    return magicMatches;
 }
+
+/**
+ * ORCHESTRATOR: Distributes matches to strategies using pre-calculated stats.
+ * This function is the core of Step 2B.
+ */
+function distributeStrategies(calculatedMatches, allMatchesHistory) {
+    if (!calculatedMatches || calculatedMatches.length === 0) return {};
+
+    const results = {};
+
+    // 1. Magia AI (Clean Selection)
+    // Assumes generateMagiaAI returns an array of enriched matches
+    const magicMatches = generateMagiaAI(calculatedMatches, allMatchesHistory);
+    results['magia_ai'] = {
+        id: 'magia_ai',
+        name: '🔮 MAGIA AI',
+        matches: magicMatches || [],
+        totalMatches: (magicMatches || []).length,
+        type: 'monte_carlo',
+        lastUpdated: Date.now()
+    };
+
+    // 2. Standard Strategies Definitions
+    const strategies = [
+        { id: 'all', name: '📊 ALL', type: 'all' },
+        { id: 'italia', name: '🇮🇹 ITALIA', type: 'italia' },
+        { id: 'top_eu', name: '🌍 TOP EU', type: 'top_eu' },
+        { id: 'cups', name: '🏆 COPPE', type: 'cups' },
+        { id: 'winrate_80', name: '🔥 WINRATE 80%', type: 'winrate_80' }
+    ];
+
+    // Pre-calculate Blacklist (Simplified: if we don't have blacklist loaded here, we skip it or assume calculatedMatches is clean enough? 
+    // Actually calculatedMatches comes from Step 1 which includes EVERYTHING.
+    // For "ALL" strategy we usually apply blacklist. 
+    // Since we don't have easy access to blacklist array here, we will define "ALL" as truly ALL for now or rely on specific filtering)
+
+    // Helper for Filters - CORRECTED ISO CODES matching database format
+    const topEuLeagues = [
+        'EU-ENG Premier League',     // Inghilterra
+        'EU-ESP La Liga',            // Spagna
+        'EU-DEU Bundesliga',         // Germania (DEU non GER!)
+        'EU-FRA Ligue 1',            // Francia
+        'EU-NED Eredivisie',         // Olanda
+        'EU-CHE Super League',       // Svizzera (CHE non SWI!)
+        'EU-PRT Primeira Liga',      // Portogallo (PRT non POR!)
+        'EU-BEL Pro League'          // Belgio
+    ];
+    // CUPS: Solo coppe EUROPEE (Champions, Europa League, Conference)
+    const cupKeywords = ['champions league', 'europa league', 'conference league'];
+
+    // Pre-calc Winrate 80 stats
+    let winrateLeagues = [];
+    if (allMatchesHistory && allMatchesHistory.length > 0) {
+        const leagueStats = {};
+        allMatchesHistory.forEach(m => {
+            if (!m.risultato) return;
+            const lega = normalizeLega(m.lega);
+            if (!leagueStats[lega]) leagueStats[lega] = { total: 0, wins: 0 };
+            leagueStats[lega].total++;
+            if (m.esito === 'Vinto') leagueStats[lega].wins++;
+        });
+        winrateLeagues = Object.keys(leagueStats).filter(lega => {
+            const stats = leagueStats[lega];
+            const winrate = stats.total > 0 ? (stats.wins / stats.total) * 100 : 0;
+            return winrate >= 80 && stats.total >= 5;
+        });
+    }
+
+    strategies.forEach(strat => {
+        let filtered = [];
+
+        if (strat.type === 'all') {
+            // Include everything (Blacklist filtering should ideally happen, but let's pass all for now or filter empty tips)
+            filtered = calculatedMatches.filter(m => m.tip && m.tip.trim() !== '');
+        } else if (strat.type === 'italia') {
+            filtered = calculatedMatches.filter(m => {
+                const l = (m.lega || '').toLowerCase();
+                return l.includes('italy') || l.includes('ita ') || l.includes('serie');
+            });
+        } else if (strat.type === 'top_eu') {
+            // 🔍 DEBUG TOP EU - DETTAGLIATO
+            console.log('🔍 [DEBUG TOP EU] topEuLeagues array:', topEuLeagues);
+            console.log('🔍 [DEBUG TOP EU] topEuLeagues[2] (Bundesliga):', topEuLeagues[2]);
+            console.log('🔍 [DEBUG TOP EU] Sample leghe from calculatedMatches:', calculatedMatches.slice(0, 5).map(m => m.lega));
+
+            filtered = calculatedMatches.filter(m => {
+                const l = (m.lega || '').toLowerCase().trim();
+
+                // DEBUG: Confronto dettagliato per Bundesliga
+                if (l.includes('bundesliga')) {
+                    topEuLeagues.forEach((k, idx) => {
+                        const kLower = k.toLowerCase().trim();
+                        console.log(`🔍 [TOP EU COMPARE] l="${l}" vs k[${idx}]="${kLower}" -> EQUAL=${l === kLower}`);
+                    });
+                }
+
+                const match = topEuLeagues.some(k => l === k.toLowerCase().trim());
+                if (l.includes('bundesliga') || l.includes('premier') || l.includes('la liga') || l.includes('serie a')) {
+                    console.log(`🔍 [DEBUG TOP EU] Lega "${m.lega}" -> l="${l}" -> match=${match}`);
+                }
+                return match;
+            });
+            console.log(`🔍 [DEBUG TOP EU] Filtered count: ${filtered.length}`);
+
+        } else if (strat.type === 'cups') {
+            // 🔍 DEBUG CUPS
+            console.log('🔍 [DEBUG CUPS] cupKeywords:', cupKeywords);
+            filtered = calculatedMatches.filter(m => {
+                const l = (m.lega || '').toLowerCase();
+                const match = cupKeywords.some(k => l.includes(k));
+                if (l.includes('coppa') || l.includes('cup') || l.includes('champions') || l.includes('europa')) {
+                    console.log(`🔍 [DEBUG CUPS] Lega "${m.lega}" -> match=${match}`);
+                }
+                return match;
+            });
+            console.log(`🔍 [DEBUG CUPS] Filtered count: ${filtered.length}`);
+        } else if (strat.type === 'winrate_80') {
+            filtered = calculatedMatches.filter(m => {
+                return winrateLeagues.includes(normalizeLega(m.lega));
+            });
+        }
+
+        // 🔍 DEBUG: Log ogni strategia
+        console.log(`🔍 [DEBUG distributeStrategies] ${strat.id}: filtered.length = ${filtered.length}`);
+
+        // SEMPRE salvare tutte le strategie, anche con 0 partite
+        results[strat.id] = {
+            id: strat.id,
+            name: strat.name,
+            matches: filtered,
+            totalMatches: filtered.length,
+            type: strat.type,
+            lastUpdated: Date.now()
+        };
+    });
+
+
+
+    // 3. Special AI Logic (Subset of Magia AI with high score)
+    const specialAiMatches = magicMatches.filter(m => {
+        const score = m.score || 0;
+        const prob = m.magicStats ? m.magicStats.probMagiaAI : 0;
+        // Requires high score + high win probability
+        return score >= 85 && prob >= 80;
+    });
+
+    results['special_ai'] = {
+        id: 'special_ai',
+        name: '🤖 SPECIAL AI',
+        matches: specialAiMatches || [],
+        totalMatches: (specialAiMatches || []).length,
+        type: 'monte_carlo_elite',
+        lastUpdated: Date.now()
+    };
+
+    return results;
+}
+
 
 
 /**
@@ -1798,5 +1858,5 @@ window.engine = {
     analyzeDrawRate,
     // NEW: Value Edge calculation
     calculateValueEdge,
-    MIN_VALUE_EDGE
+    MIN_VALUE_EDGE: (typeof STRATEGY_CONFIG !== 'undefined' ? STRATEGY_CONFIG.TRADING.MIN_VALUE_EDGE : 3.0)
 };

@@ -225,28 +225,70 @@ async function uploadMatchesToFirebase(type, dataToUpload, existingMatches = [],
 
 /**
  * Save strategy calculations to daily_strategies collection history
+ * 🔥 UPDATED: Uses subcollections to avoid 1MB document limit
+ * Structure: daily_strategies/{date}/strategies/{strategyId}
  */
 async function saveStrategyToHistory(db, targetDate, strategiesMap) {
     if (!strategiesMap || Object.keys(strategiesMap).length === 0) return;
 
     try {
-        const docRef = window.doc(db, "daily_strategies", targetDate);
-
-        // Merge with existing strategies for that day to avoid overwriting others
-        const snapshot = await window.getDoc(docRef);
-        const existingData = snapshot.exists() ? snapshot.data() : { strategies: {} };
-        const existingStrategies = existingData.strategies || {};
-
-        // Merge new strategies into existing
-        const mergedStrategies = { ...existingStrategies, ...strategiesMap };
-
-        await window.setDoc(docRef, {
+        // 1. First, create/update the parent document with metadata only
+        const parentDocRef = window.doc(db, "daily_strategies", targetDate);
+        await window.setDoc(parentDocRef, {
             date: targetDate,
-            strategies: mergedStrategies,
-            lastUpdated: Date.now()
+            lastUpdated: Date.now(),
+            strategyCount: Object.keys(strategiesMap).length,
+            strategyIds: Object.keys(strategiesMap)
         }, { merge: true });
 
-        console.log(`[History] Saved strategies for ${targetDate}`);
+        // 2. Save each strategy as a separate document in subcollection
+        const strategiesCollectionRef = window.collection(parentDocRef, "strategies");
+
+        for (const [stratId, stratData] of Object.entries(strategiesMap)) {
+            const stratDocRef = window.doc(strategiesCollectionRef, stratId);
+
+            // Prepare data - remove circular refs and limit size
+            const cleanData = {
+                id: stratId,
+                name: stratData.name || stratId,
+                type: stratData.type || 'standard',
+                totalMatches: stratData.totalMatches || (stratData.matches?.length || 0),
+                matches: (stratData.matches || []).map(m => {
+                    // Build match object, only including defined values
+                    const matchData = {};
+                    if (m.id !== undefined) matchData.id = m.id;
+                    if (m.partita !== undefined) matchData.partita = m.partita;
+                    if (m.lega !== undefined) matchData.lega = m.lega;
+                    if (m.data !== undefined) matchData.data = m.data;
+                    if (m.tip !== undefined) matchData.tip = m.tip;
+                    if (m.quota !== undefined) matchData.quota = m.quota;
+                    if (m.score !== undefined) matchData.score = m.score;
+                    if (m.ora !== undefined) matchData.ora = m.ora;
+                    if (m.originalDBTip !== undefined) matchData.originalDBTip = m.originalDBTip;
+                    if (m.originalDBQuota !== undefined) matchData.originalDBQuota = m.originalDBQuota;
+                    if (m.isReinforced !== undefined) matchData.isReinforced = m.isReinforced;
+                    if (m.reasoning !== undefined) matchData.reasoning = m.reasoning;
+
+                    // Compact magicStats (only if exists)
+                    if (m.magicStats) {
+                        matchData.magicStats = {};
+                        if (m.magicStats.tipMagiaAI !== undefined) matchData.magicStats.tipMagiaAI = m.magicStats.tipMagiaAI;
+                        if (m.magicStats.probMagiaAI !== undefined) matchData.magicStats.probMagiaAI = m.magicStats.probMagiaAI;
+                        if (m.magicStats.oddMagiaAI !== undefined) matchData.magicStats.oddMagiaAI = m.magicStats.oddMagiaAI;
+                        if (m.magicStats.smartScore !== undefined) matchData.magicStats.smartScore = m.magicStats.smartScore;
+                        if (m.magicStats.top3Scores !== undefined) matchData.magicStats.top3Scores = m.magicStats.top3Scores;
+                    }
+
+                    return matchData;
+                }),
+                lastUpdated: Date.now()
+            };
+
+            await window.setDoc(stratDocRef, cleanData, { merge: true });
+            console.log(`[History] Saved strategy: ${stratId} (${cleanData.totalMatches} matches)`);
+        }
+
+        console.log(`[History] Saved ${Object.keys(strategiesMap).length} strategies for ${targetDate}`);
     } catch (e) {
         console.error(`[History] Save Error:`, e);
         throw e;
