@@ -226,7 +226,7 @@ window.getLiveTradingAnalysis = async function (matchId) {
 
     // 1. Search in Favorites
     if (window.selectedMatches) {
-        match = window.selectedMatches.find(m => (m.id || `${m.data}_${m.partita}`) === matchId);
+        match = window.selectedMatches.find(m => window.generateUniversalMatchId(m) === matchId);
     }
 
     // 2. Search in Trading Cache
@@ -238,7 +238,7 @@ window.getLiveTradingAnalysis = async function (matchId) {
     if (!match && window.strategiesData) {
         for (const strat of Object.values(window.strategiesData)) {
             if (strat.matches) {
-                match = strat.matches.find(m => (m.id || `${m.data}_${m.partita}`) === matchId);
+                match = strat.matches.find(m => window.generateUniversalMatchId(m) === matchId);
                 if (match) break;
             }
         }
@@ -497,7 +497,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // NEW: High Priority FixtureID Lookup (Immune to name changes) - ONLY if started
     if (!liveHubData && !matchNotStarted && match.fixtureId) {
-        liveHubData = Object.values(window.liveScoresHub).find(h => h.fixtureId === match.fixtureId);
+        const targetId = String(match.fixtureId);
+        liveHubData = Object.values(window.liveScoresHub).find(h => String(h.fixtureId || '') === targetId);
     }
 
     // FUZZY FALLBACK: Only if match has started
@@ -619,7 +620,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const isTrading = window.isTradingPick(match) || options.isTrading;
 
     // ID Consistente per stelline
-    const bettingMatchId = match.id || `${match.data}_${match.partita}`;
+    const bettingMatchId = window.generateUniversalMatchId(match);
     const tradingMatchId = window.getTradingPickId ? window.getTradingPickId(match.partita) : bettingMatchId;
     const matchId = isTrading ? tradingMatchId : bettingMatchId;
 
@@ -1282,7 +1283,8 @@ window.initTradingPage = function () {
 window.loadTipsPage = async function () {
     const today = window.currentAppDate || new Date().toISOString().split('T')[0];
     const containerWrapper = document.getElementById('parlays-container');
-    const noTipsMsg = document.getElementById('no-tips-msg');
+    const noTipsEmptyLogic = document.getElementById('no-tips-empty-logic');
+    const noTipsEmptyFallback = document.getElementById('no-tips-empty-fallback');
 
     if (!containerWrapper) return;
 
@@ -1295,7 +1297,8 @@ window.loadTipsPage = async function () {
         if (!parlayDoc.exists() || !parlayDoc.data().parlays) {
             console.log('[Tips] No pre-calculated parlays found for', today);
             containerWrapper.classList.add('hidden');
-            if (noTipsMsg) noTipsMsg.classList.remove('hidden');
+            if (noTipsEmptyFallback) noTipsEmptyFallback.classList.remove('hidden');
+            if (noTipsEmptyLogic) noTipsEmptyLogic.classList.add('hidden');
             return;
         }
 
@@ -1305,7 +1308,8 @@ window.loadTipsPage = async function () {
         console.log(`[Tips] Loaded ${Object.keys(parlays).length} parlays from Firebase (generated: ${data.generatedAt})`);
 
         containerWrapper.classList.remove('hidden');
-        if (noTipsMsg) noTipsMsg.classList.add('hidden');
+        if (noTipsEmptyLogic) noTipsEmptyLogic.classList.add('hidden');
+        if (noTipsEmptyFallback) noTipsEmptyFallback.classList.add('hidden');
         containerWrapper.innerHTML = '';
 
         // Render each parlay
@@ -1342,7 +1346,7 @@ window.loadTipsPage = async function () {
                 const away = teams[1] || 'Team B';
 
                 // Star Logic
-                const matchId = m.id || `${m.data}_${m.partita}`;
+                const matchId = window.generateUniversalMatchId(m);
                 const isFlagged = (window.selectedMatches || []).some(sm => sm.id === matchId);
                 const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/70';
 
@@ -1430,6 +1434,8 @@ window.loadTipsPage = async function () {
     } catch (error) {
         console.error('[Tips] Error loading parlays from Firebase:', error);
         containerWrapper.innerHTML = '<div class="text-center text-red-400 py-8"><i class="fa-solid fa-exclamation-circle text-2xl mb-2"></i><p class="text-sm">Errore caricamento consigli</p></div>';
+        if (noTipsEmptyFallback) noTipsEmptyFallback.classList.add('hidden');
+        if (noTipsEmptyLogic) noTipsEmptyLogic.classList.add('hidden');
     }
 };
 
@@ -1604,7 +1610,7 @@ window.renderTradingCards = function (picks) {
         return pick;
     });
 
-    const container = document.getElementById('trading-cards-container');
+    const container = document.getElementById('trading-matches-container');
     if (!container) return;
 
     // ANTI-FLICKER: Check diff based on enriched data
@@ -1741,6 +1747,23 @@ window.renderTradingCards = function (picks) {
 window.getTradingPickId = function (partita) {
     const cleanName = (partita || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     return `trading_${cleanName}`;
+};
+
+/**
+ * 🏆 UNIVERSAL MATCH ID GENERATOR
+ * Ensures the same match has the same ID across all sections (Trading, Betting, Consigli)
+ * Priority: fixtureId > composite name-based ID
+ */
+window.generateUniversalMatchId = function (match) {
+    if (!match) return null;
+
+    // First Priority: Fixture ID (API Unique)
+    if (match.fixtureId) return String(match.fixtureId);
+
+    // Fallback: Normalized Name + Date
+    const mDate = match.data || new Date().toISOString().split('T')[0];
+    const mName = (match.partita || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(.)\1+/g, '$1');
+    return `${mDate}_${mName}`;
 };
 
 window.loadTradingFavorites = async function () {
@@ -2344,7 +2367,7 @@ function initLiveHubListener() {
                         case 'page-live':
                             loadLiveHubMatches();
                             break;
-                        case 'page-trading':
+                        case 'page-trading-sportivo':
                             if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
                             break;
                     }
@@ -2808,6 +2831,13 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
         }
         container.style.visibility = '';
         container.style.minHeight = '';
+
+        // RESTORE SCROLL (More aggressive)
+        if (oldScroll > 0) {
+            requestAnimationFrame(() => {
+                window.scrollTo({ top: oldScroll, behavior: 'instant' });
+            });
+        }
     }
 }
 
@@ -2821,8 +2851,8 @@ window.toggleFlag = async function (matchId, matchData = null) {
         for (const [stratId, strat] of Object.entries(window.strategiesData)) {
             const matches = strat.matches || (Array.isArray(strat) ? strat : []);
             const m = matches.find(x => {
-                const id = x.id || `${x.data}_${x.partita}`;
-                return id.trim() === matchId.trim();
+                const id = window.generateUniversalMatchId(x);
+                return id === matchId;
             });
             if (m) {
                 foundMatch = m;
@@ -2835,8 +2865,8 @@ window.toggleFlag = async function (matchId, matchData = null) {
     // Fallback: Check if already in selectedMatches
     if (!foundMatch) {
         foundMatch = window.selectedMatches.find(m => {
-            const id = m.id || `${m.data}_${m.partita}`;
-            return id.trim() === matchId.trim();
+            const id = window.generateUniversalMatchId(m);
+            return id === matchId;
         });
     }
 
@@ -2856,9 +2886,9 @@ window.toggleFlag = async function (matchId, matchData = null) {
 
     if (foundMatch) {
         // Ensure ID is consistent
-        const consistentId = foundMatch.id || `${foundMatch.data}_${foundMatch.partita}`;
+        const consistentId = window.generateUniversalMatchId(foundMatch);
 
-        const idx = window.selectedMatches.findIndex(m => (m.id || `${m.data}_${m.partita}`).trim() === consistentId.trim());
+        const idx = window.selectedMatches.findIndex(m => window.generateUniversalMatchId(m) === consistentId);
 
 
         if (idx >= 0) {
@@ -2931,7 +2961,7 @@ function startTradingLiveRefresh() {
     if (tradingLiveInterval) clearInterval(tradingLiveInterval);
     tradingLiveInterval = setInterval(() => {
         // If we are on trading page, refresh main list
-        if (document.getElementById('page-trading')?.classList.contains('active')) {
+        if (document.getElementById('page-trading-sportivo')?.classList.contains('active')) {
             if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
         }
         // If we are on star page, refresh favorites
@@ -3044,8 +3074,8 @@ window.showMyMatches = function (sortMode = 'score') {
             }
 
             if (sourceStrat && sourceStrat.matches) {
-                // Try Exact ID Match
-                let found = sourceStrat.matches.find(m => (m.id || `${m.data}_${m.partita} `) === smId);
+                // Try Exact ID Match (using universal ID logic)
+                let found = sourceStrat.matches.find(m => window.generateUniversalMatchId(m) === smId);
 
                 // Fallback: Fuzzy Name Match
                 if (!found) {
@@ -3057,7 +3087,7 @@ window.showMyMatches = function (sortMode = 'score') {
                 }
             } else if (!isMagiaPick && window.strategiesData['all']) {
                 // Double safety: if intended strategy not found, fallback to ALL for standard picks
-                let found = window.strategiesData['all'].matches?.find(m => (m.id || `${m.data}_${m.partita} `) === smId);
+                let found = window.strategiesData['all'].matches?.find(m => window.generateUniversalMatchId(m) === smId);
                 if (found) latestMatch = found;
             }
 
@@ -3111,7 +3141,7 @@ window.showMyMatches = function (sortMode = 'score') {
                 // Replace flag button with delete button
                 const flagBtn = card.querySelector('.flag-btn, button[data-match-id]');
                 if (flagBtn) {
-                    const matchId = m.id || `${m.data}_${m.partita} `;
+                    const matchId = window.generateUniversalMatchId(m);
                     flagBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
                     flagBtn.className = 'text-red-400 hover:text-red-600 transition text-xl ml-2';
                     flagBtn.onclick = (e) => {
@@ -3156,7 +3186,7 @@ window.removeTradingFavorite = async function (pickId) {
 
 window.removeMatch = async function (matchId) {
     const idx = window.selectedMatches.findIndex(m => {
-        const id = m.id || `${m.data}_${m.partita} `;
+        const id = window.generateUniversalMatchId(m);
         return id === matchId;
     });
 
@@ -3757,15 +3787,9 @@ async function loadLiveHubMatches() {
     // FILTER: Only LIVE or recent matches (not FT from hours ago)
     let liveGames = todayGames.filter(match => {
         const status = (match.status || '').toUpperCase();
-        // Show: NS (not started), 1H, 2H, HT, ET, P, LIVE, or FT within last 30 min
-        if (['NS', '1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes(status)) return true;
-        if (status === 'FT') {
-            // Keep FT matches for 30 minutes after ending for review
-            const updatedAt = match.updatedAt?.toDate?.() || new Date(match.updatedAt);
-            const minsSinceUpdate = (Date.now() - updatedAt.getTime()) / 60000;
-            return minsSinceUpdate < 30;
-        }
-        return false;
+        // Show ONLY matches in play: 1H, 2H, HT, ET, P, LIVE, or BT
+        // Exclude: NS (Not Started), FT/AET/PEN (Finished)
+        return ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes(status);
     });
 
     // DE-DUPLICATION: Remove duplicate matches by normalized matchName
