@@ -3,23 +3,6 @@ import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, o
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-functions.js";
 
-// Import utility modules (refactored from app.js)
-import { normalizeDeep, levenshteinDistance } from './utils/normalize.js';
-import { parsePair, getRankingColor, isMatchStale, renderEventIcon, formatDateLong, getDataHash, DEFAULT_LOGO_BASE64 } from './utils/helpers.js';
-import { evaluateTipLocally } from './utils/evaluate.js';
-
-// Expose utilities globally for backward compatibility
-window.normalizeDeep = normalizeDeep;
-window.levenshteinDistance = levenshteinDistance;
-window.parsePair = parsePair;
-window.getRankingColor = getRankingColor;
-window.isMatchStale = isMatchStale;
-window.renderEventIcon = renderEventIcon;
-window.formatDateLong = formatDateLong;
-window.getDataHash = getDataHash;
-window.DEFAULT_LOGO_BASE64 = DEFAULT_LOGO_BASE64;
-window.evaluateTipLocally = evaluateTipLocally;
-
 // Firebase Config (Configured in init via window.firebaseConfig if present, or defaults)
 const firebaseConfig = window.firebaseConfig;
 const app = initializeApp(firebaseConfig);
@@ -59,7 +42,18 @@ let _lastRenderCache = {
 let _liveUpdateDebounceTimer = null;
 const DEBOUNCE_MS = 2000; // Aumentato per ridurre flickering
 
-
+function getDataHash(data) {
+    if (!data) return 'null';
+    try {
+        // IGNORE volatile timestamps to prevent unnecessary re-renders (Flashing/Tosse)
+        return JSON.stringify(data, (key, value) => {
+            if (key === 'updatedAt' || key === 'lastRefresh' || key === 'lastUpdated' || key === 'lastUpdate') return undefined;
+            return value;
+        });
+    } catch (e) {
+        return Math.random().toString();
+    }
+}
 let isRegisterMode = false;
 let warningStats = null;
 let tradingFavorites = []; // IDs of favorite trading picks
@@ -210,13 +204,26 @@ window.calculateGoalCookingPressure = function (stats, minute) {
     return pressure;
 };
 
+function parsePair(str) {
+    if (!str) return [0, 0];
+    return str.split(' - ').map(x => parseInt(x.trim()) || 0);
+}
+window.parsePair = parsePair;
 
+const DEFAULT_LOGO_BASE64 = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+window.DEFAULT_LOGO_BASE64 = DEFAULT_LOGO_BASE64;
 
+function getRankingColor(score) {
+    if (!score && score !== 0) return 'gray-400';
+    if (score >= 80) return 'emerald-500';
+    if (score >= 65) return 'yellow-400';
+    return 'red-500';
+}
 
-
-
-
-
+const isMatchStale = (m) => {
+    // DISABILITATO SU RICHIESTA UTENTE PER RIPRISTINARE VISIBILITÀ TOTALE
+    return false;
+};
 
 window.getLiveTradingAnalysis = async function (matchId) {
     const matchName = matchId.replace('trading_', '').replace(/_/g, ' ');
@@ -337,10 +344,70 @@ window.resetPassword = async function () {
 };
 
 // Helper: Rendering icone eventi live (Trading 2.0)
+function renderEventIcon(type, detail) {
+    const t = (type || "").toUpperCase();
+    const d = (detail || "").toUpperCase();
 
+    if (t.includes('GOAL')) return '⚽';
+    if (t.includes('VAR') || d.includes('VAR')) return '🖥️';
+    if (t.includes('SUBST') || t.includes('SOS') || d.includes('SUBSTITUTION')) return '🔄';
+    if (t.includes('RED') || d.includes('RED CARD')) return '🟥';
+    if (t.includes('YELLOW') || d.includes('YELLOW CARD')) return '🟨';
+    if (t.includes('PENALTY')) return '🥅';
+    if (t.includes('CORNER')) return '🚩';
+
+    return '⏱️';
+}
 
 // ==================== LOCAL OUTCOME EVALUATOR (Fallback for non-API matches) ====================
+function evaluateTipLocally(tip, risultato) {
+    if (!tip || !risultato) return null;
+    const parts = risultato.split('-').map(s => parseInt(s.trim()));
+    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
 
+    const gH = parts[0];
+    const gA = parts[1];
+    const total = gH + gA;
+    const t = String(tip).toLowerCase().trim();
+
+    // --- TRADING SPECIFICO: Pattern esatti valutati PRIMA dei generici ---
+    // "Back Under X" = vinci se total < X (stesso di Lay Over)
+    if (t.includes("back under 3.5") || t.includes("lay over 3.5")) return total < 4 ? 'Vinto' : 'Perso';
+    if (t.includes("back under 2.5") || t.includes("lay over 2.5")) return total < 3 ? 'Vinto' : 'Perso';
+    if (t.includes("back under 1.5") || t.includes("lay over 1.5")) return total < 2 ? 'Vinto' : 'Perso';
+
+    // "Back Over X" = vinci se total >= X (stesso di Lay Under)
+    if (t.includes("back over 2.5") || t.includes("lay under 2.5")) return total >= 3 ? 'Vinto' : 'Perso';
+    if (t.includes("back over 3.5") || t.includes("lay under 3.5")) return total >= 4 ? 'Vinto' : 'Perso';
+
+    // Lay the Draw
+    if (t.includes("lay the draw") || t.includes("lay draw") || t.includes("laythedraw")) return gH !== gA ? 'Vinto' : 'Perso';
+
+    // Over/Under logic (standard)
+    if (t.includes("+0.5") || t.includes("over 0.5") || t.match(/\bo\s?0\.5/)) return total >= 1 ? 'Vinto' : 'Perso';
+    if (t.includes("+1.5") || t.includes("over 1.5") || t.match(/\bo\s?1\.5/)) return total >= 2 ? 'Vinto' : 'Perso';
+    if (t.includes("+2.5") || t.includes("over 2.5") || t.match(/\bo\s?2\.5/)) return total >= 3 ? 'Vinto' : 'Perso';
+    if (t.includes("+3.5") || t.includes("over 3.5") || t.match(/\bo\s?3\.5/)) return total >= 4 ? 'Vinto' : 'Perso';
+    if (t.includes("-0.5") || t.includes("under 0.5") || t.match(/\bu\s?0\.5/)) return total < 1 ? 'Vinto' : 'Perso';
+    if (t.includes("-1.5") || t.includes("under 1.5") || t.match(/\bu\s?1\.5/)) return total < 2 ? 'Vinto' : 'Perso';
+    if (t.includes("-2.5") || t.includes("under 2.5") || t.match(/\bu\s?2\.5/)) return total < 3 ? 'Vinto' : 'Perso';
+    if (t.includes("-3.5") || t.includes("under 3.5") || t.match(/\bu\s?3\.5/)) return total < 4 ? 'Vinto' : 'Perso';
+
+    // BTTS / No Goal
+    if (t === "gg" || t.includes("btts") || t === "gol" || t === "goal") return (gH > 0 && gA > 0) ? 'Vinto' : 'Perso';
+    if (t === "ng" || t === "no gol" || t === "no goal" || t.includes("no goal")) return (gH === 0 || gA === 0) ? 'Vinto' : 'Perso';
+
+    // 1X2 / Double Chance
+    const cleanT = t.replace(/[^a-z0-9]/g, "");
+    if (cleanT === "1") return gH > gA ? 'Vinto' : 'Perso';
+    if (cleanT === "2") return gA > gH ? 'Vinto' : 'Perso';
+    if (cleanT === "x") return gH === gA ? 'Vinto' : 'Perso';
+    if (cleanT === "1x" || cleanT === "x1") return gH >= gA ? 'Vinto' : 'Perso';
+    if (cleanT === "x2" || cleanT === "2x") return gA >= gH ? 'Vinto' : 'Perso';
+    if (cleanT === "12" || cleanT === "21") return gH !== gA ? 'Vinto' : 'Perso';
+
+    return null;
+}
 
 // ==================== UNIVERSAL CARD RENDERER ====================
 // Helper per normalizzare i dati di trading (Template + Dati Dinamici)
@@ -1368,7 +1435,7 @@ window.loadTipsPage = async function () {
                 // Time Badge
                 let timeBadge = '';
                 if (isFT) timeBadge = '<span class="text-emerald-400 font-bold ml-1 text-[9px]">FT</span>';
-                else if (isLive) timeBadge = `<span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]">\'${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
+                else if (isLive) timeBadge = `<span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]">'${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
                 else if (m.ora) timeBadge = `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>`;
 
                 // Outcome Styling
@@ -3186,7 +3253,11 @@ window.removeMatch = async function (matchId) {
     }
 };
 
-
+window.formatDateLong = function (str) {
+    if (!str) return '';
+    const d = new Date(str);
+    return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
+};
 
 const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
 
@@ -3342,13 +3413,13 @@ ${eugenioPromptCache?.tradingKnowledge || ''}
         const div = document.createElement('div');
         div.id = 'ai-loading';
         div.className = 'flex justify-start';
-        div.innerHTML = `<div class="bg-white border border-gray-200 rounded-2xl rounded-tl-none p-3 shadow-sm">
+        div.innerHTML = `< div class="bg-white border border-gray-200 rounded-2xl rounded-tl-none p-3 shadow-sm" >
     <div class="flex gap-1">
         <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
         <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
         <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
     </div>
-        </div>`;
+        </div > `;
         messagesContainer.appendChild(div);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
@@ -3468,80 +3539,31 @@ window.loadHistory = async function () {
 
         const dateData = [];
         for (const date of dates) {
-            // CORRECT SOURCE: RANKING_HISTORY (Contains updated results)
-            let strategies = {};
-            let hasStrategies = false;
-
             try {
-                const historyRef = collection(db, "ranking_history");
-                const q = query(historyRef, where("data_partite", "==", date));
-                const querySnap = await getDocs(q);
+                const docSnap = await getDoc(doc(db, "daily_strategies", date));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const strategies = data.strategies || {};
+                    let totalWins = 0, totalLosses = 0, totalPending = 0;
 
-                console.log(`[History DEBUG] Date: ${date} | Found ${querySnap.size} docs in ranking_history`);
-
-                if (!querySnap.empty) {
-                    querySnap.forEach(docSnap => {
-                        const data = docSnap.data();
-                        // Extract strategies from the 'strategies' field (array or object)
-                        const innerStrategies = data.strategies || [];
-                        const stratArray = Array.isArray(innerStrategies) ? innerStrategies : Object.values(innerStrategies);
-
-                        console.log(`[History DEBUG] Doc ${docSnap.id} has ${stratArray.length} inner strategies`);
-
-                        stratArray.forEach((strat, idx) => {
-                            const stratId = strat.filtro_nome || strat.name || `strategy_${idx}`;
-                            // DEBUG: Log all keys in this strategy
-                            if (idx === 0) {
-                                console.log(`[History DEBUG] Strategy "${stratId}" keys: ${Object.keys(strat).join(', ')}`);
-                            }
-                            strategies[stratId] = { id: stratId, ...strat };
+                    Object.values(strategies).forEach(strat => {
+                        (strat.matches || []).forEach(m => {
+                            if (m.esito === 'Vinto') totalWins++;
+                            else if (m.esito === 'Perso') totalLosses++;
+                            else totalPending++;
                         });
                     });
-                    hasStrategies = Object.keys(strategies).length > 0;
+
+
+
+                    dateData.push({ date, strategies, totalWins, totalLosses, totalPending, hasData: true });
+                } else {
+                    dateData.push({ date, hasData: false });
                 }
             } catch (e) {
-                console.warn(`[History] Failed to load from ranking_history for ${date}`, e);
-            }
-
-            if (hasStrategies) {
-                let totalWins = 0, totalLosses = 0, totalPending = 0;
-
-                Object.values(strategies).forEach(strat => {
-                    // Support both array and object formats for matches
-                    let matchesRaw = strat.matches || strat.partite_by_tip || [];
-                    let matches = [];
-
-                    if (Array.isArray(matchesRaw)) {
-                        matches = matchesRaw;
-                    } else if (typeof matchesRaw === 'object' && matchesRaw !== null) {
-                        // If it's an object grouped by tip, flatten it
-                        matches = Object.values(matchesRaw).flat();
-                    }
-
-                    if (matches.length === 0) {
-                        console.log(`[History] Strategy ${strat.id || 'unknown'} has no matches. Raw type: ${Array.isArray(matchesRaw) ? 'array' : typeof matchesRaw}`);
-                    }
-
-                    matches.forEach(m => {
-                        // Fallback: calculate esito locally if missing but risultato exists
-                        let esito = m.esito;
-                        if (!esito && m.risultato && m.tip) {
-                            esito = evaluateTipLocally(m.tip, m.risultato);
-                            // Save computed esito back to object for display logic
-                            m.esito = esito;
-                        }
-
-                        if (esito === 'Vinto') totalWins++;
-                        else if (esito === 'Perso') totalLosses++;
-                        else totalPending++;
-                    });
-                });
-
-                dateData.push({ date, strategies, totalWins, totalLosses, totalPending, hasData: true });
-            } else {
+                console.error(`Error loading history for ${date}: `, e);
                 dateData.push({ date, hasData: false });
             }
-
         }
 
         if (dateData.length === 0) {
@@ -3573,7 +3595,7 @@ function createHistoryDateCard(data, index) {
     const monthName = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'][dateObj.getMonth()];
 
     if (!hasData) {
-        return `<div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3"><div class="flex justify-between"><div><div class="text-sm text-gray-500">${dayName}, ${dayNum} ${monthName}</div></div><div class="text-sm text-gray-500">Nessun dato</div></div></div>`;
+        return `< div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3" > <div class="flex justify-between"><div><div class="text-sm text-gray-500">${dayName}, ${dayNum} ${monthName}</div></div><div class="text-sm text-gray-500">Nessun dato</div></div></div > `;
     }
 
     const totalMatches = totalWins + totalLosses;
@@ -3595,7 +3617,7 @@ function createHistoryDateCard(data, index) {
                 ${totalPending > 0 ? `<span class="text-gray-400">⏳ ${totalPending}</span>` : ''}
             </div>
             <div id="details-${date}" class="hidden mt-4 pt-4 border-t border-white/20"></div>
-        </div>
+        </div >
     `;
 }
 
@@ -3604,9 +3626,6 @@ function toggleDateDetails(date, strategies, card) {
     if (!container.classList.contains('hidden')) { container.classList.add('hidden'); return; }
 
     container.innerHTML = Object.entries(strategies).map(([id, strat]) => {
-        // Sanitize ID for DOM selectors (remove spaces)
-        const safeId = id.replace(/\s+/g, '_');
-
         const matches = strat.matches || [];
         const closed = matches.filter(m => m.risultato);
         if (closed.length === 0) return '';
@@ -3622,7 +3641,7 @@ function toggleDateDetails(date, strategies, card) {
 
         return `
     <div class="strategy-card bg-white/10 rounded-lg p-3 mb-2" data-strategy="${id}" data-date="${date}">
-                <div class="flex justify-between items-center cursor-pointer" onclick="event.stopPropagation(); window.toggleStrategyMatchesHistory('${safeId}', '${date}', this)">
+                <div class="flex justify-between items-center cursor-pointer" onclick="event.stopPropagation(); window.toggleStrategyMatchesHistory('${id}', '${date}', this)">
                     <div>
                         <div class="font-bold text-purple-300">${strat.name || id}</div>
                         <div class="text-xs text-gray-400">${wins}V - ${losses}P</div>
@@ -3631,7 +3650,7 @@ function toggleDateDetails(date, strategies, card) {
                         <div class="text-xl font-black ${wrColor}">${wr}%</div>
                     </div>
                 </div>
-                <div id="matches-${safeId}-${date}" class="hidden mt-3 pt-3 border-t border-white/10 space-y-2">
+                <div id="matches-${id}-${date}" class="hidden mt-3 pt-3 border-t border-white/10 space-y-2">
                     ${closed.map(m => {
             const isWin = m.esito === 'Vinto';
             const isLoss = m.esito === 'Perso';
@@ -3646,15 +3665,14 @@ function toggleDateDetails(date, strategies, card) {
         }).join('')}
                 </div>
 
-            </div>`;
+            </div > `;
     }).join('');
     container.classList.remove('hidden');
 }
 
 window.toggleStrategyMatchesHistory = function (id, date, el) {
-    const container = el.parentElement.querySelector(`#matches-${id}-${date}`);
-
-    if (container) container.classList.toggle('hidden');
+    const container = el.parentElement.querySelector(`#matches - ${id} -${date} `);
+    container.classList.toggle('hidden');
 };
 
 window.loadTradingHistory = async function () {
@@ -3690,9 +3708,9 @@ window.loadTradingHistory = async function () {
         }
 
         container.innerHTML = dateData.map(d => {
-            if (!d.hasData || d.picks.length === 0) return `<div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3 text-sm text-gray-500">${d.date}: Nessun dato</div>`;
+            if (!d.hasData || d.picks.length === 0) return `< div class="bg-gray-800/50 rounded-xl p-4 opacity-50 mb-3 text-sm text-gray-500" > ${d.date}: Nessun dato</div > `;
             return `
-                <div class="bg-gradient-to-r from-orange-900/40 to-red-900/40 border border-orange-500/20 rounded-xl p-4 mb-3 cursor-pointer" onclick="this.querySelector('.details').classList.toggle('hidden')">
+    < div class="bg-gradient-to-r from-orange-900/40 to-red-900/40 border border-orange-500/20 rounded-xl p-4 mb-3 cursor-pointer" onclick = "this.querySelector('.details').classList.toggle('hidden')" >
                     <div class="flex justify-between items-center">
                         <div class="font-bold">${d.date}</div>
                         <div class="flex gap-1">
@@ -3707,7 +3725,7 @@ window.loadTradingHistory = async function () {
                             </div>
                         `).join('')}
                     </div>
-                </div>`;
+                </div > `;
         }).join('');
     } catch (e) {
         console.error(e);
@@ -3810,11 +3828,11 @@ async function loadLiveHubMatches() {
 
     if (majorLeagueGames.length === 0) {
         container.innerHTML = `
-            <div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl">
+    < div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl" >
                 <i class="fa-solid fa-radar text-6xl mb-4 text-white/70 animate-pulse"></i>
                 <p class="font-black text-xl text-white">Nessun match attivo oggi</p>
                 <p class="text-sm text-white/60 mt-2 max-w-xs mx-auto">Il radar sta scansionando i campionati principali. Torna più tardi!</p>
-            </div>`;
+            </div > `;
         return;
     }
 
