@@ -29,7 +29,7 @@
 
 <body class="text-white">
     <!-- Loading Overlay -->
-    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
+    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-[200]">
         <div class="text-center">
             <div class="text-white text-2xl font-bold mb-4 animate-pulse">TipsterAI</div>
             <div class="text-blue-300 text-sm">Caricamento...</div>
@@ -414,13 +414,13 @@
                 <!-- Content generated in js/app.js -->
             </div>
 
-            <div id="no-tips-msg" class="hidden text-center py-20">
+            <div id="no-tips-empty-logic" class="hidden text-center py-20">
                 <i class="fa-solid fa-cloud-moon text-6xl text-slate-700 mb-4"></i>
                 <h3 class="text-xl font-bold text-slate-800">C'è calma oggi...</h3>
                 <p class="text-gray-500">euGENIO sta aspettando match con reale valore.</p>
             </div>
 
-            <div id="no-tips-msg" class="hidden text-center py-20 opacity-30">
+            <div id="no-tips-empty-fallback" class="hidden text-center py-20 opacity-30">
                 <i class="fa-solid fa-box-open text-6xl mb-4"></i>
                 <p>Nessun consiglio generato per oggi</p>
             </div>
@@ -457,7 +457,7 @@
 
         <!-- Bottom Nav - MATCHING HEADER GRADIENT FOR SYMMETRY -->
         <div id="bottom-nav-bar"
-            class="fixed bottom-0 left-0 right-0 flex justify-around py-3 z-50 shadow-lg border-t border-white/10"
+            class="fixed bottom-0 left-0 right-0 flex justify-around py-3 z-[100] shadow-lg border-t border-white/10"
             style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);">
             <button data-page="strategies"
                 class="nav-btn flex flex-col items-center text-white transition hover:scale-110">
@@ -511,7 +511,7 @@
         </script>
 
         <!-- AI CHATBOT WIDGET -->
-        <div id="ai-chat-widget" class="fixed bottom-20 right-6 z-50 flex flex-col items-end font-sans">
+        <div id="ai-chat-widget" class="fixed bottom-20 right-6 z-[110] flex flex-col items-end font-sans">
             <!-- Chat Window -->
             <div id="ai-chat-window"
                 class="hidden bg-white w-[350px] h-[550px] max-h-[85vh] rounded-2xl shadow-2xl border border-gray-200 flex flex-col mb-4 overflow-hidden transition-all transform origin-bottom-right">
