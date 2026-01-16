@@ -1,6 +1,6 @@
 // TipsterAI Service Worker v3.5.16 - Live Stats Dashboard v2.5
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.5.17';
+const VERSION = '3.5.18';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
