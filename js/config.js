@@ -8,8 +8,8 @@ window.STRATEGY_CONFIG = {
             { type: 'DC', label: 'Double Chance', minProb: 85, minOdd: 1.18 }, // Safer first
             { type: 'GOALS', label: 'Over 1.5', minProb: 75, minOdd: 1.22 },
             { type: '1X2', label: '1X2 / BTTS', minProb: 60, minOdd: 1.60 },
-            { type: 'GOALS', label: 'Gol', minProb: 60, minOdd: 1.60 },
-            { type: 'GOALS', label: 'Over 2.5', minProb: 55, minOdd: 1.50 }
+            { type: 'GOALS', label: 'Gol', minProb: 72, minOdd: 1.60 },
+            { type: 'GOALS', label: 'Over 2.5', minProb: 65, minOdd: 1.50 }
         ],
         // Fallback se nessuna strategia passa le soglie
         FALLBACK: {

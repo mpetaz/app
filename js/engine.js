@@ -1,3 +1,4 @@
+console.log('%c[Elite Engine 4.0] Logic Loaded | Professional First Active', 'color: #00ff00; font-weight: bold; background: #000; padding: 5px;');
 // ==================== CONFIGURATION & CONSTANTS ====================
 // Now using global STRATEGY_CONFIG from js/config.js
 
@@ -16,6 +17,23 @@ const LEAGUE_GOAL_FACTORS = {
     'champions league': 1.08,
     'europa league': 1.10,
     'conference league': 1.15
+};
+
+/**
+ * ENTROPY FACTORS: High entropy = Chaotic/Unpredictable (Eredivisie), 
+ * Low entropy = Disciplined/Strategic (Serie A, Serie B).
+ * Used to add "jitter" to the Monte Carlo simulation.
+ */
+const LEAGUE_ENTROPY_FACTORS = {
+    'eredivisie': 1.25,
+    'bundesliga': 1.15,
+    'premier league': 1.10,
+    'ligue 1': 1.00,
+    'la liga': 0.95,
+    'serie a': 0.85,
+    'serie b': 0.80,
+    'portugal': 1.05,
+    'championship': 1.10
 };
 
 // DIXON_COLES_RHO and MIN_VALUE_EDGE are now in STRATEGY_CONFIG
@@ -43,6 +61,24 @@ function calculateValueEdge(aiProbability, betfairOdds) {
         impliedProb: Math.round(impliedProb * 10) / 10,
         hasProfitableEdge
     };
+}
+
+/**
+ * Calculates exponential time weight for a match based on its age.
+ * @param {string} matchDateStr - ISO date string of the match
+ * @returns {number} weight between 0.1 and 1.0
+ */
+function calculateTimeWeight(matchDateStr) {
+    if (!matchDateStr) return 0.5;
+    const matchDate = new Date(matchDateStr);
+    const now = new Date();
+    const diffDays = Math.max(0, Math.floor((now - matchDate) / (1000 * 60 * 60 * 24)));
+
+    // Decay factor k = 0.0127 ensures weight is ~0.1 after 180 days (6 months)
+    const k = 0.0127;
+    const weight = Math.exp(-k * diffDays);
+
+    return Math.max(0.1, weight);
 }
 
 function normalizeLega(lega) {
@@ -97,6 +133,60 @@ function normalizeTeamName(name) {
         .replace(/[\u0300-\u036f]/g, ''); // Remove diacritics
 
     return normalized.trim();
+}
+
+/**
+ * Calculates ELO ratings for all teams based on historical matches.
+ * Processes matches chronologically to build dynamic strength ratings.
+ * @param {Array} allMatchesHistory 
+ * @returns {Map} teamName -> rating
+ */
+function calculateELORatings(allMatchesHistory) {
+    if (!allMatchesHistory || allMatchesHistory.length === 0) return new Map();
+
+    const ratings = new Map();
+    const K = 32; // Standard sensitivity
+
+    // Filter matches with results and sort chronologically
+    const sortedMatches = allMatchesHistory
+        .filter(m => m.risultato && m.risultato.includes('-') && m.partita && m.data)
+        .sort((a, b) => new Date(a.data) - new Date(b.data));
+
+    console.log(`[ELO Engine] Calculating ratings from ${sortedMatches.length} matches...`);
+
+    sortedMatches.forEach(match => {
+        const teams = match.partita.split(' - ');
+        if (teams.length !== 2) return;
+
+        const home = teams[0].trim();
+        const away = teams[1].trim();
+
+        const res = match.risultato.match(/(\d+)\s*-\s*(\d+)/);
+        if (!res) return;
+
+        const hg = parseInt(res[1]);
+        const ag = parseInt(res[2]);
+
+        const rH = ratings.get(home) || 1500;
+        const rA = ratings.get(away) || 1500;
+
+        // Expected outcome
+        const expectedH = 1 / (1 + Math.pow(10, (rA - rH) / 400));
+        const expectedA = 1 - expectedH;
+
+        // Actual outcome
+        let scoreH = 0.5;
+        if (hg > ag) scoreH = 1;
+        else if (ag > hg) scoreH = 0;
+        const scoreA = 1 - scoreH;
+
+        // Update ratings
+        ratings.set(home, rH + K * (scoreH - expectedH));
+        ratings.set(away, rA + K * (scoreA - expectedA));
+    });
+
+    console.log(`[ELO Engine] Ratings calculated for ${ratings.size} teams.`);
+    return ratings;
 }
 
 
@@ -202,9 +292,11 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
     const allTeamMatches = dbCompleto.filter(matchFilter);
     allTeamMatches.sort((a, b) => new Date(b.data || '2000-01-01') - new Date(a.data || '2000-01-01'));
 
-    // Calc Goals Stats (Season Average)
-    let totalScored = 0;
-    let totalConceded = 0;
+    // Calc Goals Stats (Season Average with Time Decay)
+    let weightedScored = 0;
+    let weightedConceded = 0;
+    let totalWeight = 0;
+
     allTeamMatches.forEach(m => {
         const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
         const isTeamHome = team1 === teamNorm;
@@ -212,19 +304,24 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
         if (res) {
             const hg = parseInt(res[1]);
             const ag = parseInt(res[2]);
-            totalScored += isTeamHome ? hg : ag;
-            totalConceded += isTeamHome ? ag : hg;
+            const weight = calculateTimeWeight(m.data);
+
+            weightedScored += (isTeamHome ? hg : ag) * weight;
+            weightedConceded += (isTeamHome ? ag : hg) * weight;
+            totalWeight += weight;
         }
     });
 
     const seasonStats = {
-        avgScored: allTeamMatches.length ? totalScored / allTeamMatches.length : 1.3,
-        avgConceded: allTeamMatches.length ? totalConceded / allTeamMatches.length : 1.2
+        avgScored: totalWeight > 0 ? weightedScored / totalWeight : 1.3,
+        avgConceded: totalWeight > 0 ? weightedConceded / totalWeight : 1.2,
+        matches: allTeamMatches.length,
+        totalWeight: totalWeight
     };
 
     if (tip === 'ALL') {
         // Return rich stats strictly for Monte Carlo
-        // Current Form (Last 5)
+        // Current Form (Last 5 - Still using simple average for form, but decay for season)
         const recent = allTeamMatches.slice(0, 5);
         let recScored = 0, recConceded = 0;
         recent.forEach(m => {
@@ -704,43 +801,22 @@ function createBackOver25Strategy(match, htProb, allMatches) {
         reasoning.push(`buona prob gol 1°T (${htProb}%)`);
     }
 
-    // Analisi squadre se possibile
-    if (teams.length === 2) {
-        const homeStats = analyzeTeamStats(teams[0].trim(), true, '+2.5', allMatches);
-        const awayStats = analyzeTeamStats(teams[1].trim(), false, '+2.5', allMatches);
-
-        if (homeStats && awayStats && homeStats.total >= 5 && awayStats.total >= 5) {
-            const homeOver25Rate = (homeStats.count / homeStats.total) * 100;
-            const awayOver25Rate = (awayStats.count / awayStats.total) * 100;
-            const avgRate = (homeOver25Rate + awayOver25Rate) / 2;
-
-            if (avgRate >= 70) {
-                reasoning.push(`squadre molto prolifiche (media Over 2.5: ${avgRate.toFixed(0)}%)`);
-            } else if (avgRate >= 60) {
-                reasoning.push(`buona prolificità squadre (${avgRate.toFixed(0)}% Over 2.5)`);
-            }
-        }
-    }
-
-    // Dettaglio lega se rilevante
-    const legaNorm = normalizeLega(match.lega).toLowerCase();
-    if (legaNorm.includes('premier') || legaNorm.includes('bundesliga')) {
-        reasoning.push('campionato ad alto tasso gol');
-    }
-
     return {
         ...match,
-        _originalTip: match.tip,
-        _originalQuota: match.quota,
+        _originalTip: match.tip || 'N/A',
+        _originalQuota: match.quota || 'N/A',
         strategy: 'BACK_OVER_25',
         tradingInstruction: {
             action: 'Back Over 2.5',
+            entryRange: ['@1.80-2.30 (Live)'],
+            exitTarget: '60 min / 1 Gol',
+            timing: 'Pre-match / Live',
             entry: {
-                range: [parseFloat(entryRange[0]), parseFloat(entryRange[1])],
-                timing: 'Pre-match'
+                range: [1.80, 2.30],
+                timing: 'Primi 15-20 min'
             },
             exit: {
-                target: 1.65,
+                target: 1.15,
                 timing: 'Dopo 1° gol (Cash-out)'
             },
             stopLoss: {
@@ -748,21 +824,17 @@ function createBackOver25Strategy(match, htProb, allMatches) {
                 timing: 'Se 0-0 al 70 min'
             }
         },
-        // CONFIDENCE basato su probabilità REALE Over 2.5, non su score generico
-        // Se prob bassa, confidence basso → viene scartato nel sorting (corretto!)
-        confidence: Math.min(95, Math.max(prob, match.score || 0)),
-        reasoning: reasoning.join(' + '),
+        confidence: forcedConfidence || Math.min(95, Math.max(prob, match.score || 0)),
+        reasoning: reasoning.length > 0 ? reasoning.join(' + ') : `Analisi Over 2.5 (${prob}%)`,
         badge: {
             text: 'Trading Back Over 2.5',
-            color: 'bg-purple-100 text-purple-700 border-purple-300'
+            color: 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
         }
     };
 }
 
 // Helper: Crea strategia HT SNIPER (0.5 HT Live)
-function createHTSniperStrategy(match, htProb) {
-    // Semplificato: niente liquidity check
-
+function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
     return {
         ...match,
         _originalTip: match.tip || 'N/A',
@@ -783,8 +855,7 @@ function createHTSniperStrategy(match, htProb) {
                 timing: 'Fine 1° Tempo'
             }
         },
-        // CONFIDENCE basato su htProb per ranking equilibrato
-        confidence: Math.min(95, htProb),
+        confidence: forcedConfidence || Math.min(95, htProb),
         reasoning: `ALTA PROBABILITÀ GOL 1°T (${htProb}%). Se 0-0 al minuto 20, la quota diventa di estremo valore.`,
         badge: {
             text: '🎯 HT SNIPER',
@@ -794,9 +865,8 @@ function createHTSniperStrategy(match, htProb) {
 }
 
 // Helper: Crea strategia SECOND HALF SURGE (0.5 ST)
-function createSecondHalfSurgeStrategy(match, allMatches) {
-    // Semplificato: niente liquidity check
-
+function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = null) {
+    const prob = match.magicStats?.prob || match.probabilita || 65;
     return {
         ...match,
         _originalTip: match.tip || 'N/A',
@@ -805,32 +875,110 @@ function createSecondHalfSurgeStrategy(match, allMatches) {
         tradingInstruction: {
             action: 'Back Over 0.5 ST',
             entry: {
-                range: [1.60, 2.10],
-                timing: 'Minuto 60-65'
+                range: [1.60, 2.00],
+                timing: 'Minuto 55-65'
             },
             exit: {
-                target: 1.20,
+                target: 1.10,
                 timing: 'Dopo gol 2°T (Cash-out)'
             },
             stopLoss: {
                 trigger: 1.01,
-                timing: 'Fine Match'
+                timing: 'Minuto 85'
             }
         },
-        // CONFIDENCE basato su probabilità per ranking equilibrato
-        confidence: Math.min(95, (match.probabilita || 70) + 5),
+        confidence: forcedConfidence || Math.min(95, prob),
         reasoning: `Match ad alta intensità statistica. Ottimo per sfruttare il calo delle quote nel secondo tempo tra il minuto 60 e 80.`,
         badge: {
-            text: '🔥 2ND HALF SURGE',
+            text: '🔥 SEC HALF SURGE',
             color: 'bg-orange-600 text-white border-orange-700 shadow-sm'
         }
     };
 }
 
-// Helper: Crea strategia UNDER 3.5 TRADING (Scalping)
-function createUnder35TradingStrategy(match) {
-    // Semplificato: niente liquidity check
+// Helper: Crea strategia LAY THE DRAW
+function createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, isHighProb = false, forcedConfidence = null) {
+    const mcDrawProb = match.magicStats?.drawProb || match.magicStats?.draw || 30;
+    return {
+        ...match,
+        _originalTip: match.tip || 'N/A',
+        _originalQuota: match.quota || 'N/A',
+        strategy: 'LAY_THE_DRAW',
+        tradingInstruction: {
+            action: 'Lay The Draw',
+            entry: {
+                range: [3.40, 4.50],
+                timing: 'Live @ 15-20 min'
+            },
+            exit: {
+                target: 2.00,
+                timing: 'Dopo gol favorito'
+            },
+            stopLoss: {
+                trigger: 2.00,
+                timing: 'Se 0-0 al 70 min'
+            }
+        },
+        confidence: forcedConfidence || Math.min(95, 100 - mcDrawProb),
+        reasoning: `Alta probabilità segno (no pareggio) (${Math.round(100 - mcDrawProb)}%) + basso tasso pareggi storico (${avgHistDraw.toFixed(0)}%) + top campionato con pochi pareggi.`,
+        badge: {
+            text: '🎲 LAY THE DRAW',
+            color: 'bg-blue-600 text-white border-blue-700 shadow-sm'
+        }
+    };
+}
 
+function createBackOver25Strategy(match, htProb, allMatches, forcedConfidence = null) {
+    const magicData = match.magicStats;
+    const prob = magicData?.over25 || magicData?.over25Prob || 0;
+
+    const reasoning = [];
+    if (prob >= 60) reasoning.push(`Over 2.5 molto probabile (${prob}%)`);
+    if (htProb >= 70) reasoning.push(`alta probabilità gol 1°T (${htProb}%)`);
+
+    const teams = match.partita.split(' - ');
+    if (teams.length === 2) {
+        const league = window.normalizeLega(match.lega).toLowerCase();
+        const highGoalLeagues = ['premier', 'eredivisie', 'bundesliga', 'championship', 'belgio', 'islanda'];
+        if (highGoalLeagues.some(l => league.includes(l))) {
+            reasoning.push('campionato ad alto tasso gol');
+        }
+    }
+
+    return {
+        ...match,
+        _originalTip: match.tip || 'N/A',
+        _originalQuota: match.quota || 'N/A',
+        strategy: 'BACK_OVER_25',
+        tradingInstruction: {
+            action: 'Back Over 2.5',
+            entryRange: ['@1.80-2.30 (Live)'],
+            exitTarget: '60 min / 1 Gol',
+            timing: 'Pre-match / Live',
+            entry: {
+                range: [1.80, 2.30],
+                timing: 'Primi 15-20 min'
+            },
+            exit: {
+                target: 1.15,
+                timing: 'Dopo 1° gol (Cash-out)'
+            },
+            stopLoss: {
+                trigger: 1.20,
+                timing: 'Se 0-0 al 70 min'
+            }
+        },
+        confidence: forcedConfidence || Math.min(95, Math.max(prob, match.score || 0)),
+        reasoning: reasoning.length > 0 ? reasoning.join(' + ') : `Analisi Over 2.5 (${prob}%)`,
+        badge: {
+            text: 'Trading Back Over 2.5',
+            color: 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+        }
+    };
+}
+
+// Helper: Crea strategia UNDER 3.5 TRADING (Scalping)
+function createUnder35TradingStrategy(match, forcedConfidence = null) {
     return {
         ...match,
         _originalTip: match.tip || 'N/A',
@@ -851,8 +999,7 @@ function createUnder35TradingStrategy(match) {
                 timing: 'Dopo il 1° gol subito'
             }
         },
-        // CONFIDENCE basato su probabilità inversa (Under) per ranking equilibrato
-        confidence: Math.min(95, match.probabilita || 70),
+        confidence: forcedConfidence || Math.min(95, match.probabilita || 70),
         reasoning: `Sistema difensivo solido rilevato. Scalping Under 3.5 con uscita programmata o stop loss a fine primo tempo.`,
         badge: {
             text: '🛡️ UNDER SCALPING',
@@ -902,54 +1049,69 @@ function transformToTradingStrategy(match, allMatches) {
     }) : 'NULL');
     console.log(`  💰 Betfair Odds:`, JSON.stringify(betfairOdds));
 
+    // 🔍 ANALISI ELITE (ELO & MOTIVAZIONE)
+    const eloDiff = magicData?.eloDiff || 0;
+    const badges = magicData?.motivationBadges || [];
+    const hasMotivation = badges.length > 0;
+    const isDirectClash = badges.includes('⚔️ Scontro Diretto');
+    const isTitleRace = badges.includes('🏆 Corsa Titolo');
+    const isRelegationFight = badges.includes('🆘 Lotta Salvezza');
+
     const strategies = [];
 
-    // ─── STRATEGIA 1 (PRIORITÀ ALTA): BACK OVER 2.5 ───
-    // Più facile da giocare con cashout, Eugenio può suggerire quando uscire
-    const over25Prob = magicData?.over25Prob || 0;
+    // ─── STRATEGIA 1: BACK OVER 2.5 ───
+    const over25Prob = magicData?.over25 ? magicData.over25 : (magicData?.over25Prob || 0);
     const cfgOver25 = STRATEGY_CONFIG.TRADING.STRATEGIES.BACK_OVER_25;
 
-    // VALUE EDGE CHECK: Confronta AI prob con odds Betfair
     const over25Edge = betfairOdds.over25
         ? calculateValueEdge(over25Prob, betfairOdds.over25)
-        : { valueEdge: 0, hasProfitableEdge: true }; // Se no odds, assume ok
+        : { valueEdge: 0, hasProfitableEdge: true };
 
-    // BOOST: Se Over 2.5 prob è alta, usiamo quella direttamente + bonus
-    let over25Confidence;
-    if (over25Prob >= 50) {
-        over25Confidence = Math.round(over25Prob + 15);
-    } else if (over25Prob >= (cfgOver25.minProb || 40)) {
-        over25Confidence = Math.round(over25Prob + 10);
-    } else {
-        over25Confidence = Math.round((over25Prob * 0.8) + (prob * 0.2));
-    }
+    let over25Confidence = Math.round(over25Prob + (over25Prob >= 50 ? 15 : 10));
 
-    const over25Passes = over25Prob >= (cfgOver25.minProb || 40) && over25Confidence >= (cfgOver25.minConfidence || 50) && over25Edge.hasProfitableEdge;
-    console.log(`  [OVER 2.5] prob=${over25Prob}%, edge=${over25Edge.valueEdge}% (vs @${betfairOdds.over25 || 'N/A'}) | Passa: ${over25Passes}`);
+    if (hasMotivation) over25Confidence += 5;
+    if (Math.abs(eloDiff) > 200) over25Confidence += 5;
 
-    const minValueEdge = STRATEGY_CONFIG.TRADING.MIN_VALUE_EDGE || 3;
+    // RELAX ELITE: Se abbiamo motivazione forte o ELO gap, accettiamo anche edge marginali (fino a -5%)
+    const minEdgeAllowed = (hasMotivation || Math.abs(eloDiff) > 200) ? -5 : 0;
+    const over25Passes = over25Prob >= (cfgOver25.minProb || 40) &&
+        over25Confidence >= (cfgOver25.minConfidence || 50) &&
+        (over25Edge.valueEdge >= minEdgeAllowed);
 
     if (over25Passes) {
+        // PRIORITÀ ELITE: +15 Bonus per strategie Professionali (v2)
+        const finalConfidence = Math.min(98, over25Confidence + 15);
         strategies.push({
             type: 'BACK_OVER_25',
-            confidence: Math.min(95, over25Confidence),
-            data: { over25Prob, prob, valueEdge: over25Edge.valueEdge },
-            create: () => createBackOver25Strategy(match, htProb, allMatches)
+            confidence: finalConfidence,
+            data: { over25Prob, prob, valueEdge: over25Edge.valueEdge, badges, eloDiff },
+            create: () => {
+                const s = createBackOver25Strategy(match, htProb, allMatches, finalConfidence);
+                s.reasoning = `Analisi Magia AI (${over25Prob}%). ` +
+                    (hasMotivation ? `Focus su motivazione speciale (${badges.join(', ')}). ` : '') +
+                    (Math.abs(eloDiff) > 150 ? `Gap tecnico ELO significativo (${eloDiff}).` : '');
+                return s;
+            }
         });
-    } else if (betfairOdds.over25 && !over25Edge.hasProfitableEdge) {
-        console.log(`  [OVER 2.5] ❌ SCARTATO: Edge insufficiente (${over25Edge.valueEdge}% < ${minValueEdge}%)`);
     }
 
-    // ─── STRATEGIA 5 (FALLBACK - PRIORITÀ BASSA): HT SNIPER (Gol 1° Tempo) ───
-    // Difficile da implementare nella pratica, solo se non c'è altro
+    // ─── STRATEGIA 5: HT SNIPER (Elite Refined) ───
     const htGoalProb = magicData?.htGoalProb || htProb;
-    console.log(`  [HT SNIPER] htProb=${htProb}, htGoalProb=${htGoalProb} | Passa: ${htProb >= 65 || htGoalProb >= 60}`);
-    // NOTA: Verrà aggiunta SOLO se non ci sono altre strategie (vedi sotto)
-    const htSniperCandidate = (htProb >= 65 || htGoalProb >= 60) ? {
+    // REQUISITI ELITE: Probabilità più alta (72%) OPPURE 65% + Motivazione
+    const htSniperPasses = (htProb >= 72 || (htProb >= 65 && hasMotivation));
+
+    const htSniperCandidate = htSniperPasses ? {
         type: 'HT_SNIPER',
-        confidence: Math.min(95, Math.round(Math.max(htProb, htGoalProb))),
-        data: { htProb, htGoalProb },
-        create: () => createHTSniperStrategy(match, htProb)
+        // SUPPRESSION ELITE v2: -25 Penalità per HT Sniper if professional alternative exists
+        confidence: Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (isTitleRace ? 5 : 0)) - 25,
+        data: { htProb, htGoalProb, badges },
+        create: (overrideConf) => {
+            const finalConf = overrideConf || (Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (isTitleRace ? 5 : 0)) - 25);
+            const s = createHTSniperStrategy(match, htProb, finalConf);
+            s.reasoning = `Focus Over 0.5 HT (${htProb}%). ` +
+                (hasMotivation ? `Spinta da obiettivi classifica: ${badges.join(', ')}.` : 'Match con alta intensità iniziale prevista.');
+            return s;
+        }
     } : null;
 
     // ─── STRATEGIA 3: LAY THE DRAW (REVISED WITH BETFAIR ODDS) ───
@@ -961,61 +1123,88 @@ function transformToTradingStrategy(match, allMatches) {
         const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
         const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
-        const mcDrawProb = magicData?.drawProb || 30;
+        const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
         const drawOdds = betfairOdds.draw || 3.50;
 
-        // NUOVA LOGICA: LTD è buono quando:
-        // - AI drawProb 22-38% (pareggio possibile ma non probabile)
-        // - Odds pareggio >= 3.40 (c'è margine per lay)
-        // - Storico pareggi < 35% (le squadre non pareggiano spesso)
-        const ltdDrawProbOk = mcDrawProb >= 22 && mcDrawProb <= 38;
+        // NUOVA LOGICA ELITE: LTD è meno affidabile negli scontri diretti "biscotto"
+        const isBiscottoRisk = isDirectClash && mcDrawProb > 33;
+        const ltdDrawProbOk = mcDrawProb >= 22 && mcDrawProb <= 38 && !isBiscottoRisk;
         const ltdOddsOk = drawOdds >= 3.40;
         const ltdHistOk = avgHistDraw < 35;
         const ltdPasses = ltdDrawProbOk && ltdOddsOk && ltdHistOk;
 
-        console.log(`  [LTD] drawProb=${mcDrawProb}%, histDraw=${avgHistDraw.toFixed(1)}%, odds=@${drawOdds} | Passa: ${ltdPasses}`);
-
         if (ltdPasses) {
-            // Confidence: Più alte le odds, meglio è (più margine)
             const oddsBonus = Math.min(15, (drawOdds - 3.0) * 5);
-            const confidence = Math.round(100 - mcDrawProb + oddsBonus);
+            // PRIORITÀ ELITE: +15 Bonus per strategie Professionali (v2)
+            let finalConfidence = Math.round(100 - mcDrawProb + oddsBonus) + 15;
+            if (isRelegationFight) finalConfidence += 5; // Più tensione = meno pareggi
+
             strategies.push({
                 type: 'LAY_THE_DRAW',
-                confidence: Math.min(95, confidence),
-                data: { mcDrawProb, avgHistDraw, homeDrawRate, awayDrawRate, drawOdds },
-                create: () => createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 28 && avgHistDraw < 28)
+                confidence: Math.min(95, finalConfidence),
+                data: { mcDrawProb, avgHistDraw, homeDrawRate, awayDrawRate, drawOdds, badges },
+                create: () => {
+                    const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 28 && avgHistDraw < 28, Math.min(95, finalConfidence));
+                    s.reasoning = `Analisi LTD (Pareggio AI: ${Math.round(mcDrawProb)}%). ` +
+                        (isRelegationFight ? "Tensione salvezza riduce rischio pareggio stallo." : "Margine di valore su odds Betfair.");
+                    return s;
+                }
             });
-        } else if (!ltdOddsOk && mcDrawProb < 35) {
-            console.log(`  [LTD] ❌ SCARTATO: Odds pareggio troppo basse (@${drawOdds} < 3.40) - no margine lay`);
         }
     }
 
-    // ─── STRATEGIA 2 (PRIORITÀ MEDIA-ALTA): SECOND HALF SURGE (O0.5 2T) ───
-    // Interessante per notifiche live Telegram
-    // NOTA: Non dipende più da score (sempre 0), usa solo prob
-    console.log(`  [SEC HALF] prob=${prob} | Passa: ${prob >= 65 && prob < 90}`);
-    if (prob >= 65 && prob < 90) { // Probabilità media-alta = partita equilibrata
-        const confidence = Math.round(prob * 0.8 + 15);
+    // ─── STRATEGIA 2: SECOND HALF SURGE (O0.5 2T) ───
+    if (prob >= 65 && prob < 90) {
+        let finalConfidence = Math.round(prob * 0.8 + 15) + 10; // +10 Bonus Professionale (v2)
+        if (hasMotivation) finalConfidence += 5;
+
         strategies.push({
             type: 'SECOND_HALF_SURGE',
-            confidence: Math.min(90, confidence),
-            data: { prob },
-            create: () => createSecondHalfSurgeStrategy(match, allMatches)
+            confidence: Math.min(95, finalConfidence),
+            data: { prob, badges },
+            create: () => {
+                const s = createSecondHalfSurgeStrategy(match, allMatches, Math.min(95, finalConfidence));
+                s.reasoning = `Prevista spinta nel 2° tempo (${prob}%). ` +
+                    (hasMotivation ? `Obiettivi classifica (${badges.join(', ')}) spingono alla vittoria.` : "");
+                return s;
+            }
         });
     }
 
-    // ─── STRATEGIA 4 (PRIORITÀ MEDIA): UNDER 3.5 SCALPING ───
-    // Difensivo, buono per partite chiuse
-    // NOTA: Non dipende più da score (sempre 0)
-    const under35Prob = 100 - (magicData?.over25Prob || 50) + 15;
-    console.log(`  [UNDER 3.5] under35Prob=${under35Prob} | Passa: ${under35Prob >= 60}`);
-    if (under35Prob >= 60) { // Solo under35Prob, niente score
+    // ─── STRATEGIA 6 (NUOVA): ELITE SURGE (High-Gap Trading) ───
+    if (Math.abs(eloDiff) > 250) {
+        const favoriteBadge = eloDiff > 0 ? "Home Favorite" : "Away Favorite";
+        strategies.push({
+            type: 'ELITE_SURGE',
+            confidence: Math.min(97, 85 + (Math.abs(eloDiff) / 50)),
+            data: { eloDiff, badges },
+            create: (overrideConf) => ({
+                strategy: 'ELITE_SURGE',
+                label: 'ELITE SURGE (BACK)',
+                action: eloDiff > 0 ? 'BACK 1' : 'BACK 2',
+                entryRange: ['Live @ 1.80+'],
+                exitTarget: '60 min / 1 Gol',
+                timing: 'In-Play (0-15 min)',
+                confidence: overrideConf || Math.min(97, 85 + (Math.abs(eloDiff) / 50)),
+                reasoning: `Gap tecnico ELO massivo (${Math.round(Math.abs(eloDiff))}). Attesa dominanza del favorito.`
+            })
+        });
+    }
+
+    // ─── STRATEGIA 4: UNDER 3.5 SCALPING ───
+    const under35Prob = 100 - (magicData?.over25 ? magicData.over25 : (magicData?.over25Prob || 50)) + 15;
+    if (under35Prob >= 60 && !hasMotivation) { // Meno under se c'è motivazione (partita aperta)
         const confidence = Math.round(under35Prob * 0.7 + 15);
         strategies.push({
             type: 'UNDER_35_SCALPING',
             confidence: Math.min(90, confidence),
             data: { under35Prob },
-            create: () => createUnder35TradingStrategy(match)
+            create: (overrideConf) => {
+                const finalConf = overrideConf || Math.min(90, Math.round(under35Prob * 0.7 + 15));
+                const s = createUnder35TradingStrategy(match, finalConf);
+                s.reasoning = `Match a basso ritmo previsto (${Math.round(under35Prob)}%). Assenza di spinte motivazionali forti.`;
+                return s;
+            }
         });
     }
 
@@ -1024,14 +1213,16 @@ function transformToTradingStrategy(match, allMatches) {
     // HT SNIPER solo come FALLBACK se non ci sono altre strategie
     // ════════════════════════════════════════════════════════════════
 
-    // FALLBACK: Se non abbiamo trovato nulla, proviamo HT SNIPER
+    // ELITE DIVERSITY: Se abbiamo già una strategia professionale solida (>65%), 
+    // l'HT Sniper non deve nemmeno essere proposto per evitare "rumore" e over-selection.
+    const hasSolidProfessional = strategies.some(s =>
+        ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'].includes(s.type) && s.confidence > 65
+    );
+
     if (strategies.length === 0 && htSniperCandidate) {
         strategies.push(htSniperCandidate);
-        console.log(`[Trading 3.0] ⚠️ ${match.partita}: Solo HT SNIPER disponibile (fallback)`);
-    }
-
-    // Se abbiamo già strategie migliori, aggiungiamo HT SNIPER come ultima opzione (bassa priorità)
-    if (strategies.length > 0 && htSniperCandidate) {
+    } else if (strategies.length > 0 && htSniperCandidate && !hasSolidProfessional) {
+        // Aggiungiamo HT Sniper solo se NON abbiamo già una professionale solida
         strategies.push(htSniperCandidate);
     }
 
@@ -1040,13 +1231,30 @@ function transformToTradingStrategy(match, allMatches) {
         return null;
     }
 
-    // Ordina per confidence decrescente
-    strategies.sort((a, b) => b.confidence - a.confidence);
+    // Ordina per confidence decrescente con Professional First Rule
+    strategies.sort((a, b) => {
+        const isAProf = ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'].includes(a.type);
+        const isBProf = ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'].includes(b.type);
+
+        // Professional First: Se una professionale ha confidende > 70%, vince su HT Sniper non-eccelso
+        if (isAProf && !isBProf && a.confidence >= 70 && b.confidence < 90) return -1;
+        if (!isAProf && isBProf && b.confidence >= 70 && a.confidence < 90) return 1;
+
+        return b.confidence - a.confidence;
+    });
 
     const bestStrategy = strategies[0];
 
-    // Crea e ritorna la strategia vincente
-    const result = bestStrategy.create();
+    // 🔍 DEBUG ELITE: Log finale per l'utente sui pesi del ranking
+    console.log(`[Elite Debug] Rank Finale per ${match.partita}:`);
+    strategies.forEach((s, idx) => {
+        const isProf = ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'].includes(s.type);
+        console.log(`  ${idx + 1}. ${s.type} | Conf: ${s.confidence}% | Professional: ${isProf}`);
+    });
+    console.log(`  🏆 Vincitore: ${bestStrategy.type} (${bestStrategy.confidence}%)`);
+
+    // Crea e ritorna la strategia vincente - PASSA LA CONFIDENCE PESATA
+    const result = bestStrategy.create(bestStrategy.confidence);
     if (result) {
         // LIMITA A MAX 3 STRATEGIE per evitare "sempre le solite 2"
         const topStrategies = strategies.slice(0, 3);
@@ -1075,37 +1283,25 @@ function calculateAllTradingStrategies(match, allMatches) {
     const htProb = extractHTProb(match.info_ht);
     const magicData = match.magicStats;
     const score = magicData?.score || match.score || 0;
+    const teams = (match.partita || "").split(' - ');
 
     const qualified = [];
 
-    // Check all strategies defined in transformToTradingStrategy
+    // ANALISI ELITE
+    const badges = magicData?.motivationBadges || [];
+    const hasMotivation = badges.length > 0;
+    const isDirectClash = badges.includes('⚔️ Scontro Diretto');
+    const isTitleRace = badges.includes('🏆 Corsa Titolo');
+    const isRelegationFight = badges.includes('🆘 Lotta Salvezza');
 
     // 1. BACK OVER 2.5
-    const over25Prob = magicData?.over25Prob || 0;
+    const over25Prob = magicData?.over25 ? magicData.over25 : (magicData?.over25Prob || 0);
     if (over25Prob >= 45 || score >= 60) {
-        const conf = Math.round((over25Prob * 0.6) + (score * 0.4));
-        const s = createBackOver25Strategy(match, htProb, allMatches);
+        const conf = Math.min(98, Math.round((over25Prob * 0.6) + (score * 0.4)) + 15 + (hasMotivation ? 5 : 0));
+        const s = createBackOver25Strategy(match, htProb, allMatches, conf);
         if (s) {
             qualified.push({
                 type: 'BACK_OVER_25',
-                confidence: conf,
-                // Flatten: spread properties to top level
-                entryRange: s.tradingInstruction?.entry || null,
-                exitTarget: s.tradingInstruction?.exit || null,
-                reasoning: s.reasoning || null,
-                tradingInstruction: s.tradingInstruction // Keep complete object for consistency
-            });
-        }
-    }
-
-    // 2. HT SNIPER
-    const htGoalProb = magicData?.htGoalProb || htProb;
-    if (htProb >= 60 || htGoalProb >= 55) {
-        const conf = Math.round(Math.max(htProb, htGoalProb));
-        const s = createHTSniperStrategy(match, htProb);
-        if (s) {
-            qualified.push({
-                type: 'HT_SNIPER',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1115,20 +1311,23 @@ function calculateAllTradingStrategies(match, allMatches) {
         }
     }
 
-    // 3. LAY THE DRAW
-    const teams = match.partita.split(' - ');
+    // 2. LAY THE DRAW
     if (teams.length === 2) {
         const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
         const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
         const mcDrawProb = magicData?.drawProb || 30;
-        if (mcDrawProb < 32 || avgHistDraw < 32) {
-            const conf = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3)));
-            const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 25 && avgHistDraw < 28);
+        const isBiscottoRisk = isDirectClash && mcDrawProb > 33;
+
+        if ((mcDrawProb < 35 || avgHistDraw < 35) && !isBiscottoRisk) {
+            let conf = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3))) + 15;
+            if (isRelegationFight) conf += 5;
+
+            const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 25 && avgHistDraw < 28, Math.min(95, conf));
             if (s) {
                 qualified.push({
                     type: 'LAY_THE_DRAW',
-                    confidence: conf,
+                    confidence: Math.min(95, conf),
                     entryRange: s.tradingInstruction?.entry || null,
                     exitTarget: s.tradingInstruction?.exit || null,
                     reasoning: s.reasoning || null,
@@ -1138,10 +1337,10 @@ function calculateAllTradingStrategies(match, allMatches) {
         }
     }
 
-    // 4. SECOND HALF SURGE
+    // 3. SECOND HALF SURGE
     if (score >= 55 && prob >= 50) {
-        const conf = Math.round((score * 0.5) + (prob * 0.3) + 15);
-        const s = createSecondHalfSurgeStrategy(match, allMatches);
+        const conf = Math.min(95, Math.round((score * 0.5) + (prob * 0.3) + 15) + 10);
+        const s = createSecondHalfSurgeStrategy(match, allMatches, conf);
         if (s) {
             qualified.push({
                 type: 'SECOND_HALF_SURGE',
@@ -1154,11 +1353,11 @@ function calculateAllTradingStrategies(match, allMatches) {
         }
     }
 
-    // 5. UNDER 3.5 SCALPING
-    const under35Prob = 100 - (magicData?.over25Prob || 50) + 15;
-    if (under35Prob >= 60 && score >= 45) {
-        const conf = Math.round((under35Prob * 0.6) + (score * 0.2) + 10);
-        const s = createUnder35TradingStrategy(match);
+    // 4. UNDER 3.5 SCALPING
+    const under35Prob = 100 - (over25Prob || 50) + 15;
+    if (under35Prob >= 60 && !hasMotivation) {
+        const conf = Math.min(90, Math.round(under35Prob * 0.7 + 15));
+        const s = createUnder35TradingStrategy(match, conf);
         if (s) {
             qualified.push({
                 type: 'UNDER_35_SCALPING',
@@ -1171,7 +1370,37 @@ function calculateAllTradingStrategies(match, allMatches) {
         }
     }
 
-    return qualified.sort((a, b) => b.confidence - a.confidence);
+    // 5. HT SNIPER (Sempre per ultimo per sorpasso professional)
+    const htGoalProb = magicData?.htGoalProb || htProb;
+    if (htProb >= 65 || htGoalProb >= 60) {
+        const conf = Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (isTitleRace ? 5 : 0)) - 25;
+        const s = createHTSniperStrategy(match, htProb, conf);
+        if (s) {
+            qualified.push({
+                type: 'HT_SNIPER',
+                confidence: conf,
+                entryRange: s.tradingInstruction?.entry || null,
+                exitTarget: s.tradingInstruction?.exit || null,
+                reasoning: s.reasoning || null,
+                tradingInstruction: s.tradingInstruction
+            });
+        }
+    }
+
+    // Sort: Professional First Rule
+    qualified.sort((a, b) => {
+        const profTypes = ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'];
+        const isAProf = profTypes.includes(a.type);
+        const isBProf = profTypes.includes(b.type);
+
+        // Se una professionale ha almeno il 60%, batte HT Sniper a meno che non sia > 90%
+        if (isAProf && !isBProf && a.confidence >= 60 && b.confidence < 90) return -1;
+        if (!isAProf && isBProf && b.confidence >= 60 && a.confidence < 90) return 1;
+
+        return b.confidence - a.confidence;
+    });
+
+    return qualified;
 }
 
 
@@ -1314,7 +1543,7 @@ function dixonColesCorrection(hg, ag, rho, lambdaHome, lambdaAway) {
  * Runs a TRUE Monte Carlo simulation for a match
  * Returns raw data for density analysis
  */
-function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = "") {
+function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = "", entropy = 1.0) {
     // Determine seed for reproducible results
     // If no seed provided, utilize Math.random via SeededRandom wrapper or just null to use fallback
     const rng = seedString ? new SeededRandom(seedString) : null;
@@ -1331,8 +1560,20 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
     const rho = (typeof STRATEGY_CONFIG !== 'undefined' ? STRATEGY_CONFIG.ENGINE.DIXON_COLES_RHO : -0.11);
 
     for (let i = 0; i < iterations; i++) {
-        const hg = poissonRandom(lambdaHome, rng);
-        const ag = poissonRandom(lambdaAway, rng);
+        // Apply entropy "jitter" to lambda values to model league chaos
+        let currentLambdaHome = lambdaHome;
+        let currentLambdaAway = lambdaAway;
+
+        if (entropy !== 1.0) {
+            const jitterRange = (entropy - 1.0) * 0.3; // E.g., 1.25 entropy = ±0.075 jitter
+            const jitterH = (Math.random() * jitterRange * 2) - jitterRange;
+            const jitterA = (Math.random() * jitterRange * 2) - jitterRange;
+            currentLambdaHome = Math.max(0.1, lambdaHome + jitterH);
+            currentLambdaAway = Math.max(0.1, lambdaAway + jitterA);
+        }
+
+        const hg = poissonRandom(currentLambdaHome, rng);
+        const ag = poissonRandom(currentLambdaAway, rng);
 
         // Apply Dixon-Coles weighting via rejection sampling or basic correction
         // For Monte Carlo, we weight the count by the correction factor
@@ -1781,9 +2022,11 @@ function getMagiaStats(match, allMatchesHistory) {
 
     if (homeStats.currForm.matchCount < 3 || awayStats.currForm.matchCount < 3) return null;
 
-    // League Goal Factor
+    // League Goal & Entropy Factors
     const leagueNorm = (match.lega || '').toLowerCase();
     let goalFactor = 1.0;
+    let entropyFactor = 1.0;
+
     for (const [l, factor] of Object.entries(LEAGUE_GOAL_FACTORS)) {
         if (leagueNorm.includes(l)) {
             goalFactor = factor;
@@ -1791,12 +2034,111 @@ function getMagiaStats(match, allMatchesHistory) {
         }
     }
 
-    const lambdaHome = ((homeStats.currForm.avgScored * 0.6 + homeStats.season.avgScored * 0.4 +
-        awayStats.currForm.avgConceded * 0.6 + awayStats.season.avgConceded * 0.4) / 2) * goalFactor;
-    const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
-        homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor;
+    for (const [l, factor] of Object.entries(LEAGUE_ENTROPY_FACTORS)) {
+        if (leagueNorm.includes(l)) {
+            entropyFactor = factor;
+            break;
+        }
+    }
 
-    const sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita);
+    // 🔥 POINT 3: MOTIVATION FACTOR (STANDINGS)
+    let motivationH = 1.0;
+    let motivationA = 1.0;
+
+    // Check if standings are available for this league
+    const leagueIdMap = window.LEAGUE_MAPPING || {};
+    let leagueId = null;
+    for (const [key, id] of Object.entries(leagueIdMap)) {
+        if (leagueNorm.includes(key)) {
+            leagueId = id;
+            break;
+        }
+    }
+
+    const cache = window.standingsCache;
+    let standings = null;
+    if (leagueId && cache) {
+        // Support both Map (new) and object (old) structures
+        if (typeof cache.get === 'function') {
+            // Check for potential keys like standings_135_2024 or just 135
+            standings = cache.get(leagueId) || cache.get(`standings_${leagueId}_2025`) || cache.get(`standings_${leagueId}_2024`);
+        } else {
+            standings = cache[leagueId];
+        }
+    }
+
+    if (standings) {
+        const stdH = standings.find(s =>
+            s.team.name.toLowerCase().includes(teams.home.toLowerCase()) ||
+            teams.home.toLowerCase().includes(s.team.name.toLowerCase())
+        );
+        const stdA = standings.find(s =>
+            s.team.name.toLowerCase().includes(teams.away.toLowerCase()) ||
+            teams.away.toLowerCase().includes(s.team.name.toLowerCase())
+        );
+
+        if (stdH && stdA) {
+            const totalTeams = standings.length;
+            sim.motivationBadges = [];
+
+            // High Motivation: Fighting for Title/Europe (Top 4) or Relegation (Bottom 4)
+            if (stdH.rank >= totalTeams - 4) {
+                motivationH += 0.15;
+                sim.motivationBadges.push({ team: 'H', type: 'SALVEZZA', label: 'Lotta Salvezza 🆘' });
+            } else if (stdH.rank <= 4) {
+                motivationH += 0.10;
+                sim.motivationBadges.push({ team: 'H', type: 'TITOLO', label: 'Corsa Titolo/EU 🏆' });
+            }
+
+            if (stdA.rank >= totalTeams - 4) {
+                motivationA += 0.15;
+                sim.motivationBadges.push({ team: 'A', type: 'SALVEZZA', label: 'Lotta Salvezza 🆘' });
+            } else if (stdA.rank <= 4) {
+                motivationA += 0.10;
+                sim.motivationBadges.push({ team: 'A', type: 'TITOLO', label: 'Corsa Titolo/EU 🏆' });
+            }
+
+            // Direct Clash: If teams are within 3 points of each other
+            if (Math.abs(stdH.points - stdA.points) <= 3) {
+                motivationH += 0.05;
+                motivationA += 0.05;
+                sim.motivationBadges.push({ team: 'B', type: 'SCONTRO', label: 'Scontro Diretto ⚔️' });
+            }
+        }
+    }
+
+    const lambdaHome = ((homeStats.currForm.avgScored * 0.6 + homeStats.season.avgScored * 0.4 +
+        awayStats.currForm.avgConceded * 0.6 + awayStats.season.avgConceded * 0.4) / 2) * goalFactor * motivationH;
+    const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
+        homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor * motivationA;
+
+    const sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita, entropyFactor);
+    /**
+     * STATISTICAL ENGINE v4.0.0 - ELITE MODE REFINED
+     * Last update: 17/01/2026 - Bugfix HT Sniper Confidence
+     */
+    console.log('%c[Elite Engine 4.0] Logic Initialized | Professional First Active', 'color: #00ff00; font-weight: bold; background: #000; padding: 5px;');
+    // Adjust probabilities based on ELO difference if available
+    if (window.teamELORatings) {
+        const rH = window.teamELORatings.get(teams.home) || 1500;
+        const rA = window.teamELORatings.get(teams.away) || 1500;
+        const eloDiff = rH - rA;
+
+        // Adjust Home/Away win probs based on ELO gap (Max 15% shift)
+        const eloSift = Math.max(-15, Math.min(15, eloDiff / 40));
+
+        sim.winHome = Math.max(5, Math.min(95, sim.winHome + eloSift));
+        sim.winAway = Math.max(5, Math.min(95, sim.winAway - eloSift));
+
+        // Recalculate Double Chances
+        sim.dc1X = Math.round(sim.winHome + sim.draw);
+        sim.dcX2 = Math.round(sim.winAway + sim.draw);
+        sim.dc12 = Math.round(sim.winHome + sim.winAway);
+
+        sim.eloRatingH = Math.round(rH);
+        sim.eloRatingA = Math.round(rA);
+        sim.eloDiff = Math.round(eloDiff);
+    }
 
     // Hybrid refinement (Draw Penalty)
     const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
@@ -1824,13 +2166,32 @@ function getMagiaStats(match, allMatchesHistory) {
     ].sort((a, b) => b.prob - a.prob);
 
     return {
-        drawProb: sim.draw,
-        winHomeProb: sim.winHome,
-        winAwayProb: sim.winAway,
-        over25Prob: sim.over25,
-        aiSignal: allSignals[0].label,
+        // Core probabilities
+        winHome: sim.winHome,
+        draw: sim.draw,
+        winAway: sim.winAway,
+        dc1X: sim.dc1X,
+        dcX2: sim.dcX2,
+        dc12: sim.dc12,
+
+        // Goal markets
+        over15: sim.over15,
+        over25: sim.over25,
+        under35: sim.under35,
+        btts: sim.btts,
+        noGol: sim.noGol,
+
+        // Meta & AI
+        tipMagiaAI: allSignals[0].label,
+        oddMagiaAI: 1.50, // Placeholder or calculated if available
         confidence: allSignals[0].prob,
-        score: allSignals[0].prob  // Score = confidence Monte Carlo per Trading 3.0
+        score: allSignals[0].prob,
+
+        // New Advanced metrics
+        eloRatingH: sim.eloRatingH,
+        eloRatingA: sim.eloRatingA,
+        eloDiff: sim.eloDiff,
+        motivationBadges: sim.motivationBadges || []
     };
 }
 
@@ -1858,5 +2219,7 @@ window.engine = {
     analyzeDrawRate,
     // NEW: Value Edge calculation
     calculateValueEdge,
+    calculateELORatings, // Added calculateELORatings
+    parseTeams, // Added parseTeams for consistency
     MIN_VALUE_EDGE: (typeof STRATEGY_CONFIG !== 'undefined' ? STRATEGY_CONFIG.TRADING.MIN_VALUE_EDGE : 3.0)
 };

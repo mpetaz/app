@@ -473,6 +473,8 @@ window.isTradingPick = function (match) {
 };
 
 window.createUniversalCard = function (match, index, stratId, options = {}) {
+    console.log(`[CardDebug] Rendering ${match.partita || 'Unknown'} (Strat: ${stratId}, Options: ${JSON.stringify(options)})`);
+
     // ... rest of the function ...
     // 0. LIVE HUB SYNC: Check if we have real-time score/status for this match-tip
     const mName = match.partita || "";
@@ -558,8 +560,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 elapsed: liveHubData.elapsed,
                 status: liveHubData.status
             },
+            // CRITICAL: Ensure liveStats (Cooking Indicator) is ALWAYS merged
             liveStats: liveHubData.liveStats || match.liveStats,
-            events: liveHubData.events || match.events
+            events: liveHubData.events || match.events,
+            // Add flag to indicate it's receiving real-time data
+            isLiveSync: true
         };
 
         // 🩺 PROTOCOLLO 90'+10min: Se il match è al 90° e il tempo previsto è passato, è FINITO.
@@ -615,6 +620,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const isAIPick = isMagiaAI || isSpecialAI;
     const isMagia = stratId === 'magia_ai';
 
+    // 🏆 GOLDEN PROTOCOL LOGIC
+    const norm = (t) => (t || '').toLowerCase().trim();
+    const isGoldCard = isMagiaAI && isSpecialAI && norm(match.magiaTip) === norm(match.specialTip);
+    const isGoldBadge = isMagiaAI && match.dbTip && norm(match.magiaTip) === norm(match.dbTip);
+
     // 🏆 REGOLA D'ORO: Una Partita = Una Identità
     // Se è un trading pick, è una card trading OVUNQUE.
     const isTrading = window.isTradingPick(match) || options.isTrading;
@@ -629,7 +639,13 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         ? (window.tradingFavorites || []).includes(tradingMatchId)
         : (window.selectedMatches || []).some(sm => sm.id === bettingMatchId);
 
-    const rankingValue = Math.round(match.confidence || match.score || 0);
+    // 🧪 Confidence fallback to prevent NaN
+    let rankingValue = 0;
+    if (typeof match.confidence === 'number' && !isNaN(match.confidence)) {
+        rankingValue = Math.round(match.confidence);
+    } else if (typeof match.score === 'number' && !isNaN(match.score)) {
+        rankingValue = Math.round(match.score);
+    }
     const rankingColor = getRankingColor(rankingValue);
     const rankingBadgeHTML = rankingValue > 0 ? `<span class="bg-${rankingColor} text-black px-2 py-0.5 rounded-full text-xs font-black ml-2 shadow-sm border border-black/10 transition-transform hover:scale-110">${rankingValue}</span>` : '';
 
@@ -888,21 +904,29 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         // --- 🧬 HYBRID TRADING CARD: Mostra Trading + Betting ---
         const tData = window.resolveTradingData(match);
 
+        // 🧪 GOLDEN PROTOCOL for Hybrid Betting Box
+        const bettingBoxBg = isGoldCard ? 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-lg ring-2 ring-amber-300' : 'bg-blue-600/10 border-blue-500/30';
+        const bettingBoxBorder = isGoldCard ? 'border-amber-400' : 'border-blue-500/40';
+        const bettingTipText = isGoldCard ? 'text-amber-950' : 'text-slate-800';
+        const bettingTitleText = isGoldCard ? 'text-amber-900' : 'text-blue-600';
+        const aiBadgeStyle = isGoldBadge ? 'bg-gradient-to-r from-amber-400 to-yellow-600 text-black shadow-md animate-pulse' : 'bg-purple-600 text-white';
+
         primarySignalHTML = `
             <div class="px-4 pb-4">
-                <!-- 1. Betting Signal (Integrated) -->
-                <div class="bg-blue-600/10 border border-blue-500/20 rounded-xl p-3 text-center mb-3 relative overflow-hidden group">
-                     <span class="text-[9px] font-bold text-blue-500 uppercase tracking-widest mb-1 block">CONSIGLIO BETTING</span>
-                     <div class="flex justify-center items-center gap-2">
-                        <span class="text-base font-black text-slate-800">${match.tip || '-'}</span>
-                        ${match.quota ? `<span class="bg-blue-600 text-white px-1.5 rounded text-[10px] font-bold">@ ${match.quota}</span>` : ''}
-                        <span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-black">${rankingValue}</span>
+                <!-- 1. Betting Signal (Integrated & GOLD Ready) -->
+                <div class="${bettingBoxBg} ${bettingBoxBorder} border-2 rounded-2xl p-4 text-center mb-4 relative overflow-hidden group shadow-sm">
+                     ${isAIPick ? `<div class="absolute top-0 right-0 ${aiBadgeStyle} text-[9px] font-black px-2 py-1 rounded-bl shadow-sm">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
+                     <span class="text-[10px] font-black ${bettingTitleText} uppercase tracking-widest mb-1.5 block">CONSIGLIO BETTING</span>
+                     <div class="flex justify-center items-center gap-3">
+                        <span class="text-xl font-black ${bettingTipText}">${match.tip || '-'}</span>
+                        ${match.quota ? `<span class="${isGoldCard ? 'bg-amber-600' : 'bg-blue-600'} text-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm">@ ${match.quota}</span>` : ''}
+                        <span class="${isGoldCard ? 'bg-white/50 text-amber-900 border-amber-300' : 'bg-blue-100 text-blue-700 border-blue-200'} border px-2 py-0.5 rounded-lg text-xs font-black shadow-xs">${rankingValue}</span>
                      </div>
                 </div>
 
                 <!-- 2. Trading Instructions -->
                 <div class="bg-gradient-to-br from-emerald-500/10 to-teal-600/20 border border-emerald-500/30 rounded-2xl p-4 shadow-inner relative overflow-hidden group">
-                    <div class="flex justify-between items-start mb-4">
+                     <div class="flex justify-between items-start mb-4">
                         <div class="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-lg flex items-center gap-1.5 uppercase tracking-widest ring-1 ring-white/20">
                             <i class="fa-solid fa-bolt-lightning text-[9px] animate-pulse"></i> Trading 3.0
                         </div>
@@ -929,24 +953,36 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             </div>
         `;
     } else {
+        // --- 🧪 GOLDEN PROTOCOL VISUALS ---
+        const cardBgClass = isGoldCard ? 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-[0_0_25px_rgba(251,191,36,0.4)] ring-4 ring-amber-400/50' : 'bg-white';
+        const badgeStyle = isGoldBadge ? 'bg-gradient-to-r from-amber-400 to-yellow-600 text-black shadow-lg shadow-amber-200 ring-2 ring-white animate-pulse' : 'bg-purple-600 text-white';
+        const pillTextCol = isGoldCard ? 'text-amber-900' : 'text-blue-200';
+        const pillBgCol = isGoldCard ? 'bg-amber-600/20' : 'bg-blue-600';
+        const tipTextCol = isGoldCard ? 'text-amber-950' : 'text-white';
+        const mainPillBg = isGoldCard ? 'bg-white/40 backdrop-blur-sm border border-amber-400' : 'bg-blue-600';
+        const mainTipText = isGoldCard ? 'text-amber-950' : 'text-white';
+
         primarySignalHTML = `
             <div class="px-4 pb-4 flex flex-col items-center gap-3">
-                <!-- Standard Main Tip (Blue Pill) -->
-                <div class="w-full bg-blue-600 text-white rounded-xl py-2 px-3 text-center shadow-md shadow-blue-200 relative overflow-hidden">
-                     ${isAIPick ? `<div class="absolute top-0 right-0 bg-purple-600 text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-bl shadow-lg text-white ring-1 ring-white/20">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
-                     <span class="text-xs uppercase font-bold text-blue-200 block mb-0.5">CONSIGLIO</span>
-                     <span class="text-lg font-black tracking-wide">${match.tip}</span>
-                     ${match.quota ? `<span class="ml-2 bg-blue-500/50 px-1.5 rounded text-sm font-bold">@ ${match.quota}</span>` : ''}
+                <!-- Standard Main Tip (Blue Pill or GOLD PILL) -->
+                <div class="w-full ${mainPillBg} rounded-xl py-2 px-3 text-center shadow-md relative overflow-hidden">
+                     ${isAIPick ? `<div class="absolute top-0 right-0 ${badgeStyle} text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-bl shadow-lg">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
+                     <span class="text-xs uppercase font-bold ${isGoldCard ? 'text-amber-800' : 'text-blue-200'} block mb-0.5">CONSIGLIO</span>
+                     <span class="text-lg font-black tracking-wide ${mainTipText}">${match.tip}</span>
+                     ${match.quota ? `<span class="ml-2 ${isGoldCard ? 'bg-amber-600 text-white' : 'bg-blue-500/50 text-white'} px-1.5 rounded text-sm font-bold">@ ${match.quota}</span>` : ''}
                 </div>
 
                 <!-- Secondary/HT Tip (Purple Pill) -->
-                <div class="w-[80%] bg-purple-50 border border-purple-100 text-purple-800 rounded-full py-1 px-3 text-center flex justify-between items-center shadow-sm">
-                     <span class="text-xs font-black uppercase text-purple-400">0.5 HT</span>
-                     <span class="text-xs font-bold text-purple-700">Prob. ${match.probabilita || '70%'}</span>
-                     ${match.quota ? `<span class="bg-purple-100 px-1.5 rounded text-xs font-bold text-purple-600">@ 1.45</span>` : ''}
+                <div class="w-[80%] ${isGoldCard ? 'bg-white/40 border-amber-300 text-amber-900' : 'bg-purple-50 border-purple-100 text-purple-800'} border rounded-full py-1 px-3 text-center flex justify-between items-center shadow-sm">
+                     <span class="text-xs font-black uppercase ${isGoldCard ? 'text-amber-700' : 'text-purple-400'}">0.5 HT</span>
+                     <span class="text-xs font-bold ${isGoldCard ? 'text-amber-900' : 'text-purple-700'}">Prob. ${match.probabilita || '70%'}</span>
+                     ${match.quota ? `<span class="${isGoldCard ? 'bg-amber-500 text-white' : 'bg-purple-100 text-purple-600'} px-1.5 rounded text-xs font-bold">@ 1.45</span>` : ''}
                 </div>
             </div>
         `;
+
+        // Update the card object if we want the background to change (we'll apply it in the outer div)
+        if (isGoldCard) card.className += ' ' + cardBgClass;
     }
 
     // --- Insights / detailedTrading ---
@@ -1049,74 +1085,194 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     }
 
     // TRADING: Match Events Timeline (Goals + Cards)
-    if (options.detailedTrading && match.events && match.events.length > 0) {
-        // Filter goals and cards
-        const events = match.events.filter(ev =>
-            ev.type?.toLowerCase() === 'goal' ||
-            ev.detail?.toLowerCase().includes('goal') ||
-            ev.type?.toLowerCase() === 'card'
-        );
-        const homeTeam = (match.partita || '').split('-')[0]?.trim();
+    if (match.events && match.events.length > 0) {
+        // Filter goals and cards (Case Insensitive)
+        const events = (match.events || []).filter(ev => {
+            const type = (ev.type || '').toLowerCase();
+            const detail = (ev.detail || '').toLowerCase();
+            return type === 'goal' || detail.includes('goal') || type === 'card';
+        });
+
+        console.log(`[CardDebug] Timeline for ${match.partita}: Events=${events.length}`);
+
+        // 🏆 Robust Side Detection (Home vs Away)
+        const homeTeamPartita = (match.partita || '').split('-')[0]?.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
         let timelineHTML = '';
         if (events && events.length > 0) {
+            // Sort events by time to handle overlays logically
+            events.sort((a, b) => {
+                const headA = parseInt(a.time?.elapsed || a.elapsed || a.minute || 0);
+                const headB = parseInt(b.time?.elapsed || b.elapsed || b.minute || 0);
+                return headA - headB;
+            });
+
             timelineHTML = `
-                <div class="px-4 mb-4">
-                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
-                        <i class="fa-solid fa-timeline text-[9px]"></i> Timeline Eventi
+                <div class="px-4 mb-5">
+                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-timeline text-[9px] text-emerald-500"></i> Match Timeline
+                        ${(match.status === 'FT' || match.status === 'AET') ? '<span class="text-[9px] text-slate-300 ml-auto">FINALE</span>' : ''}
                     </div>
                     
-                    <div class="relative bg-emerald-900/5 border border-emerald-500/10 rounded-2xl p-4 pt-10 pb-16 overflow-hidden">
-                        <!-- Pitch-like background -->
-                        <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: repeating-linear-gradient(90deg, transparent, transparent 10%, #059669 10%, #059669 11%);"></div>
-                        
-                        <!-- The Horizontal Line -->
-                        <div class="absolute top-[50%] left-6 right-6 h-1 bg-slate-200 rounded-full"></div>
-                        
-                        <!-- Minute Markers -->
-                        <div class="absolute top-[51%] left-6 text-[8px] font-bold text-slate-300">0'</div>
-                        <div class="absolute top-[51%] left-1/2 -translate-x-1/2 text-[8px] font-black text-indigo-400/50">HT</div>
-                        <div class="absolute top-[51%] right-6 text-[8px] font-bold text-slate-300">90'</div>
-
-                        <!-- Render Events -->
-                        ${events.map(ev => {
-                const minute = parseInt(ev.time?.elapsed || 0);
-                const posPercent = Math.min(Math.max((minute / 90) * 100, 0), 100);
-                const isGoal = ev.type === 'Goal';
-                const isYellow = ev.detail === 'Yellow Card';
-                const isRed = ev.detail === 'Red Card';
-
-                // Distingui squadra Casa vs Trasferta (Usa colori diversi)
-                const isHome = ev.team?.name === homeTeam || ev.side === 'home';
-                const markerColorClass = isHome ? 'text-indigo-600 border-indigo-200 bg-indigo-50' : 'text-purple-600 border-purple-200 bg-purple-50';
-                const shadowClass = isHome ? 'shadow-indigo-200/50' : 'shadow-purple-200/50';
-
-                if (isGoal) {
-                    return `
-                        <div class="absolute group" style="left: calc(24px + ${posPercent}% * (100% - 48px) / 100); top: 12px; transform: translateX(-50%);">
-                            <div class="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">${minute}'</div>
-                            <div class="w-8 h-8 rounded-full border-2 ${markerColorClass} ${shadowClass} shadow-lg flex items-center justify-center relative cursor-help transition-transform hover:scale-125 z-40">
-                                <span class="text-sm">⚽</span>
+                    <div class="relative bg-[#064e3b] border border-emerald-800 rounded-3xl p-4 pt-16 pb-16 shadow-[inset_0_2px_25px_rgba(0,0,0,0.5)] h-64 overflow-hidden">
+                        <!-- Pitch Markings & Lawn Texture -->
+                        <div class="absolute inset-0 pointer-events-none">
+                            <!-- Alternate Lawn Stripes -->
+                            <div class="absolute inset-0 opacity-[0.05]" style="background: repeating-linear-gradient(90deg, transparent, transparent 10%, #000 10%, #000 20%);"></div>
+                            
+                            <div class="absolute inset-0 opacity-20">
+                                <div class="absolute top-0 bottom-0 left-1/2 w-[1.5px] bg-white -translate-x-1/2 shadow-[0_0_8px_white]"></div> <!-- Halfway Line -->
+                                <div class="absolute inset-y-10 left-10 right-10 border-x-2 border-white/40 shadow-[0_0_5px_rgba(255,255,255,0.2)]"></div> <!-- Pitch Borders -->
+                                <div class="absolute top-1/2 left-1/2 w-24 h-24 border-2 border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-[0_0_10px_rgba(255,255,255,0.2)]"></div>
                             </div>
-                            <div class="absolute top-10 left-1/2 -translate-x-1/2 text-[10px] font-black ${isHome ? 'text-indigo-700' : 'text-purple-700'} whitespace-nowrap drop-shadow-sm uppercase tracking-tighter">${ev.player?.name?.split(' ').pop() || 'Gol'}</div>
                         </div>
-                    `;
-                }
+                        
+                        <!-- Fixed 90' Progress Bar (Fiber Optic Style) -->
+                        <div class="absolute top-1/2 -translate-y-1/2 left-10 right-10 h-1.5 bg-emerald-950/60 rounded-full overflow-hidden border border-emerald-700/30">
+                            <div class="h-full bg-gradient-to-r from-emerald-400 via-lime-400 to-emerald-300 shadow-[0_0_20px_rgba(52,211,153,0.8)] transition-all duration-1000 fiber-optic-progress relative" 
+                                 style="width: ${Math.min(Math.max((parseInt(match.minute || 0) / 90) * 100, 0), 100)}%">
+                                 <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse"></div>
+                                 <div class="absolute right-0 top-0 bottom-0 w-4 bg-white/60 blur-[3px]"></div>
+                            </div>
+                        </div>
 
-                if (isYellow || isRed) {
-                    const cardColor = isYellow ? 'bg-yellow-400' : 'bg-red-500';
+                        <!-- Removed redundant labels per user request -->
+                        
+                        <!-- Live Indicator (Vibrant Emerald) -->
+                        ${(match.status !== 'FT' && match.minute) ? `
+                            <div class="absolute top-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none" style="left: calc(40px + (100% - 80px) * ${Math.min(Math.max((parseInt(match.minute) / 90), 0), 1.0)}); z-index: 5;">
+                                <div class="w-[2px] h-20 bg-emerald-400/30 rounded-full blur-[1px]"></div>
+                                <div class="w-3 h-3 bg-emerald-400 rounded-full shadow-[0_0_12px_rgba(52,211,153,1)] border-2 border-white -mt-10"></div>
+                            </div>
+                        ` : ''}
+
+                        <!-- Events Rendering: Broadcast Style with High-Contrast Stems -->
+                        ${(() => {
+                    const seen = new Set();
+                    const validEvents = events.filter(ev => {
+                        const type = (ev.type || '').toLowerCase();
+                        const detail = (ev.detail || '').toLowerCase();
+                        const min = parseInt(ev.time?.elapsed || ev.elapsed || ev.minute || 0);
+                        const playerName = ev.player?.name || '';
+                        const key = `${type}-${min}-${playerName}`;
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+
+                        return (type === 'goal' && (detail.includes('normal') || detail.includes('penalty') || detail.includes('own goal') || detail === '')) ||
+                            (type === 'card' && (detail.includes('yellow') || detail.includes('red')));
+                    });
+
+                    let lastHomeMin = -999, lastAwayMin = -999;
+                    let hLevel = 0, aLevel = 0;
+
+                    const bookingsList = [];
+
+                    const renderedEvents = validEvents.map((ev, i) => {
+                        const min = parseInt(ev.time?.elapsed || ev.elapsed || ev.minute || 0);
+                        const pos = Math.min(Math.max((min / 90) * 100, 0), 100);
+                        const isGoal = (ev.type || '').toLowerCase() === 'goal';
+                        const detail = (ev.detail || '').toLowerCase();
+                        const team = (ev.team?.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const isHome = team.includes(homeTeamPartita) || homeTeamPartita.includes(team) || ev.side === 'home';
+                        const playerNameFull = ev.player?.name || '';
+                        const name = playerNameFull ? playerNameFull.split(' ').pop().toUpperCase() : '';
+
+                        if (!isGoal) {
+                            bookingsList.push({ min, name, detail, isHome });
+                        }
+
+                        // Vert Staggering (3 Levels) - Threshold set to 12 mins for maximum clarity
+                        let level = 0;
+                        if (isHome) {
+                            if (Math.abs(min - lastHomeMin) < 12) hLevel = (hLevel + 1) % 3; else hLevel = 0;
+                            level = hLevel; lastHomeMin = min;
+                        } else {
+                            if (Math.abs(min - lastAwayMin) < 12) aLevel = (aLevel + 1) % 3; else aLevel = 0;
+                            level = aLevel; lastAwayMin = min;
+                        }
+
+                        const stemHeight = 18 + (level * 35);
+
+                        if (isGoal) {
+                            return `
+                            <div class="absolute" style="left: calc(40px + (100% - 80px) * ${pos / 100}); ${isHome ? 'bottom: 50%' : 'top: 50%'}; z-index: 30; transform: translateX(-50%);">
+                                <div class="flex ${isHome ? 'flex-col-reverse' : 'flex-col'} items-center">
+                                    <div class="bg-white text-emerald-900 text-[8px] font-black px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(255,255,255,0.4)] border border-emerald-400 z-40 mb-[-5px] mt-[-5px]">${min}'</div>
+                                    <div class="w-[1.5px] bg-gradient-to-${isHome ? 't' : 'b'} from-white to-transparent opacity-60" style="height: ${stemHeight}px"></div>
+                                    <div class="relative group flex flex-col items-center">
+                                        <!-- Minimalist Pulsing Goal Icon -->
+                                        <div class="relative flex items-center justify-center">
+                                            <div class="absolute w-8 h-8 bg-emerald-400 rounded-full animate-ping opacity-20"></div>
+                                            <span class="text-xl drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] z-10">⚽</span>
+                                        </div>
+                                        <div class="absolute ${isHome ? 'bottom-full mb-2' : 'top-full mt-2'} glass-label-premium px-2 py-0.5 rounded-lg shadow-2xl whitespace-nowrap z-50">
+                                            <span class="text-[10px] font-black text-white tracking-widest">${name || 'GOL'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        } else { // Card
+                            return `
+                             <div class="absolute" style="left: calc(40px + (100% - 80px) * ${pos / 100}); ${isHome ? 'bottom: 50%' : 'top: 50%'}; z-index: 25; transform: translateX(-50%);">
+                                 <div class="flex ${isHome ? 'flex-col-reverse' : 'flex-col'} items-center">
+                                    <div class="bg-white/90 text-emerald-950 text-[7px] font-black px-1 rounded shadow-sm z-40 mb-[-4px] mt-[-4px]">${min}'</div>
+                                    <div class="w-[1px] bg-white/20" style="height: 10px"></div>
+                                    <div class="w-3.5 h-5 ${detail.includes('yellow') ? 'bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.4)]' : 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]'} rounded-[1.5px] border border-white/40 z-10"></div>
+                                 </div>
+                            </div>
+                        `;
+                        }
+                    }).join('');
+
                     return `
-                        <div class="absolute group" style="left: calc(24px + ${posPercent}% * (100% - 48px) / 100); bottom: 12px; transform: translateX(-50%);">
-                            <div class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">${minute}'</div>
-                            <div class="w-3 h-4 rounded-sm ${cardColor} shadow-sm cursor-help transition-transform hover:scale-125 z-30"></div>
-                            <div class="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[8px] font-bold text-slate-400 whitespace-nowrap overflow-hidden max-w-[40px] text-ellipsis">${ev.player?.name?.split(' ').pop() || ''}</div>
-                        </div>
+                        ${renderedEvents}
+                        </div> <!-- Close pitch relative div -->
+                        ${bookingsList.length > 0 ? `
+                        <div class="mt-4 px-2">
+                            <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-100 pb-1 flex items-center gap-2">
+                                <i class="fa-solid fa-clone text-[8px]"></i> Provvedimenti
+                            </div>
+                            
+                            ${(() => {
+                                const homeB = bookingsList.filter(b => b.isHome).sort((a, b) => a.min - b.min);
+                                const awayB = bookingsList.filter(b => !b.isHome).sort((a, b) => a.min - b.min);
+
+                                let html = '';
+                                if (homeB.length > 0) {
+                                    html += `
+                                        <div class="flex flex-wrap gap-x-3 gap-y-2 mb-3">
+                                            ${homeB.map(b => `
+                                                <div class="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+                                                    <div class="w-1.5 h-3 ${b.detail.includes('yellow') ? 'bg-yellow-400' : 'bg-red-500'} rounded-[1px] border border-black/5"></div>
+                                                    <span class="text-[10px] font-bold text-slate-400">${b.min}'</span>
+                                                    <span class="text-[10px] font-black text-slate-700 uppercase tracking-tight">${b.name}</span>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    `;
+                                }
+                                if (awayB.length > 0) {
+                                    if (homeB.length > 0) html += `<div class="w-full h-[1px] bg-slate-50 mb-3"></div>`;
+                                    html += `
+                                        <div class="flex flex-wrap gap-x-3 gap-y-2">
+                                            ${awayB.map(b => `
+                                                <div class="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+                                                    <div class="w-1.5 h-3 ${b.detail.includes('yellow') ? 'bg-yellow-400' : 'bg-red-500'} rounded-[1px] border border-black/5"></div>
+                                                    <span class="text-[10px] font-bold text-slate-400">${b.min}'</span>
+                                                    <span class="text-[10px] font-black text-slate-700 uppercase tracking-tight">${b.name}</span>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    `;
+                                }
+                                return html;
+                            })()}
+                        </div>` : ''}
                     `;
-                }
-                return '';
-            }).join('')}
-                    </div>
+                })()}
                 </div>
+            </div>
             `;
         }
         insightsHTML += timelineHTML;
@@ -1126,39 +1282,39 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     if (!isMagia && (ms.winHomeProb || ms.drawProb || ms.winAwayProb)) {
         insightsHTML += `
             <div class="px-4 mb-4">
-                <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <div class="flex justify-between items-end mb-2">
-                         <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <div class="flex justify-between items-end mb-2">
+                            <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Probabilità AI</span>
+                        </div>
+                        <div class="flex h-2.5 rounded-full overflow-hidden mb-2 shadow-inner bg-slate-200">
+                            <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
+                            <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
+                            <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
+                        </div>
+                        <div class="flex justify-between text-xs font-bold text-slate-500 px-1">
+                            <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-indigo-500"></div>1 (${Math.round(ms.winHomeProb || 0)}%)</div>
+                            <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-slate-300"></div>X (${Math.round(ms.drawProb || 0)}%)</div>
+                            <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-purple-500"></div>2 (${Math.round(ms.winAwayProb || 0)}%)</div>
+                        </div>
                     </div>
-                    <div class="flex h-2.5 rounded-full overflow-hidden mb-2 shadow-inner bg-slate-200">
-                        <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
-                        <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
-                        <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
-                    </div>
-                    <div class="flex justify-between text-xs font-bold text-slate-500 px-1">
-                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-indigo-500"></div>1 (${Math.round(ms.winHomeProb || 0)}%)</div>
-                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-slate-300"></div>X (${Math.round(ms.drawProb || 0)}%)</div>
-                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-purple-500"></div>2 (${Math.round(ms.winAwayProb || 0)}%)</div>
-                    </div>
-                </div>
             </div>
-        `;
+                `;
     }
 
     // euGENIO Insight
     const why = match.why || match.spiegazione || match.insight || "";
     if (why) {
         insightsHTML += `
-            <div class="px-4 mb-3">
-                <div class="eugenio-why-box border border-indigo-100 shadow-sm relative overflow-hidden bg-indigo-50/30">
-                    <div class="flex items-center gap-1.5 mb-1">
-                        <i class="fa-solid fa-brain text-xs text-indigo-400"></i>
-                        <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
+                <div class="px-4 mb-3">
+                    <div class="eugenio-why-box border border-indigo-100 shadow-sm relative overflow-hidden bg-indigo-50/30">
+                        <div class="flex items-center gap-1.5 mb-1">
+                            <i class="fa-solid fa-brain text-xs text-indigo-400"></i>
+                            <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
+                        </div>
+                        ${why}
                     </div>
-                    ${why}
-                </div>
             </div>
-        `;
+                `;
     }
 
     // Warnings (Standard Only)
@@ -1171,7 +1327,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     <i class="fa-solid fa-triangle-exclamation text-red-500 text-xs"></i>
                     <div class="text-xs text-red-700 font-bold">Lega volatile (${volatile.volatility}% vol)</div>
                 </div>
-             `;
+                `;
         }
     }
 
@@ -1184,16 +1340,16 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const alternativeRationale = match.logicRationale || match.logic_rationale || match.reasoning || "";
     if (alternativeRationale && !why) {
         insightsHTML += `
-            <div class="px-4 mb-3">
-                <div class="eugenio-why-box border border-indigo-100 shadow-sm relative overflow-hidden bg-indigo-50/30">
-                    <div class="flex items-center gap-1.5 mb-1">
-                        <i class="fa-solid fa-brain text-xs text-indigo-400"></i>
-                        <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
+                <div class="px-4 mb-3">
+                    <div class="eugenio-why-box border border-indigo-100 shadow-sm relative overflow-hidden bg-indigo-50/30">
+                        <div class="flex items-center gap-1.5 mb-1">
+                            <i class="fa-solid fa-brain text-xs text-indigo-400"></i>
+                            <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
+                        </div>
+                        ${alternativeRationale}
                     </div>
-                    ${alternativeRationale}
-                </div>
             </div>
-        `;
+                `;
     }
 
     // --- Footer with Monitoring Badge ---
@@ -1214,13 +1370,13 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
 
     const footerHTML = `
-        <div class="bg-slate-50 p-2 border-t border-slate-100 flex justify-between items-center px-4">
+                <div class="bg-slate-50 p-2 border-t border-slate-100 flex justify-between items-center px-4">
               <div class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">TIPSTER AI</div>
               <div class="flex items-center gap-2">
                 ${match.status === 'FT' ? '<span class="text-[11px] font-black text-green-600">● MATCH CONCLUSO</span>' : (notMonitoredBadge || '<span class="text-[11px] font-black text-indigo-500 animate-pulse">● MONITORAGGIO ATTIVO</span>')}
               </div>
         </div>
-    `;
+                `;
 
     card.innerHTML = headerHTML + teamsHTML + primarySignalHTML + insightsHTML + footerHTML;
     return card;
@@ -1305,7 +1461,7 @@ window.loadTipsPage = async function () {
         const data = parlayDoc.data();
         const parlays = data.parlays;
 
-        console.log(`[Tips] Loaded ${Object.keys(parlays).length} parlays from Firebase (generated: ${data.generatedAt})`);
+        console.log(`[Tips] Loaded ${Object.keys(parlays).length} parlays from Firebase(generated: ${data.generatedAt})`);
 
         containerWrapper.classList.remove('hidden');
         if (noTipsEmptyLogic) noTipsEmptyLogic.classList.add('hidden');
@@ -1333,7 +1489,7 @@ window.loadTipsPage = async function () {
                         <div class="text-3xl font-black text-white leading-none">@${parlay.totalOdds.toFixed(2)}</div>
                     </div>
                 </div>
-            `;
+                `;
 
             let matchesHtml = '<div class="space-y-4">';
             parlay.picks.forEach(m => {
@@ -1372,7 +1528,7 @@ window.loadTipsPage = async function () {
                 // Time Badge
                 let timeBadge = '';
                 if (isFT) timeBadge = '<span class="text-emerald-400 font-bold ml-1 text-[9px]">FT</span>';
-                else if (isLive) timeBadge = `<span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]">\'${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
+                else if (isLive) timeBadge = `< span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]" >\'${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
                 else if (m.ora) timeBadge = `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>`;
 
                 // Outcome Styling
@@ -1502,16 +1658,17 @@ window.loadTradingPicks = function (date) {
                 return { ...pick, id: pickId };
             });
 
-            // 🔧 FIX: Merge with liveScoresHub to get live statistics (xG, shots, corners, etc.)
+            // 🔧 FIX: Merge with liveScoresHub AND Unified AI Data
             const liveHub = window.liveScoresHub || {};
+            const unifiedMatches = window.getUnifiedMatches ? window.getUnifiedMatches() : [];
+
             const enrichedPicks = mergedPicks.map(pick => {
-                // Find in liveScoresHub by fixtureId or name match
                 let hubMatch = null;
 
+                // 1. Sync with LiveHub
                 if (pick.fixtureId) {
                     hubMatch = Object.values(liveHub).find(h => h.fixtureId == pick.fixtureId);
                 }
-
                 if (!hubMatch && pick.partita) {
                     const cleanName = (pick.partita || '').toLowerCase().replace(/[^a-z]/g, '');
                     hubMatch = Object.values(liveHub).find(h => {
@@ -1520,9 +1677,32 @@ window.loadTradingPicks = function (date) {
                     });
                 }
 
+                // 2. Sync with AI Metadata (Golden Protocol)
+                const pickNameNorm = (pick.partita || '').toLowerCase().replace(/[^a-z0-9]/g, "");
+                const aiMatch = unifiedMatches.find(u => {
+                    const uName = (u.partita || '').toLowerCase().replace(/[^a-z0-9]/g, "");
+                    return uName.includes(pickNameNorm) || pickNameNorm.includes(uName);
+                });
+
+                let finalPick = { ...pick };
+
+                if (aiMatch) {
+                    finalPick.isMagiaAI = aiMatch.isMagiaAI;
+                    finalPick.isSpecialAI = aiMatch.isSpecialAI;
+                    finalPick.magiaTip = aiMatch.magiaTip;
+                    finalPick.specialTip = aiMatch.specialTip;
+                    finalPick.dbTip = aiMatch.dbTip;
+                    // If Magia AI is present, force its tip data for consistency
+                    if (aiMatch.isMagiaAI && aiMatch.magiaTip) {
+                        finalPick.tip = aiMatch.magiaTip;
+                        if (aiMatch.quota) finalPick.quota = aiMatch.quota;
+                        if (aiMatch.confidence) finalPick.confidence = aiMatch.confidence;
+                    }
+                }
+
                 if (hubMatch) {
-                    return {
-                        ...pick,
+                    finalPick = {
+                        ...finalPick,
                         liveStats: hubMatch.liveStats || {},
                         liveData: {
                             elapsed: hubMatch.elapsed,
@@ -1536,7 +1716,7 @@ window.loadTradingPicks = function (date) {
                         awayTeam: hubMatch.awayTeam || pick.awayTeam
                     };
                 }
-                return pick;
+                return finalPick;
             });
 
             window._prevScrollY = window.scrollY;
@@ -1690,9 +1870,8 @@ window.renderTradingCards = function (picks) {
         pick.awayLogo = pick.awayLogo || window.DEFAULT_LOGO_BASE64;
 
         // Score (parse da liveData.score se disponibile)
-        const scoreParts = (pick.liveData?.score || pick.risultato || '0-0').split('-');
-        pick.homeScore = pick.homeScore ?? (parseInt(scoreParts[0]?.trim()) || 0);
-        pick.awayScore = pick.awayScore ?? (parseInt(scoreParts[1]?.trim()) || 0);
+        pick.homeScore = pick.homeScore ?? (parseInt(pick.liveData?.score?.split('-')[0]?.trim()) || 0);
+        pick.awayScore = pick.awayScore ?? (parseInt(pick.liveData?.score?.split('-')[1]?.trim()) || 0);
 
         // Status e minuto
         pick.elapsed = pick.elapsed || pick.liveData?.elapsed || 0;
@@ -1946,6 +2125,28 @@ function initInternalFilters() {
             window.showRanking(currentStrategyId, baseStrat);
         };
     });
+
+    // --- Search Feature Initialization ---
+    const searchInput = document.getElementById('internal-search-input');
+    const clearBtn = document.getElementById('clear-search-btn');
+
+    if (searchInput) {
+        searchInput.oninput = () => {
+            const baseStrat = window.strategiesData[currentStrategyId] || window.strategiesData['all'];
+            window.showRanking(currentStrategyId, baseStrat);
+        };
+    }
+
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+                const baseStrat = window.strategiesData[currentStrategyId] || window.strategiesData['all'];
+                window.showRanking(currentStrategyId, baseStrat);
+            }
+        };
+    }
 }
 document.addEventListener('DOMContentLoaded', initInternalFilters);
 // Also call it immediately just in case
@@ -1954,7 +2155,11 @@ initInternalFilters();
 // Event Listeners for Strategy & Ranking Pages
 const backToStrategiesBtn = document.getElementById('back-to-strategies');
 if (backToStrategiesBtn) {
-    backToStrategiesBtn.addEventListener('click', () => window.showPage('strategies'));
+    backToStrategiesBtn.addEventListener('click', () => {
+        const searchInput = document.getElementById('internal-search-input');
+        if (searchInput) searchInput.value = ''; // Reset search on back
+        window.showPage('strategies');
+    });
 }
 
 const sortByScoreBtn = document.getElementById('sort-by-score');
@@ -2177,27 +2382,18 @@ async function loadData(dateToLoad = null) {
             renderStrategies();
             if (window.updateDateDisplay) window.updateDateDisplay(targetDate, true);
 
-            // RE-RENDER PAGES IF ACTIVE
-            if (currentStrategyId && document.getElementById('page-ranking')?.classList.contains('active')) {
-                window._prevScrollY = window.scrollY;
+            // RE-RENDER PAGES IF ACTIVE (Preserving scroll)
+            const activePageId = document.querySelector('.page.active')?.id;
+            const scrollPos = window.scrollY;
+
+            if (currentStrategyId && activePageId === 'page-ranking') {
                 window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
-                if (window._prevScrollY) {
-                    window.scrollTo(0, window._prevScrollY);
-                    delete window._prevScrollY;
-                }
-            }
-            if (document.getElementById('page-my-matches')?.classList.contains('active')) {
-                window._prevScrollY = window.scrollY;
+            } else if (activePageId === 'page-my-matches') {
                 window.showMyMatches();
-                if (window._prevScrollY) {
-                    window.scrollTo(0, window._prevScrollY);
-                    delete window._prevScrollY;
-                }
             }
 
-            // Se siamo nella pagina Ranking del Trading, aggiornala
-            if (currentStrategyId === 'top_del_giorno' && document.getElementById('page-ranking')?.classList.contains('active')) {
-                window.showRanking('top_del_giorno', window.strategiesData['top_del_giorno'], currentSortMode);
+            if (scrollPos > 0) {
+                window.scrollTo(0, scrollPos);
             }
         });
 
@@ -2318,6 +2514,7 @@ function initLiveHubListener() {
 
             const activePage = document.querySelector('.page.active');
             const activePageId = activePage?.id || 'unknown';
+            const scrollPos = window.scrollY; // 🛡️ SAVE SCROLL
 
             console.log(`[LiveHub] Active page: ${activePageId}`); // DEBUG LOG
 
@@ -2342,36 +2539,24 @@ function initLiveHubListener() {
                         console.log(`[LiveHub] Looking for card for: ${updatedMatch.matchName} (Probable ID key: ${probableId})`);
                     });
                     break;
-                case 'page-ranking': // Handles "Ranking" list cards
-                    console.log('[LiveHub] Active page:', activePageId);
-
-                    // ALWAYS update trading favorites container if it exists (regardless of page)
-                    if (window.renderTradingFavoritesInStarTab && document.getElementById('trading-favorites-container')) {
-                        window.renderTradingFavoritesInStarTab();
-                    }
-
-                    // Update based on active page
-                    switch (activePageId) {
-                        case 'page-strategies':
-                            renderStrategies();
-                            break;
-                        case 'page-ranking':
-                            if (currentStrategyId && window.strategiesData?.[currentStrategyId]) {
-                                window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
-                            }
-                            break;
-                        case 'page-my-matches':
-                        case 'page-star':
-                            window.showMyMatches();
-                            break;
-                        case 'page-live':
-                            loadLiveHubMatches();
-                            break;
-                        case 'page-trading-sportivo':
-                            if (window.currentTradingDate) window.loadTradingPicks(window.currentTradingDate);
-                            break;
+                case 'page-ranking':
+                    if (currentStrategyId && window.strategiesData?.[currentStrategyId]) {
+                        window.showRanking(currentStrategyId, window.strategiesData[currentStrategyId], currentSortMode);
                     }
                     break;
+                case 'page-my-matches':
+                case 'page-star':
+                    if (typeof window.showMyMatches === 'function') window.showMyMatches();
+                    break;
+                case 'page-live':
+                    // 🛡️ NO FLASH: Update only if needed, or don't clear container
+                    if (typeof window.loadLiveHubMatches === 'function') window.loadLiveHubMatches();
+                    break;
+            }
+
+            // 🛡️ RESTORE SCROLL
+            if (scrollPos > 0) {
+                window.scrollTo(0, scrollPos);
             }
         }, DEBOUNCE_MS);
 
@@ -2524,6 +2709,11 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
         ${overlayLayer}
         ${extraDecoration}
         
+        <!-- Search Icon Trigger (Top Right) -->
+        <div class="absolute top-4 right-4 z-30 opacity-60 hover:opacity-100 hover:scale-120 transition-all search-trigger p-2" title="Cerca in questa categoria">
+            <i class="fa-solid fa-magnifying-glass text-lg shadow-sm"></i>
+        </div>
+        
         <div class="relative z-20 flex items-center justify-between w-full">
             <div class="flex items-center gap-4">
                 <div class="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-4xl shadow-[inset_0_0_15px_rgba(255,255,255,0.2)] border border-white/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 backdrop-blur-md">
@@ -2550,11 +2740,21 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
         <div class="absolute right-[-20px] bottom-[-20px] text-9xl opacity-20 blur-[2px] transition-all duration-700 group-hover:opacity-30 group-hover:scale-110 group-hover:rotate-0 rotate-12 pointer-events-none z-0">${icon}</div>
     `;
 
-    div.onclick = () => {
+    div.onclick = (e) => {
+        const isSearchTrigger = e.target.closest('.search-trigger');
+
         if (id === 'top_live') {
             window.showRanking('top_del_giorno', window.strategiesData['top_del_giorno']);
         } else {
             window.showRanking(id, window.strategiesData['all']);
+        }
+
+        // If search was clicked, focus the input
+        if (isSearchTrigger) {
+            setTimeout(() => {
+                const searchInput = document.getElementById('internal-search-input');
+                if (searchInput) searchInput.focus();
+            }, 100);
         }
     };
 
@@ -2682,7 +2882,7 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
 
     if (filterBar) {
         const italiaFilters = document.getElementById('filters-italia');
-        if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia') {
+        if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia' || stratId === 'top_del_giorno') {
             filterBar.classList.remove('hidden');
             if (europaFilters) europaFilters.classList.toggle('hidden', stratId !== 'europa');
             if (italiaFilters) italiaFilters.classList.toggle('hidden', stratId !== 'italia');
@@ -2690,10 +2890,11 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
 
             if (stratId === 'europa') titleNode.textContent = '🇪🇺 Europa & AI';
             else if (stratId === 'italia') titleNode.textContent = '🇮🇹 Calcio Italiano';
-            else titleNode.textContent = '🌎 Resto del Mondo';
+            else if (stratId === 'mondo') titleNode.textContent = '🌎 Resto del Mondo';
+            else titleNode.textContent = '🚀 TRADING TOP';
         } else {
             filterBar.classList.add('hidden');
-            titleNode.textContent = data.name || 'Strategia';
+            titleNode.textContent = data?.name || 'Strategia';
         }
     }
 
@@ -2719,6 +2920,24 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
     // SUB-FILTERING (Italiane, Coppe, AI, etc.)
     filtered = applyInternalFiltering(filtered, currentSubFilter);
 
+    // SEARCH FILTERING
+    const searchInput = document.getElementById('internal-search-input');
+    const query = (searchInput?.value || '').toLowerCase().trim();
+    const clearBtn = document.getElementById('clear-search-btn');
+
+    if (query) {
+        if (clearBtn) clearBtn.classList.remove('hidden');
+        filtered = filtered.filter(m => {
+            const league = (m.lega || '').toLowerCase();
+            const home = (m.home || m.homeTeam || '').toLowerCase();
+            const away = (m.away || m.awayTeam || '').toLowerCase();
+            const matchName = (m.matchName || m.partita || '').toLowerCase();
+            return league.includes(query) || home.includes(query) || away.includes(query) || matchName.includes(query);
+        });
+    } else {
+        if (clearBtn) clearBtn.classList.add('hidden');
+    }
+
     // ANTI-FLICKER
     const dataHash = getDataHash(filtered) + getDataHash(window.liveScoresHub) + currentSubFilter;
     if (_lastRenderCache.rankingHash === dataHash) {
@@ -2727,10 +2946,10 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
     _lastRenderCache.rankingHash = dataHash;
 
     const oldScroll = window.scrollY;
-    // ...
     const oldHeight = container.offsetHeight;
-    container.style.visibility = 'hidden';
-    if (oldHeight > 0) container.style.minHeight = `${oldHeight} px`;
+
+    // 🛡️ ELIMINAZIONE FLASH: No visibility = 'hidden'
+    if (oldHeight > 0) container.style.minHeight = `${oldHeight}px`;
 
     if (filtered.length === 0) {
         container.replaceChildren();
@@ -2802,42 +3021,39 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
         if (isTradingPage) {
             let html = '';
             enrichedMatches.forEach((mergedMatch) => {
-                // Force trading strategy flag for the UI
                 mergedMatch.hasTradingStrategy = true;
                 try {
-                    const cardHtml = window.renderLiveHubCard(mergedMatch);
-                    html += cardHtml;
-                } catch (e) {
-                    console.error("Error rendering trading card:", mergedMatch.partita, e);
-                }
+                    html += window.renderLiveHubCard(mergedMatch);
+                } catch (e) { console.error(e); }
             });
 
-            if (!html) {
-                html = '<div class="text-center py-10 text-gray-400">Nessuna partita disponibile al momento.</div>';
+            if (!html) html = '<div class="text-center py-10 text-gray-400">Nessuna partita disponibile al momento.</div>';
+
+            if (container.innerHTML !== html) {
+                container.innerHTML = html;
             }
-            container.innerHTML = html;
         } else {
-            // Logica standard per le altre strategie (es. betting non trading)
             const children = enrichedMatches.map((m, idx) => {
-                // Determine if we should show detailed trading stats
                 const hasLiveStats = m.liveStats && Object.keys(m.liveStats).length > 0;
-                // Logica standard per le altre strategie (es. betting non trading)
                 return createUniversalCard(m, idx, stratId, {
                     detailedTrading: hasLiveStats,
-                    isTrading: hasLiveStats // Show trading layout if we have live stats
+                    isTrading: hasLiveStats
                 });
             });
-            container.replaceChildren(...children);
+            const newHtml = children.map(c => c.outerHTML).join('');
+            if (container.innerHTML !== newHtml) {
+                container.innerHTML = newHtml;
+            }
         }
-        container.style.visibility = '';
-        container.style.minHeight = '';
+    }
 
-        // RESTORE SCROLL (More aggressive)
-        if (oldScroll > 0) {
-            requestAnimationFrame(() => {
-                window.scrollTo({ top: oldScroll, behavior: 'instant' });
-            });
-        }
+    container.style.minHeight = '';
+
+    // RESTORE SCROLL (More aggressive)
+    if (oldScroll > 0) {
+        requestAnimationFrame(() => {
+            window.scrollTo({ top: oldScroll, behavior: 'instant' });
+        });
     }
 }
 
@@ -3022,9 +3238,14 @@ window.updateMyMatchesCount = function () {
         if (window.isTradingPick(m)) return false;
         return m.data === window.currentAppDate;
     }).length;
-    const tradingCount = (window.tradingFavorites || []).length;
 
-    const totalCount = bettingCount + tradingCount;
+    // 🏆 FIX: Only count Trading favorites that are present in today's active list
+    const activeTradingCount = (window.lastTradingPicksCache || []).filter(p => {
+        const pId = window.getTradingPickId ? window.getTradingPickId(p.partita) : p.partita;
+        return (window.tradingFavorites || []).includes(pId);
+    }).length;
+
+    const totalCount = bettingCount + activeTradingCount;
 
     if (totalCount > 0) {
         if (!countBadge) {
@@ -3269,18 +3490,20 @@ const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
             'magia_ai': 'Analisi LLM in tempo reale su pattern complessi e asimmetrie.',
             'special_ai': 'Algoritmi proprietari ad alta affidabilità.',
             'winrate_80': 'Storico vittorie superiore all\'80%.',
-            'i_consigli': 'Socio Engine v5.0: Parlay (x2, x3, x4) con filtri Anti-Black Swan (quota min 1.25) e ROI target @2.00+.',
-            'ht_sniper': 'Trading Over 0.5 HT. Ingresso al minuto 20 se 0-0 con quota alta.',
+            'i_consigli': 'Socio Engine v5.0: Parlay (x2, x3, x4) con filtri tematici (Safe, Motivation, Over, Quota 5).',
+            'elite_surge': 'Nuovo segnale Trading ad altissima confidenza basato su gap ELO massivo (>250).',
+            'ht_sniper': 'Trading Over 0.5 HT. Ultra-selettivo: richiede confidenza 72% o spinte motivazionali.',
             'second_half_surge': 'Trading Over 1.5 o 2.5 nel secondo tempo con pressione estrema.',
-            'lay_the_draw': 'Trading Exchange: Bancata del pareggio in match chiave.'
+            'lay_the_draw': 'Trading Exchange: Bancata del pareggio in match chiave (evita i "biscotti" negli scontri diretti).'
         };
 
-        const liveTradingPersona = `Sei un esperto di TRADING SPORTIVO PROFESSIONALE.
+        const liveTradingPersona = `Sei un esperto di TRADING SPORTIVO PROFESSIONALE (Elite Mode).
 Quando analizzi dati live(DA, SOG, xG), focalizzati su:
 1. Pressione offensiva(Goal Cooking).
 2. Valore della quota rispetto al tempo rimanente.
 3. Consigli operativi secchi(Entra, Resta, Cashout).
-4. ** Anti - Black Swan **: Sei nemico giurato delle quote "esca"(sotto 1.25).Portano rischio inutile.`;
+4. **ELO & Motivazione**: Spiega i gap tecnici (ELO Diff) e la "fame di punti" (Badges Titolo/Salvezza).
+5. **Anti-Black Swan**: Sei nemico giurato delle quote "esca"(sotto 1.25). Portano rischio inutile.`;
 
         let strategiesText = Object.entries(strategies)
             .map(([id, s]) => {
@@ -3832,7 +4055,20 @@ async function loadLiveHubMatches() {
 
     console.log(`[LiveHub] All: ${allGames.length}, Today: ${todayGames.length}, Unique: ${liveGames.length}, Major Leagues: ${majorLeagueGames.length} `);
 
-    if (majorLeagueGames.length === 0) {
+    // 🛡️ CRITICAL FIX: Only show matches that belong to TRADING (Box Verde)
+    const tradingPicks = window.strategiesData?.['top_del_giorno']?.matches || [];
+    const tradingPicksNames = new Set(tradingPicks.map(p => (p.partita || '').toLowerCase().replace(/\s+/g, '')));
+    const tradingPicksIds = new Set(tradingPicks.map(p => String(p.fixtureId || '')));
+
+    const finalLiveGames = majorLeagueGames.filter(match => {
+        const matchNameNorm = (match.matchName || '').toLowerCase().replace(/\s+/g, '');
+        const fixtureId = String(match.fixtureId || '');
+        return tradingPicksNames.has(matchNameNorm) || tradingPicksIds.has(fixtureId);
+    });
+
+    console.log(`[LiveHub] Total Live: ${liveGames.length}, Filtered by Trading: ${finalLiveGames.length}`);
+
+    if (finalLiveGames.length === 0) {
         container.innerHTML = `
             <div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl">
                 <i class="fa-solid fa-radar text-6xl mb-4 text-white/70 animate-pulse"></i>
@@ -3843,7 +4079,7 @@ async function loadLiveHubMatches() {
     }
 
     // SORT: By status (LIVE first), then by kickoff time or pressure
-    const sorted = [...majorLeagueGames].sort((a, b) => {
+    const sorted = [...finalLiveGames].sort((a, b) => {
         const statusOrder = { '1H': 1, '2H': 1, 'HT': 2, 'LIVE': 1, 'ET': 1, 'P': 1, 'BT': 2, 'NS': 3, 'FT': 4 };
         const orderA = statusOrder[a.status?.toUpperCase()] || 5;
         const orderB = statusOrder[b.status?.toUpperCase()] || 5;
@@ -3862,8 +4098,7 @@ async function loadLiveHubMatches() {
 
     let html = '';
 
-    // Get trading picks to merge trading instructions
-    const tradingPicks = window.strategiesData?.['top_del_giorno']?.matches || [];
+    // Use existing tradingPicks to merge trading instructions
 
     sorted.forEach(match => {
         // Try to find matching trading pick by fixtureId or matchName
@@ -3882,7 +4117,7 @@ async function loadLiveHubMatches() {
 
         // Prepare match for unified card renderer - merge trading data if found
         const preparedMatch = {
-            ...match,
+            ...match, // Includes events from liveScoresHub
             home: match.homeTeam || match.matchName?.split(/\s*[-vs]+\s*/)?.[0] || '',
             away: match.awayTeam || match.matchName?.split(/\s*[-vs]+\s*/)?.[1] || '',
             // Handle multiple score formats including tradingPick.risultato
@@ -3900,13 +4135,24 @@ async function loadLiveHubMatches() {
             strategy: tradingPick?.strategy || match.strategy || 'TRADING',
             reasoning: tradingPick?.reasoning || match.reasoning || '',
             liveStats: match.liveStats || {},
+            events: match.events || [], // EXPLICIT PROPAGATION
             elapsed: match.elapsed || 0,
+            // 🛡️ LEGA FIX: Propagate league name from trading pick or match
+            lega: tradingPick?.lega || match.lega || match.league?.name || '',
             id: tradingPick?.id || match.id,
             fixtureId: match.fixtureId || tradingPick?.fixtureId
         };
         html += window.renderLiveHubCard(preparedMatch);
     });
-    container.innerHTML = html;
+
+    // 🛡️ NO-FLASH UPDATE: Only update DOM if HTML content changed
+    if (window._lastLiveHubHTML !== html) {
+        container.innerHTML = html;
+        window._lastLiveHubHTML = html;
+        console.log(`[LiveHub] UI Updated (${majorLeagueGames.length} cards)`);
+    } else {
+        console.log(`[LiveHub] Skip update (No changes)`);
+    }
 }
 
 
@@ -4142,8 +4388,8 @@ function getUnifiedMatches() {
     Object.entries(window.strategiesData).forEach(([id, strat]) => {
         if (!strat || !strat.matches) return;
 
-        // Match relevant strategies
-        const isApproved = approved.includes(id) || id.includes('magia');
+        const isMagia = id === 'magia_ai' || id === '___magia_ai';
+        const isApproved = approved.includes(id) || isMagia;
         if (!isApproved) return;
 
         strat.matches.forEach(m => {
@@ -4151,31 +4397,58 @@ function getUnifiedMatches() {
             const mId = m.id || `${m.data || 'today'}_${nName}`;
 
             if (!masterMap.has(mId)) {
-                // Fuzzy check: maybe we already have this match with a different ID
+                // Fuzzy check
                 const existingKey = Array.from(masterMap.keys()).find(k => k.includes(nName));
                 if (existingKey) {
                     const existing = masterMap.get(existingKey);
-                    if (id === 'magia_ai') { existing.isMagiaAI = true; if (m.tip) existing.tip = m.tip; }
-                    if (id === '___magia_ai') { existing.isSpecialAI = true; if (m.tip) existing.tip = m.tip; }
+                    updateEntry(existing, id, m);
                     return;
                 }
-                masterMap.set(mId, { ...m });
+                const newEntry = { ...m };
+                updateEntry(newEntry, id, m);
+                masterMap.set(mId, newEntry);
+            } else {
+                updateEntry(masterMap.get(mId), id, m);
             }
-
-            const entry = masterMap.get(mId);
-            if (id === 'magia_ai') { entry.isMagiaAI = true; if (m.tip) entry.tip = m.tip; }
-            if (id === '___magia_ai') { entry.isSpecialAI = true; if (m.tip) entry.tip = m.tip; }
-
-            // Sync metadata
-            if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
-            if (m.confidence) entry.confidence = m.confidence;
-            if (m.score) entry.score = m.score;
         });
     });
 
+    function updateEntry(entry, id, m) {
+        if (id === 'magia_ai') {
+            entry.isMagiaAI = true;
+            entry.magiaTip = m.tip;
+            entry.tip = m.tip; // Force Magia AI tip
+
+            // 🏆 FORCE MAGIA DATA SUPREMACY 🏆
+            // If Magia speaks, we override everything derived from DB
+            if (m.quota) entry.quota = m.quota;
+            if (m.confidence) entry.confidence = m.confidence;
+            if (m.score) entry.score = m.score;
+            if (m.ranking) entry.ranking = m.ranking; // Ensure ranking is synced if present
+
+        } else if (id === '___magia_ai') {
+            entry.isSpecialAI = true;
+            entry.specialTip = m.tip;
+            // Special AI can also contribute data if Magia hasn't set it yet
+            if (!entry.isMagiaAI) {
+                if (m.quota) entry.quota = m.quota;
+            }
+        } else if (id === 'all' || id === 'italia' || id === 'top_eu' || id === 'top_del_giorno') {
+            entry.dbTip = m.tip;
+            // Only set these if not already set by AI
+            if (!entry.quota) entry.quota = m.quota;
+            if (!entry.confidence) entry.confidence = m.confidence;
+        }
+
+        // Sync Trading Instruction if available (Any source)
+        if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+
+        // Cumulative fallback for missing stats
+        if (!entry.confidence && m.confidence) entry.confidence = m.confidence;
+        if (!entry.score && m.score) entry.score = m.score;
+    }
+
     return Array.from(masterMap.values());
 }
-
-
 
 

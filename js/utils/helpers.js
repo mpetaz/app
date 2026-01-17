@@ -68,12 +68,14 @@ export function formatDateLong(dateStr) {
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-    if (dateStr === today) return 'Oggi';
-    if (dateStr === yesterday) return 'Ieri';
-
     const date = new Date(dateStr + 'T00:00:00');
     const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
-    return `${date.getDate()} ${months[date.getMonth()]}`;
+    const formattedDate = `${date.getDate()} ${months[date.getMonth()]}`;
+
+    if (dateStr === today) return `Oggi (${formattedDate})`;
+    if (dateStr === yesterday) return `Ieri (${formattedDate})`;
+
+    return formattedDate;
 }
 
 /**
