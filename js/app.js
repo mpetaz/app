@@ -1528,11 +1528,18 @@ window.loadTipsPage = async function () {
                 // Time Badge
                 let timeBadge = '';
                 if (isFT) timeBadge = '<span class="text-emerald-400 font-bold ml-1 text-[9px]">FT</span>';
-                else if (isLive) timeBadge = `< span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]" >\'${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
+                else if (isLive) timeBadge = `<span class="text-rose-500 font-bold ml-1 animate-pulse text-[9px]">\'${liveMatch?.elapsed || liveMatch?.minute || ''}</span>`;
                 else if (m.ora) timeBadge = `<span class="text-[11px] text-white/60 font-bold bg-white/5 px-1.5 rounded"><i class="fa-regular fa-clock mr-1 text-[10px]"></i>${m.ora}</span>`;
 
                 // Outcome Styling
                 let outcomeStatus = (m.esito || '').toUpperCase();
+
+                // 🧠 AUTO-ESITO: Se non c'è esito ma c'è il risultato, calcolalo localmente
+                if (!outcomeStatus && currentScore && m.tip) {
+                    const localEval = window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, currentScore) : null;
+                    if (localEval) outcomeStatus = localEval.toUpperCase();
+                }
+
                 let boxClass = 'glass-item-premium transition-all duration-300';
                 let iconClass = isGoal ? 'text-orange-400' : 'text-blue-400';
                 let iconBg = 'bg-white/10';
@@ -1573,8 +1580,10 @@ window.loadTipsPage = async function () {
                             </div>
                         </div>
                         <div class="flex items-center gap-3">
-                             <div class="odd-highlight-v5 ${outcomeStatus === 'WIN' ? 'text-emerald-300 text-lg' : ''}">@${m.quota}</div>
-                             <button data-match-id="${matchId}" onclick="toggleFlag('${matchId}'); event.stopPropagation();" class="hover:scale-110 transition-transform p-1">
+                             <div class="odd-highlight-v5 ${outcomeStatus === 'VINTO' || outcomeStatus === 'WIN' ? 'text-emerald-300 text-lg' : ''}">@${m.quota}</div>
+                             <button data-match-id="${matchId}" 
+                                onclick='toggleFlag("${matchId}", ${JSON.stringify(m).replace(/'/g, "\\'")}); event.stopPropagation();' 
+                                class="hover:scale-110 transition-transform p-1">
                                 <i class="${starClass} fa-star text-lg drop-shadow-sm"></i>
                              </button>
                         </div>
