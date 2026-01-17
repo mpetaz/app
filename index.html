@@ -25,6 +25,30 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="css/app.css?v=3.5.9">
+    <style>
+        .glass-label-premium {
+            background: rgba(6, 78, 59, 0.7);
+            backdrop-filter: blur(10px) saturate(160%);
+            -webkit-backdrop-filter: blur(10px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 4px 15px 0 rgba(0, 0, 0, 0.5);
+        }
+
+        @keyframes fiber-flow {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            100% {
+                background-position: 100% 50%;
+            }
+        }
+
+        .fiber-optic-progress {
+            background-size: 200% 200%;
+            animation: fiber-flow 3s linear infinite;
+        }
+    </style>
 </head>
 
 <body class="text-white">
@@ -177,6 +201,20 @@
                 <div id="filters-mondo" class="hidden flex gap-2">
                     <button class="filter-chip active text-[10px] md:text-xs" data-filter="all">Tutto</button>
                     <button class="filter-chip text-[10px] md:text-xs" data-filter="ai">✨ AI</button>
+                </div>
+
+                <!-- Search Input Group -->
+                <div id="search-container" class="relative flex items-center ml-auto">
+                    <div class="absolute left-3 text-white/40 pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass text-[10px]"></i>
+                    </div>
+                    <input type="text" id="internal-search-input"
+                        class="w-32 md:w-48 pl-8 pr-8 py-1.5 bg-white/10 border border-white/10 rounded-full text-[10px] md:text-xs text-white placeholder-white/40 focus:bg-white/20 focus:border-yellow-400/50 outline-none transition-all"
+                        placeholder="Cerca..." autocomplete="off">
+                    <button id="clear-search-btn"
+                        class="absolute right-3 text-white/40 hover:text-white hidden transition-colors">
+                        <i class="fa-solid fa-circle-xmark text-[10px]"></i>
+                    </button>
                 </div>
             </div>
 
@@ -553,7 +591,7 @@
             </button>
         </div>
 
-        <script type="module" src="js/app.js?v=3.5.36"></script>
+        <script type="module" src="js/app.js?v=3.5.54"></script>
         <script src="js/pwa.js?v=3.5.3"></script>
 </body>
 
