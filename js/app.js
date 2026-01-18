@@ -4423,34 +4423,49 @@ function getUnifiedMatches() {
     });
 
     function updateEntry(entry, id, m) {
-        if (id === 'magia_ai') {
+        // 🏆 MAGIA AI SUPREMACY PROTOCOL 🏆
+        const isMagia = id === 'magia_ai';
+        const isSpecialAI = id === '___magia_ai';
+        const isGeneric = !isMagia && !isSpecialAI;
+
+        // SE abbiamo già Magia AI, non permettiamo a nessuno di sovrascrivere 
+        // i campi core (esito, quota, confidence, tradingInstruction)
+        if (entry.isMagiaAI && !isMagia) {
+            // Se la Magia ha già parlato, le strategie generiche possono solo 
+            // aggiungere campi mancanti, ma non cambiare quelli core.
+            if (m.tradingInstruction && !entry.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+            return;
+        }
+
+        if (isMagia) {
             entry.isMagiaAI = true;
             entry.magiaTip = m.tip;
             entry.tip = m.tip; // Force Magia AI tip
 
-            // 🏆 FORCE MAGIA DATA SUPREMACY 🏆
-            // If Magia speaks, we override everything derived from DB
+            // Overwrite anything with Magia data
             if (m.quota) entry.quota = m.quota;
             if (m.confidence) entry.confidence = m.confidence;
             if (m.score) entry.score = m.score;
-            if (m.ranking) entry.ranking = m.ranking; // Ensure ranking is synced if present
+            if (m.ranking) entry.ranking = m.ranking;
+            if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
 
-        } else if (id === '___magia_ai') {
+        } else if (isSpecialAI) {
             entry.isSpecialAI = true;
             entry.specialTip = m.tip;
-            // Special AI can also contribute data if Magia hasn't set it yet
+            // Special AI contributes only if Magia hasn't set it
             if (!entry.isMagiaAI) {
+                if (m.tip) entry.tip = m.tip;
                 if (m.quota) entry.quota = m.quota;
+                if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
             }
-        } else if (id === 'all' || id === 'italia' || id === 'top_eu' || id === 'top_del_giorno') {
+        } else if (isGeneric) {
             entry.dbTip = m.tip;
-            // Only set these if not already set by AI
+            // Solo se non già settato da AI
+            if (!entry.tip) entry.tip = m.tip;
             if (!entry.quota) entry.quota = m.quota;
             if (!entry.confidence) entry.confidence = m.confidence;
+            if (m.tradingInstruction && !entry.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
         }
-
-        // Sync Trading Instruction if available (Any source)
-        if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
 
         // Cumulative fallback for missing stats
         if (!entry.confidence && m.confidence) entry.confidence = m.confidence;
