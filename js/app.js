@@ -457,7 +457,7 @@ window.isTradingPick = function (match) {
     // 1. PRIMARY: Match by fixtureId (most reliable)
     if (match.fixtureId) {
         const fId = String(match.fixtureId);
-        const foundByFixture = picks.some(p => String(p.fixtureId) === fId);
+        const foundByFixture = picks.some(p => String(p.fixtureId || '') === fId);
         if (foundByFixture) return true;
     }
 
@@ -486,21 +486,61 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const mKey = mName.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const tKey = mTip.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
     const hubId = `${mKey}_${tKey}`;
-    // SMART SKIP: Non cercare dati live se la partita non è ancora iniziata
-    // MA se ha già un risultato, non saltare mai!
+    // 🛡️ STRATEGIA ID-FIRST (Socio's Protocol): Se abbiamo l'ID, cerchiamo quello e basta.
+    let liveHubData = match._liveHubRef;
+
+    const IS_DEBUG_MATCH = mName.toLowerCase().includes('torino') || mName.toLowerCase().includes('roma');
+    if (IS_DEBUG_MATCH) {
+        console.log(`[SURGERY-DEBUG] Investigating: ${mName}`);
+        console.log(`[SURGERY-DEBUG] Target fixtureId: ${match.fixtureId} (Type: ${typeof match.fixtureId})`);
+
+        // DEEP SEARCH IN HUB: Find exactly what we have for these teams
+        const allHubEntries = Object.entries(window.liveScoresHub);
+        const candidates = allHubEntries.filter(([k, v]) =>
+            k.toLowerCase().includes('torino') || k.toLowerCase().includes('roma') ||
+            (v.homeTeam && v.homeTeam.toLowerCase().includes('torino')) ||
+            (v.awayTeam && v.awayTeam.toLowerCase().includes('roma'))
+        );
+
+        if (candidates.length > 0) {
+            console.log(`[SURGERY-DEBUG] FOUND ${candidates.length} CANDIDATES IN HUB:`);
+            candidates.forEach(([k, v]) => {
+                console.log(`   - Key: ${k}`);
+                console.log(`   - ID: ${v.fixtureId}`);
+                console.log(`   - Teams: ${v.homeTeam} - ${v.awayTeam}`);
+                console.log(`   - Raw Object:`, v);
+            });
+        } else {
+            console.log(`[SURGERY-DEBUG] ❌ ABSOLUTELY NOTHING FOUND IN HUB FOR TORINO/ROMA.`);
+        }
+    }
+
+    // Se non abbiamo la referenza diretta, cerchiamo nel hub per fixtureId
+    if (!liveHubData && match.fixtureId) {
+        const targetId = String(match.fixtureId);
+        const allHubValues = Object.values(window.liveScoresHub);
+        liveHubData = allHubValues.find(h => String(h.fixtureId || '') === targetId);
+
+        if (IS_DEBUG_MATCH) {
+            console.log(`[SURGERY-DEBUG] Lookup by ID result:`, !!liveHubData);
+            if (!liveHubData) {
+                const sampleIds = allHubValues.slice(0, 5).map(h => h.fixtureId);
+                console.log(`[SURGERY-DEBUG] Sample IDs in Hub:`, sampleIds);
+                console.log(`[SURGERY-DEBUG] Hub size:`, allHubValues.length);
+            }
+        }
+    }
+
+    // Calcolo stato temporale (necessario per fallbacks e badge)
     const matchDate = match.data || new Date().toISOString().split('T')[0];
     const matchTime = match.ora || match.api_time || '00:00';
     const kickoffTime = new Date(`${matchDate}T${matchTime}:00`);
     const hasResult = match.risultato && match.risultato.includes('-');
     const matchNotStarted = !hasResult && kickoffTime > new Date();
 
-    // SKIP live hub lookup if match hasn't started yet
-    let liveHubData = matchNotStarted ? null : window.liveScoresHub[hubId];
-
-    // NEW: High Priority FixtureID Lookup (Immune to name changes) - ONLY if started
-    if (!liveHubData && !matchNotStarted && match.fixtureId) {
-        const targetId = String(match.fixtureId);
-        liveHubData = Object.values(window.liveScoresHub).find(h => String(h.fixtureId || '') === targetId);
+    // Se ancora non abbiamo nulla, proviamo con mKey_tKey (solo se la partita è iniziata)
+    if (!liveHubData && !matchNotStarted) {
+        liveHubData = window.liveScoresHub[hubId];
     }
 
     // FUZZY FALLBACK: Only if match has started
@@ -534,12 +574,23 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 liveHubData = window.liveScoresHub[bestKey];
                 console.log(`[LiveHub] 🔦 Fuzzy Match Found: "${hubId}" -> "${bestKey}"`);
             } else {
-                // 3. GLOBAL MATCH FALLBACK: Find ANY record for this match name, regardless of tip.
-                // We mainly need the score and status.
-                bestKey = hubKeys.find(k => k.includes(mKey));
+                // 3. GLOBAL MATCH FALLBACK (Advanced): Find ANY record for this match, regardless of tip.
+                // We handle "Torino-Roma" vs "Roma-Torino" by checking if both team names are present.
+                const teamParts = mKey.split(/vs|-|:/).filter(t => t.length > 2);
+
+                bestKey = hubKeys.find(k => {
+                    const kLower = k.toLowerCase();
+                    // If we have distinct team names, both must be in the hub key
+                    if (teamParts.length >= 2) {
+                        return teamParts.every(tp => kLower.includes(tp));
+                    }
+                    // Fallback to simple inclusion
+                    return kLower.includes(mKey);
+                });
+
                 if (bestKey) {
                     liveHubData = window.liveScoresHub[bestKey];
-                    console.log(`[LiveHub] 🌍 Global Match Fallback: Found "${bestKey}" for "${mKey}"`);
+                    console.log(`[LiveHub] 🌍 Global Match Fallback (Smart): Found "${bestKey}" for "${mKey}"`);
                 }
             }
         }
@@ -1363,6 +1414,14 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // NEW RULE: If 1h past kickoff and NO liveHubData → Non Monitorata (match likely postponed/cancelled)
     if (match.isNotMonitored || (!liveHubData && oneHourAfterKickoff)) {
         const isFuture = matchDateTime > now;
+
+        if (mName.toLowerCase().includes('torino') || mName.toLowerCase().includes('roma')) {
+            console.log(`[SURGERY-DEBUG] 🚩 MONITORING FAILURE for ${mName}`);
+            console.log(`[SURGERY-DEBUG] match.isNotMonitored: ${match.isNotMonitored}`);
+            console.log(`[SURGERY-DEBUG] liveHubData present: ${!!liveHubData}`);
+            console.log(`[SURGERY-DEBUG] oneHourAfterKickoff: ${oneHourAfterKickoff}`);
+        }
+
         notMonitoredBadge = isFuture
             ? '<span class="text-[11px] font-bold text-blue-400 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-regular fa-clock"></i> In Attesa</span>'
             : '<span class="text-[11px] font-bold text-red-400 uppercase tracking-widest bg-red-500/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-solid fa-ban"></i> Non Monitorata</span>';
@@ -1767,7 +1826,8 @@ window.renderTradingCards = function (picks) {
         let hubMatch = null;
 
         if (pick.fixtureId) {
-            hubMatch = Object.values(liveHub).find(h => h.fixtureId == pick.fixtureId);
+            const targetId = String(pick.fixtureId);
+            hubMatch = Object.values(liveHub).find(h => String(h.fixtureId || '') === targetId);
         }
 
         if (!hubMatch && pick.partita) {
@@ -1793,7 +1853,8 @@ window.renderTradingCards = function (picks) {
                 homeLogo: hubMatch.homeLogo || pick.homeLogo,
                 awayLogo: hubMatch.awayLogo || pick.awayLogo,
                 homeTeam: hubMatch.homeTeam || pick.homeTeam,
-                awayTeam: hubMatch.awayTeam || pick.awayTeam
+                awayTeam: hubMatch.awayTeam || pick.awayTeam,
+                _liveHubRef: hubMatch // 🛡️ Pass reference to createUniversalCard
             };
         }
         return pick;
@@ -1816,7 +1877,7 @@ window.renderTradingCards = function (picks) {
     }
 
     // 1. Filter
-    let filtered = picks.filter(p => !isMatchStale(p));
+    let filtered = enrichedPicks.filter(p => !isMatchStale(p));
     if (tradingFilterState === 'live') {
         filtered = filtered.filter(p => (p.liveData?.elapsed || p.liveData?.minute || 0) > 0);
     } else if (tradingFilterState === 'favs') {
@@ -2570,7 +2631,7 @@ function initLiveHubListener() {
         }, DEBOUNCE_MS);
 
 
-        // Global Badge Update - ONLY count TODAY's LIVE matches from MAJOR LEAGUES
+        // Global Badge Update - ONLY count TODAY's LIVE matches from MAJOR LEAGUES with TRADING
         const today = new Date().toISOString().split('T')[0];
         const allMatches = Object.values(window.liveScoresHub);
 
@@ -2579,11 +2640,22 @@ function initLiveHubListener() {
             135, 136, 39, 40, 41, 140, 78, 79, 61, 88, 94, 207, 235, 144, 203, 2, 3, 848, 137, 45, 143
         ];
 
+        // 🛡️ Filter by Trading Strategies (align with Radar Live)
+        const tradingPicks = window.strategiesData?.['top_del_giorno']?.matches || [];
+        const tradingPicksNames = new Set(tradingPicks.map(p => (p.partita || '').toLowerCase().replace(/\s+/g, '')));
+        const tradingPicksIds = new Set(tradingPicks.map(p => String(p.fixtureId || '')));
+
         const todayLiveMatches = allMatches.filter(m => {
             const isToday = (m.matchDate || '').startsWith(today);
             const isLive = ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes((m.status || '').toUpperCase());
             const isMajorLeague = !m.leagueId || MAJOR_LEAGUES.includes(m.leagueId);
-            return isToday && isLive && isMajorLeague;
+
+            // Match must also be a trading pick
+            const matchNameNorm = (m.matchName || '').toLowerCase().replace(/\s+/g, '');
+            const fid = String(m.fixtureId || '');
+            const isTradingMatch = tradingPicksNames.has(matchNameNorm) || tradingPicksIds.has(fid);
+
+            return isToday && isLive && isMajorLeague && isTradingMatch;
         });
 
         // De-duplicate by matchName
