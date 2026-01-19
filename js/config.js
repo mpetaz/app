@@ -4,12 +4,14 @@
 window.STRATEGY_CONFIG = {
     // 1. Magia AI (Soglie per selezione Best Pick)
     MAGIA_AI: {
+        MAX_ODD: 1.90,          // 🔥 Tetto massimo quota v4.1
+        MIN_SMART_SCORE: 60,   // 🔥 Veto assoluto sotto 60 v4.1
         THRESHOLDS: [
-            { type: 'DC', label: 'Double Chance', minProb: 85, minOdd: 1.18 }, // Safer first
+            { type: 'DC', label: 'Double Chance', minProb: 85, minOdd: 1.18 },
             { type: 'GOALS', label: 'Over 1.5', minProb: 75, minOdd: 1.22 },
-            { type: '1X2', label: '1X2 / BTTS', minProb: 60, minOdd: 1.60 },
-            { type: 'GOALS', label: 'Gol', minProb: 72, minOdd: 1.60 },
-            { type: 'GOALS', label: 'Over 2.5', minProb: 65, minOdd: 1.50 }
+            { type: '1X2', label: '1X2 / BTTS', minProb: 65, minOdd: 1.60 }, // Alzata soglia
+            { type: 'GOALS', label: 'Gol', minProb: 75, minOdd: 1.60 },      // Alzata soglia
+            { type: 'GOALS', label: 'Over 2.5', minProb: 75, minOdd: 1.50 }  // Alzata soglia v4.1 richiesto socio
         ],
         // Fallback se nessuna strategia passa le soglie
         FALLBACK: {

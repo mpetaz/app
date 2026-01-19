@@ -13,17 +13,21 @@
 const LocalDB = {
     dbName: 'TipsterDB',
     storeName: 'matches',
+    storeStrategies: 'strategies_history',
     db: null,
 
     async init() {
         if (this.db) return;
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 2); // Force upgrade
+            const request = indexedDB.open(this.dbName, 3); // Upgrade to v3 for strategies_history
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(this.storeStrategies)) {
+                    db.createObjectStore(this.storeStrategies, { keyPath: 'date' });
                 }
             };
 
@@ -108,9 +112,119 @@ const LocalDB = {
 
     async clear() {
         if (!this.db) await this.init();
-        const transaction = this.db.transaction([this.storeName], "readwrite");
+        const transaction = this.db.transaction([this.storeName, this.storeStrategies], "readwrite");
         transaction.objectStore(this.storeName).clear();
-        console.log("[LocalDB] Cleared");
+        transaction.objectStore(this.storeStrategies).clear();
+        console.log("[LocalDB] Cleared all stores");
+    },
+
+    // ==================== STRATEGIES HISTORY (DATABASE ORO) ====================
+
+    async saveStrategyHistory(date, strategiesMap) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readwrite");
+            const store = transaction.objectStore(this.storeStrategies);
+
+            const record = {
+                date: date,
+                lastUpdated: Date.now(),
+                strategies: strategiesMap // Full clone of strategies
+            };
+
+            const request = store.put(record);
+
+            request.onsuccess = () => {
+                console.log(`[LocalDB-Oro] Saved history for ${date}`);
+                resolve(true);
+            };
+
+            request.onerror = (event) => {
+                console.error("[LocalDB-Oro] Save Error", event);
+                reject(event);
+            };
+        });
+    },
+
+    async getAllStrategies() {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readonly");
+            const store = transaction.objectStore(this.storeStrategies);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async loadStrategyHistory(date) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readonly");
+            const store = transaction.objectStore(this.storeStrategies);
+            const request = store.get(date);
+
+            request.onsuccess = () => {
+                resolve(request.result ? request.result.strategies : null);
+            };
+
+            request.onerror = (event) => {
+                reject(event);
+            };
+        });
+    },
+
+    async importStrategiesHistory(historyArray) {
+        if (!this.db) await this.init();
+        if (!Array.isArray(historyArray)) return false;
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readwrite");
+            const store = transaction.objectStore(this.storeStrategies);
+
+            let count = 0;
+            historyArray.forEach(item => {
+                if (item.date && item.strategies) {
+                    store.put(item);
+                    count++;
+                }
+            });
+
+            transaction.oncomplete = () => {
+                console.log(`[LocalDB] Successfully imported ${count} days of history`);
+                resolve(count);
+            };
+
+            transaction.onerror = (event) => {
+                console.error("[LocalDB] Import Error", event);
+                reject(event);
+            };
+        });
+    },
+
+    /**
+     * Export Strategies History (ML Ready)
+     */
+    async exportStrategiesHistory() {
+        if (!this.db) await this.init();
+        const exportData = {
+            type: 'strategies_backup',
+            version: '1.1',
+            exportedAt: new Date().toISOString(),
+            history: []
+        };
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readonly");
+            const store = transaction.objectStore(this.storeStrategies);
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                exportData.history = request.result || [];
+                resolve(exportData);
+            };
+            request.onerror = (event) => reject(event);
+        });
     }
 };
 
@@ -289,7 +403,11 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
             console.log(`[History] Saved strategy: ${stratId} (${cleanData.totalMatches} matches)`);
         }
 
-        console.log(`[History] Saved ${Object.keys(strategiesMap).length} strategies for ${targetDate}`);
+        console.log(`[History] Saved ${Object.keys(strategiesMap).length} strategies for ${targetDate} to Firebase`);
+
+        // 🔥 ORO DATABASE: Save permanently to Local IndexedDB
+        await window.LocalDB.saveStrategyHistory(targetDate, strategiesMap);
+        console.log(`[History] Permanent Snapshot saved to Database Oro (Local)`);
     } catch (e) {
         console.error(`[History] Save Error:`, e);
         throw e;
@@ -335,5 +453,6 @@ window.databaseManager = {
     safeBatchCommit,
     uploadMatchesToFirebase,
     saveStrategyToHistory,
-    cleanupOldStrategies
+    cleanupOldStrategies,
+    cleanupOldFirebaseHistory: cleanupOldStrategies // Alias for clarity in plan
 };

@@ -1726,11 +1726,27 @@ function generateMagiaAI(matches, allMatchesHistory) {
                 (t.type === signal.type && t.label === signal.label) ||
                 (t.type === signal.type && !t.label)
             );
-            return cfg ? cfg.minProb : 75;
+
+            let baseThreshold = cfg ? cfg.minProb : 75;
+
+            // 🔥 CUP LOGIC v4.1: Se c'è Category Gap, alziamo l'asticella del 5% per i Gol
+            if (sim.isCategoryGap && signal.type === 'GOALS') {
+                baseThreshold += 5;
+            }
+
+            return baseThreshold;
         };
 
         // 2. FILTER CANDIDATES
-        let topCandidates = allSignals.slice(0, 5).filter(s => s.prob >= getThreshold(s));
+        let topCandidates = allSignals.slice(0, 5).filter(s => {
+            // 🔥 FILTER 2.1: CATEGORY GAP VETO (v4.1)
+            // Se c'è Gap di Categoria nelle Coppe, scartiamo i mercati 1X2 e DC (non confrontabili)
+            if (sim.isCategoryGap && (s.type === '1X2' || s.type === 'DC')) {
+                return false;
+            }
+
+            return s.prob >= getThreshold(s);
+        });
 
         // 3. FALLBACK HT
         const htProb = match.info_ht ? parseInt((match.info_ht.match(/(\d+)%/) || [])[1] || 0) : 0;
@@ -1791,14 +1807,32 @@ function generateMagiaAI(matches, allMatchesHistory) {
             };
         });
 
-        // 🔥 FILTRO 2: Applica quota minima giocabile
+        // 🔥 FILTRO 2: Applica quota minima giocabile E MASSIMA (v4.1)
+        const MAX_PLAYABLE_ODD = STRATEGY_CONFIG.MAGIA_AI.MAX_ODD || 1.90;
+        const MIN_SMART_SCORE = STRATEGY_CONFIG.MAGIA_AI.MIN_SMART_SCORE || 60;
+
         const winners = scoredCandidates
             .filter(s => {
                 const odd = parseFloat(s.estimatedOdd);
+
+                // Filtro Quota Minima
                 if (odd < MIN_PLAYABLE_ODD) {
                     console.log(`[Magia AI] Skip segnale ${match.partita}: ${s.label} @${odd} (< ${MIN_PLAYABLE_ODD})`);
                     return false;
                 }
+
+                // 🔥 Filtro Quota Massima v4.1 (Richiesto Socio)
+                if (odd > MAX_PLAYABLE_ODD) {
+                    console.log(`[Magia AI] Skip segnale ${match.partita}: ${s.label} @${odd} (> ${MAX_PLAYABLE_ODD})`);
+                    return false;
+                }
+
+                // 🔥 Veto Smart Score v4.1
+                if (s.finalScore < MIN_SMART_SCORE) {
+                    console.log(`[Magia AI] Veto Qualità ${match.partita}: ${s.label} Score ${s.finalScore.toFixed(0)} < ${MIN_SMART_SCORE}`);
+                    return false;
+                }
+
                 return s.finalScore > 0;
             })
             .sort((a, b) => b.finalScore - a.finalScore);
@@ -2157,6 +2191,28 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.draw = hybridDraw;
     sim.winHome = sim.winHome * ratio;
     sim.winAway = sim.winAway * ratio;
+
+    // 🔥 POINT 4: CATEGORY GAP DETECTION (v4.1)
+    const cupKeywords = ['cup', 'coppa', 'league cup', 'fa cup', 'trophy', 'championship cup', 'dfb pokal', 'kopa', 'coupe'];
+    const isCupMatch = cupKeywords.some(k => leagueNorm.includes(k));
+    let isCategoryGap = false;
+
+    if (isCupMatch) {
+        // Se abbiamo ELO, usiamo quello come proxy veloce del gap di categoria
+        if (sim.eloDiff && Math.abs(sim.eloDiff) > 250) {
+            isCategoryGap = true;
+        } else {
+            // Fallback: se le leghe "originarie" di provenienza nel DB sono diverse
+            // (implementazione light: se una squadra ha più del 70% dei match in una lega diversa dall'altra)
+            // Per ora usiamo ELO > 250 come trigger primario per evitare rallentamenti eccessivi.
+            if (!sim.eloDiff && (homeStats.currForm.matchCount > 0 && awayStats.currForm.matchCount > 0)) {
+                // Se non c'è ELO ma c'è disparità evidente di goal factor storici (proxy)
+                // isCategoryGap = true; // Placeholder
+            }
+        }
+    }
+    sim.isCategoryGap = isCategoryGap;
+    sim.isCupMatch = isCupMatch;
 
     const allSignals = [
         { label: '1', prob: sim.winHome, type: '1X2' },

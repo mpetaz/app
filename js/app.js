@@ -489,46 +489,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // 🛡️ STRATEGIA ID-FIRST (Socio's Protocol): Se abbiamo l'ID, cerchiamo quello e basta.
     let liveHubData = match._liveHubRef;
 
-    const IS_DEBUG_MATCH = mName.toLowerCase().includes('torino') || mName.toLowerCase().includes('roma');
-    if (IS_DEBUG_MATCH) {
-        console.log(`[SURGERY-DEBUG] Investigating: ${mName}`);
-        console.log(`[SURGERY-DEBUG] Target fixtureId: ${match.fixtureId} (Type: ${typeof match.fixtureId})`);
-
-        // DEEP SEARCH IN HUB: Find exactly what we have for these teams
-        const allHubEntries = Object.entries(window.liveScoresHub);
-        const candidates = allHubEntries.filter(([k, v]) =>
-            k.toLowerCase().includes('torino') || k.toLowerCase().includes('roma') ||
-            (v.homeTeam && v.homeTeam.toLowerCase().includes('torino')) ||
-            (v.awayTeam && v.awayTeam.toLowerCase().includes('roma'))
-        );
-
-        if (candidates.length > 0) {
-            console.log(`[SURGERY-DEBUG] FOUND ${candidates.length} CANDIDATES IN HUB:`);
-            candidates.forEach(([k, v]) => {
-                console.log(`   - Key: ${k}`);
-                console.log(`   - ID: ${v.fixtureId}`);
-                console.log(`   - Teams: ${v.homeTeam} - ${v.awayTeam}`);
-                console.log(`   - Raw Object:`, v);
-            });
-        } else {
-            console.log(`[SURGERY-DEBUG] ❌ ABSOLUTELY NOTHING FOUND IN HUB FOR TORINO/ROMA.`);
-        }
-    }
-
-    // Se non abbiamo la referenza diretta, cerchiamo nel hub per fixtureId
+    // 🛡️ PROTOCOLLO SOCIO: ID-First Matching
     if (!liveHubData && match.fixtureId) {
         const targetId = String(match.fixtureId);
-        const allHubValues = Object.values(window.liveScoresHub);
-        liveHubData = allHubValues.find(h => String(h.fixtureId || '') === targetId);
-
-        if (IS_DEBUG_MATCH) {
-            console.log(`[SURGERY-DEBUG] Lookup by ID result:`, !!liveHubData);
-            if (!liveHubData) {
-                const sampleIds = allHubValues.slice(0, 5).map(h => h.fixtureId);
-                console.log(`[SURGERY-DEBUG] Sample IDs in Hub:`, sampleIds);
-                console.log(`[SURGERY-DEBUG] Hub size:`, allHubValues.length);
-            }
-        }
+        liveHubData = Object.values(window.liveScoresHub).find(v => String(v.fixtureId) === targetId);
     }
 
     // Calcolo stato temporale (necessario per fallbacks e badge)
@@ -598,6 +562,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // DEBUG rimosso - causava spam nella console
 
+
     if (liveHubData) {
         match = {
             ...match,
@@ -611,10 +576,9 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 elapsed: liveHubData.elapsed,
                 status: liveHubData.status
             },
-            // CRITICAL: Ensure liveStats (Cooking Indicator) is ALWAYS merged
             liveStats: liveHubData.liveStats || match.liveStats,
             events: liveHubData.events || match.events,
-            // Add flag to indicate it's receiving real-time data
+            source: liveHubData.source || match.source,
             isLiveSync: true
         };
 
@@ -676,9 +640,12 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const isGoldCard = isMagiaAI && isSpecialAI && norm(match.magiaTip) === norm(match.specialTip);
     const isGoldBadge = isMagiaAI && match.dbTip && norm(match.magiaTip) === norm(match.dbTip);
 
-    // 🏆 REGOLA D'ORO: Una Partita = Una Identità
-    // Se è un trading pick, è una card trading OVUNQUE.
-    const isTrading = window.isTradingPick(match) || options.isTrading;
+    // 🏆 REGOLA D'ORO (Socio's Protocol): Il settore di salvataggio decide il tipo.
+    // Se è nel Trading Box (Hub source=TRADING), card ricca. Altrimenti card normale.
+    let isTrading = window.isTradingPick(match) || options.isTrading;
+    if (liveHubData && liveHubData.source) {
+        isTrading = (liveHubData.source === 'TRADING');
+    }
 
     // ID Consistente per stelline
     const bettingMatchId = window.generateUniversalMatchId(match);
