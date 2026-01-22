@@ -14,12 +14,14 @@ const LocalDB = {
     dbName: 'TipsterDB',
     storeName: 'matches',
     storeStrategies: 'strategies_history',
+    storeLeagues: 'leagues_registry',
+    storeCatalog: 'leagues_catalog', // NEW: Full API-Football catalog
     db: null,
 
     async init() {
         if (this.db) return;
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 3); // Upgrade to v3 for strategies_history
+            const request = indexedDB.open(this.dbName, 5); // Upgrade to v5 for leagues_catalog
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
@@ -28,6 +30,14 @@ const LocalDB = {
                 }
                 if (!db.objectStoreNames.contains(this.storeStrategies)) {
                     db.createObjectStore(this.storeStrategies, { keyPath: 'date' });
+                }
+                if (!db.objectStoreNames.contains(this.storeLeagues)) {
+                    db.createObjectStore(this.storeLeagues, { keyPath: 'name' });
+                }
+                if (!db.objectStoreNames.contains(this.storeCatalog)) {
+                    const catalogStore = db.createObjectStore(this.storeCatalog, { keyPath: 'id' });
+                    catalogStore.createIndex('country', 'country', { unique: false });
+                    catalogStore.createIndex('name', 'name', { unique: false });
                 }
             };
 
@@ -112,9 +122,10 @@ const LocalDB = {
 
     async clear() {
         if (!this.db) await this.init();
-        const transaction = this.db.transaction([this.storeName, this.storeStrategies], "readwrite");
+        const transaction = this.db.transaction([this.storeName, this.storeStrategies, this.storeLeagues], "readwrite");
         transaction.objectStore(this.storeName).clear();
         transaction.objectStore(this.storeStrategies).clear();
+        transaction.objectStore(this.storeLeagues).clear();
         console.log("[LocalDB] Cleared all stores");
     },
 
@@ -174,25 +185,182 @@ const LocalDB = {
         });
     },
 
-    async importStrategiesHistory(historyArray) {
+    // ==================== LEAGUES REGISTRY (Dizionario Dinamico) ====================
+
+    async saveLeagueMapping(name, id, meta = {}) {
         if (!this.db) await this.init();
-        if (!Array.isArray(historyArray)) return false;
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeLeagues], "readwrite");
+            const store = transaction.objectStore(this.storeLeagues);
+
+            const record = {
+                name: name.toLowerCase().trim(),
+                leagueId: id,
+                updatedAt: Date.now(),
+                ...meta
+            };
+
+            const request = store.put(record);
+            request.onsuccess = () => resolve(true);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async getLeagueMapping(name) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeLeagues], "readonly");
+            const store = transaction.objectStore(this.storeLeagues);
+            const request = store.get(name.toLowerCase().trim());
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async getAllLeagues() {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeLeagues], "readonly");
+            const store = transaction.objectStore(this.storeLeagues);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async saveLeagueMappingsBulk(mappings) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeLeagues], "readwrite");
+            const store = transaction.objectStore(this.storeLeagues);
+
+            mappings.forEach(m => {
+                const record = {
+                    name: m.label.toLowerCase().trim(),
+                    leagueId: parseInt(m.id),
+                    updatedAt: Date.now(),
+                    ...m.meta
+                };
+                store.put(record);
+            });
+
+            transaction.oncomplete = () => {
+                console.log(`[LocalDB] Bulk saved ${mappings.length} leagues`);
+                resolve(true);
+            };
+            transaction.onerror = (event) => {
+                console.error("[LocalDB] Bulk Save Error", event);
+                reject(event);
+            };
+        });
+    },
+
+    // Alias for getAllLeagues (used in admin.html)
+    async getAllLeagueMappings() {
+        return this.getAllLeagues();
+    },
+
+    // Alias for loadMatches (used in admin.html)
+    async getAllMatches() {
+        return this.loadMatches();
+    },
+
+    // ==================== LEAGUES CATALOG (API-Football Full Catalog) ====================
+
+    async saveCatalog(leagues) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeCatalog], "readwrite");
+            const store = transaction.objectStore(this.storeCatalog);
+
+            // Clear and replace
+            store.clear();
+
+            leagues.forEach(league => {
+                store.put(league);
+            });
+
+            transaction.oncomplete = () => {
+                console.log(`[LocalDB] Saved ${leagues.length} leagues to catalog`);
+                resolve(true);
+            };
+            transaction.onerror = (event) => reject(event);
+        });
+    },
+
+    async getCatalog() {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeCatalog], "readonly");
+            const store = transaction.objectStore(this.storeCatalog);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async searchCatalog(name, country = null) {
+        if (!this.db) await this.init();
+        const catalog = await this.getCatalog();
+
+        const cleanName = name.toLowerCase().trim();
+        const cleanCountry = country ? country.toLowerCase().trim() : null;
+
+        return catalog.filter(l => {
+            const nameMatch = l.name.toLowerCase().includes(cleanName) ||
+                cleanName.includes(l.name.toLowerCase());
+            const countryMatch = cleanCountry ?
+                l.country.toLowerCase() === cleanCountry : true;
+            return nameMatch && countryMatch;
+        });
+    },
+
+    async getCatalogByCountry(country) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeCatalog], "readonly");
+            const store = transaction.objectStore(this.storeCatalog);
+            const index = store.index('country');
+            const request = index.getAll(country);
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+
+    async importStrategiesHistory(backupData) {
+        if (!this.db) await this.init();
+
+        // Handle both formats: old array or new backup object
+        const historyArray = Array.isArray(backupData) ? backupData : backupData.history;
+        const leaguesArray = backupData.leagues || [];
 
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeStrategies], "readwrite");
-            const store = transaction.objectStore(this.storeStrategies);
+            const transaction = this.db.transaction([this.storeStrategies, this.storeLeagues], "readwrite");
+            const strategyStore = transaction.objectStore(this.storeStrategies);
+            const leagueStore = transaction.objectStore(this.storeLeagues);
 
-            let count = 0;
-            historyArray.forEach(item => {
-                if (item.date && item.strategies) {
-                    store.put(item);
-                    count++;
+            let strategyCount = 0;
+            if (Array.isArray(historyArray)) {
+                historyArray.forEach(item => {
+                    if (item.date && item.strategies) {
+                        strategyStore.put(item);
+                        strategyCount++;
+                    }
+                });
+            }
+
+            let leagueCount = 0;
+            leaguesArray.forEach(league => {
+                if (league.name && league.leagueId) {
+                    leagueStore.put(league);
+                    leagueCount++;
                 }
             });
 
             transaction.oncomplete = () => {
-                console.log(`[LocalDB] Successfully imported ${count} days of history`);
-                resolve(count);
+                console.log(`[LocalDB] Imported ${strategyCount} days and ${leagueCount} leagues`);
+                resolve(strategyCount);
             };
 
             transaction.onerror = (event) => {
@@ -209,21 +377,37 @@ const LocalDB = {
         if (!this.db) await this.init();
         const exportData = {
             type: 'strategies_backup',
-            version: '1.1',
+            version: '1.2',
             exportedAt: new Date().toISOString(),
-            history: []
+            history: [],
+            leagues: []
         };
 
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeStrategies], "readonly");
-            const store = transaction.objectStore(this.storeStrategies);
-            const request = store.getAll();
+            const transaction = this.db.transaction([this.storeStrategies, this.storeLeagues], "readonly");
+            const strategyStore = transaction.objectStore(this.storeStrategies);
+            const leagueStore = transaction.objectStore(this.storeLeagues);
 
-            request.onsuccess = () => {
-                exportData.history = request.result || [];
-                resolve(exportData);
+            const strategyRequest = strategyStore.getAll();
+            const leagueRequest = leagueStore.getAll();
+
+            let completed = 0;
+            const checkDone = () => {
+                completed++;
+                if (completed === 2) resolve(exportData);
             };
-            request.onerror = (event) => reject(event);
+
+            strategyRequest.onsuccess = () => {
+                exportData.history = strategyRequest.result || [];
+                checkDone();
+            };
+
+            leagueRequest.onsuccess = () => {
+                exportData.leagues = leagueRequest.result || [];
+                checkDone();
+            };
+
+            transaction.onerror = (event) => reject(event);
         });
     }
 };
@@ -377,12 +561,25 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                     if (m.tip !== undefined) matchData.tip = m.tip;
                     if (m.quota !== undefined) matchData.quota = m.quota;
                     if (m.score !== undefined) matchData.score = m.score;
+                    if (m.risultato !== undefined) matchData.risultato = m.risultato;
+                    if (m.esito !== undefined) matchData.esito = m.esito;
                     if (m.ora !== undefined) matchData.ora = m.ora;
                     if (m.fixtureId !== undefined) matchData.fixtureId = m.fixtureId;
                     if (m.originalDBTip !== undefined) matchData.originalDBTip = m.originalDBTip;
                     if (m.originalDBQuota !== undefined) matchData.originalDBQuota = m.originalDBQuota;
                     if (m.isReinforced !== undefined) matchData.isReinforced = m.isReinforced;
                     if (m.reasoning !== undefined) matchData.reasoning = m.reasoning;
+
+                    // 🔥 Intelligence Fields (Standings & Motivation)
+                    if (m.leagueId !== undefined) matchData.leagueId = m.leagueId;
+                    if (m.motivationBadges !== undefined) matchData.motivationBadges = m.motivationBadges;
+                    if (m.eloRatingH !== undefined) matchData.eloRatingH = m.eloRatingH;
+                    if (m.eloRatingA !== undefined) matchData.eloRatingA = m.eloRatingA;
+                    if (m.rankH !== undefined) matchData.rankH = m.rankH;
+                    if (m.rankA !== undefined) matchData.rankA = m.rankA;
+                    if (m.teamIdHome !== undefined) matchData.teamIdHome = m.teamIdHome;
+                    if (m.teamIdAway !== undefined) matchData.teamIdAway = m.teamIdAway;
+                    if (m.expertStats !== undefined) matchData.expertStats = m.expertStats;
 
                     // Compact magicStats (only if exists)
                     if (m.magicStats) {
@@ -392,6 +589,13 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                         if (m.magicStats.oddMagiaAI !== undefined) matchData.magicStats.oddMagiaAI = m.magicStats.oddMagiaAI;
                         if (m.magicStats.smartScore !== undefined) matchData.magicStats.smartScore = m.magicStats.smartScore;
                         if (m.magicStats.top3Scores !== undefined) matchData.magicStats.top3Scores = m.magicStats.top3Scores;
+
+                        // 🔥 Intelligence in magicStats too
+                        if (m.magicStats.motivationBadges !== undefined) matchData.magicStats.motivationBadges = m.magicStats.motivationBadges;
+                        if (m.magicStats.eloRatingH !== undefined) matchData.magicStats.eloRatingH = m.magicStats.eloRatingH;
+                        if (m.magicStats.eloRatingA !== undefined) matchData.magicStats.eloRatingA = m.magicStats.eloRatingA;
+                        if (m.magicStats.rankH !== undefined) matchData.magicStats.rankH = m.magicStats.rankH;
+                        if (m.magicStats.rankA !== undefined) matchData.magicStats.rankA = m.magicStats.rankA;
                     }
 
                     return matchData;

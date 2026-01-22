@@ -36,6 +36,11 @@ const LEAGUE_ENTROPY_FACTORS = {
     'championship': 1.10
 };
 
+const STANDINGS_BLACKLIST_KEYWORDS = [
+    'cup', 'coppa', 'trofeo', 'trophy', 'champions', 'europa', 'conference', 'fa', 'copa',
+    'super cup', 'supercoppa', 'qualifiers', 'play-off', 'friendlies', 'friendly', 'international'
+];
+
 // DIXON_COLES_RHO and MIN_VALUE_EDGE are now in STRATEGY_CONFIG
 
 /**
@@ -324,6 +329,8 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
         // Current Form (Last 5 - Still using simple average for form, but decay for season)
         const recent = allTeamMatches.slice(0, 5);
         let recScored = 0, recConceded = 0;
+        let outcomes = [];
+
         recent.forEach(m => {
             const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
             const isTeamHome = team1 === teamNorm;
@@ -331,15 +338,24 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
             if (res) {
                 const hg = parseInt(res[1]);
                 const ag = parseInt(res[2]);
-                recScored += isTeamHome ? hg : ag;
-                recConceded += isTeamHome ? ag : hg;
+                const teamG = isTeamHome ? hg : ag;
+                const oppG = isTeamHome ? ag : hg;
+
+                recScored += teamG;
+                recConceded += oppG;
+
+                // Capture outcome
+                if (teamG > oppG) outcomes.push('W');
+                else if (teamG === oppG) outcomes.push('D');
+                else outcomes.push('L');
             }
         });
 
         const currForm = {
             avgScored: recent.length ? recScored / recent.length : seasonStats.avgScored,
             avgConceded: recent.length ? recConceded / recent.length : seasonStats.avgConceded,
-            matchCount: recent.length
+            matchCount: recent.length,
+            outcomes: outcomes // 🔥 ["W", "D", "L", "W", "W"]
         };
 
         return { season: seasonStats, currForm: currForm };
@@ -1681,10 +1697,18 @@ function generateMagiaAI(matches, allMatchesHistory) {
             return;
         }
 
+        // 🔥 VETO COPPE (v4.3)
+        const leagueNorm = (match.lega || '').toLowerCase();
+        const isCup = STANDINGS_BLACKLIST_KEYWORDS.some(k => leagueNorm.includes(k));
+        if (isCup) {
+            console.log(`[Magia AI] Veto Coppa: ${match.partita} (${match.lega})`);
+            return;
+        }
+
         let sim = match.magicStats;
 
         // ═══════════════════════════════════════════════════════════════════════
-        // MAGIA AI 3.0: FILTRO VALORE (Tartufo da 10.000€!)
+        // MAGIA AI 4.3: CASSA BLINDATA (@1.20 - 1.25)
         // ═══════════════════════════════════════════════════════════════════════
 
         // 🔥 FILTRO 1: RICHIEDI QUOTE API REALI (no stimate)
@@ -1694,14 +1718,9 @@ function generateMagiaAI(matches, allMatchesHistory) {
             parseFloat(match.quota2) > 1;
 
         if (!hasRealApiOdds) {
-            // Match senza quote API reali → escluso da Magia AI
-            // Sarà comunque nelle altre strategie (ALL, Italia, etc.)
             console.log(`[Magia AI] Skip: ${match.partita} - NO quote API reali`);
             return;
         }
-
-        // 🔥 FILTRO 2: QUOTA MINIMA GIOCABILE (il vero tartufo!)
-        const MIN_PLAYABLE_ODD = 1.25;
 
         // MAP ALL SIGNALS
         const allSignals = [
@@ -1716,169 +1735,107 @@ function generateMagiaAI(matches, allMatchesHistory) {
             { label: 'Under 3.5', prob: sim.under35, type: 'GOALS' },
             { label: 'Gol', prob: sim.btts, type: 'GOALS' },
             { label: 'No Gol', prob: sim.noGol, type: 'GOALS' }
-        ].sort((a, b) => b.prob - a.prob);
+        ];
 
         const THRESHOLDS = STRATEGY_CONFIG.MAGIA_AI.THRESHOLDS;
-        const FALLBACK = STRATEGY_CONFIG.MAGIA_AI.FALLBACK;
 
         const getThreshold = (signal) => {
             const cfg = THRESHOLDS.find(t =>
                 (t.type === signal.type && t.label === signal.label) ||
                 (t.type === signal.type && !t.label)
             );
-
-            let baseThreshold = cfg ? cfg.minProb : 75;
-
-            // 🔥 CUP LOGIC v4.1: Se c'è Category Gap, alziamo l'asticella del 5% per i Gol
-            if (sim.isCategoryGap && signal.type === 'GOALS') {
-                baseThreshold += 5;
-            }
-
-            return baseThreshold;
+            return cfg ? cfg.minProb : 75;
         };
 
-        // 2. FILTER CANDIDATES
-        let topCandidates = allSignals.slice(0, 5).filter(s => {
-            // 🔥 FILTER 2.1: CATEGORY GAP VETO (v4.1)
-            // Se c'è Gap di Categoria nelle Coppe, scartiamo i mercati 1X2 e DC (non confrontabili)
-            if (sim.isCategoryGap && (s.type === '1X2' || s.type === 'DC')) {
-                return false;
-            }
-
-            return s.prob >= getThreshold(s);
-        });
-
-        // 3. FALLBACK HT
-        const htProb = match.info_ht ? parseInt((match.info_ht.match(/(\d+)%/) || [])[1] || 0) : 0;
-        if (topCandidates.length === 0 && htProb >= (FALLBACK.minProb || 88)) {
-            topCandidates = [{
-                label: FALLBACK.label || 'Over 0.5 HT',
-                prob: htProb,
-                type: FALLBACK.type || 'HT_FALLBACK',
-                estimatedOdd: (100 / htProb).toFixed(2)
-            }];
-        }
-
-        if (topCandidates.length === 0) return;
-
-        // 3. CALCOLA SMART SCORE
-        const scoredCandidates = topCandidates.map(signal => {
+        // 1. CALCOLA SMART SCORE E QUOTE
+        const scoredCandidates = allSignals.map(signal => {
             let realOdd = null;
-
-            // Try to use match odds if available (Basic Manual or API)
-            // Note: In Step 2, we might not have 'quota1' populated from API yet.
-            // We can fall back to 'match.quota' if it matches the current tip, but unreliable.
-
-            if (hasRealApiOdds) {
-                const bet365Odds = {
-                    '1': parseFloat(match.quota1),
-                    'X': parseFloat(match.quotaX),
-                    '2': parseFloat(match.quota2)
-                };
-                if (signal.label === '1') realOdd = bet365Odds['1'];
-                else if (signal.label === 'X') realOdd = bet365Odds['X'];
-                else if (signal.label === '2') realOdd = bet365Odds['2'];
-                else if (signal.label === '1X') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['X']));
-                else if (signal.label === 'X2') realOdd = 1 / ((1 / bet365Odds['X']) + (1 / bet365Odds['2']));
-                else if (signal.label === '12') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['2']));
-            }
+            const bet365Odds = {
+                '1': parseFloat(match.quota1),
+                'X': parseFloat(match.quotaX),
+                '2': parseFloat(match.quota2)
+            };
+            if (signal.label === '1') realOdd = bet365Odds['1'];
+            else if (signal.label === 'X') realOdd = bet365Odds['X'];
+            else if (signal.label === '2') realOdd = bet365Odds['2'];
+            else if (signal.label === '1X') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['X']));
+            else if (signal.label === 'X2') realOdd = 1 / ((1 / bet365Odds['X']) + (1 / bet365Odds['2']));
+            else if (signal.label === '12') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['2']));
 
             const estimatedOdd = realOdd || (100 / signal.prob);
-
-            const cfg = THRESHOLDS.find(t => t.type === signal.type && t.label === signal.label);
-            const minOdd = cfg ? cfg.minOdd : 1.20;
-
-            let totalScore = signal.prob;
-
-            // Value Trap Check (only if we have high confidence in the odd)
-            if (hasRealApiOdds && estimatedOdd < minOdd) {
-                totalScore -= 50;
-            }
-            // Value Bet Bonus
-            if (estimatedOdd > 1.80 && signal.prob > 60) {
-                totalScore += 10;
-            }
-
             return {
                 ...signal,
-                finalScore: totalScore,
-                estimatedOdd: typeof estimatedOdd === 'number' ? estimatedOdd.toFixed(2) : estimatedOdd,
-                isValue: estimatedOdd >= minOdd // Soft filter: prefer values, but dont kill purely on missing odd
+                estimatedOdd: typeof estimatedOdd === 'number' ? estimatedOdd.toFixed(2) : estimatedOdd
             };
         });
 
-        // 🔥 FILTRO 2: Applica quota minima giocabile E MASSIMA (v4.1)
-        const MAX_PLAYABLE_ODD = STRATEGY_CONFIG.MAGIA_AI.MAX_ODD || 1.90;
-        const MIN_SMART_SCORE = STRATEGY_CONFIG.MAGIA_AI.MIN_SMART_SCORE || 60;
+        // ═══════════════════════════════════════════════════════════════════════
+        // 🔥 ALGORITMO DI SELEZIONE v4.3 (IL CUORE)
+        // ═══════════════════════════════════════════════════════════════════════
+        const GOLDEN_MIN = 1.20;
+        const GOLDEN_MAX = 1.25;
 
-        const winners = scoredCandidates
-            .filter(s => {
-                const odd = parseFloat(s.estimatedOdd);
+        // 1. Filtra per Range Aureo [1.20 - 1.25] e Probabilità minima
+        const goldenSignals = scoredCandidates.filter(s => {
+            const odd = parseFloat(s.estimatedOdd);
+            return odd >= GOLDEN_MIN && odd <= GOLDEN_MAX && s.prob >= getThreshold(s);
+        });
 
-                // Filtro Quota Minima
-                if (odd < MIN_PLAYABLE_ODD) {
-                    console.log(`[Magia AI] Skip segnale ${match.partita}: ${s.label} @${odd} (< ${MIN_PLAYABLE_ODD})`);
-                    return false;
-                }
-
-                // 🔥 Filtro Quota Massima v4.1 (Richiesto Socio)
-                if (odd > MAX_PLAYABLE_ODD) {
-                    console.log(`[Magia AI] Skip segnale ${match.partita}: ${s.label} @${odd} (> ${MAX_PLAYABLE_ODD})`);
-                    return false;
-                }
-
-                // 🔥 Veto Smart Score v4.1
-                if (s.finalScore < MIN_SMART_SCORE) {
-                    console.log(`[Magia AI] Veto Qualità ${match.partita}: ${s.label} Score ${s.finalScore.toFixed(0)} < ${MIN_SMART_SCORE}`);
-                    return false;
-                }
-
-                return s.finalScore > 0;
-            })
-            .sort((a, b) => b.finalScore - a.finalScore);
-
-        if (winners.length > 0) {
-            const bestPick = winners[0];
-
-            // 🔥 Top 3 Risultati Esatti per Admin Card
-            const top3Scores = (sim.exactScores || []).slice(0, 3).map(s => ({
-                score: s.score,
-                percent: s.percent
-            }));
-
-            // 🔥 Segnale Rafforzato: AI tip = DB tip?
-            const isReinforced = bestPick.label === match.tip ||
-                bestPick.label === match.tip?.replace('+', 'Over ').replace('-', 'Under ');
-
-            magicMatches.push({
-                ...match,
-                // Override main props for UI display (Strategy View)
-                tip: bestPick.label,        // Magia AI Tip
-                quota: bestPick.estimatedOdd, // Magia AI Odd
-                score: Math.min(100, Math.round(bestPick.finalScore)),
-
-                // Keep Original Data for comparison in UI (Card)
-                originalDBTip: match.tip,
-                originalDBQuota: match.quota,
-
-                // Magia Metadata
-                strategy: 'magia_ai',
-                magicStats: {
-                    ...sim,
-                    tipMagiaAI: bestPick.label,
-                    probMagiaAI: bestPick.prob,
-                    oddMagiaAI: bestPick.estimatedOdd,
-                    smartScore: bestPick.finalScore,
-                    top3Scores: top3Scores,           // 🔥 Top 3 risultati esatti
-                    isReinforced: isReinforced        // 🔥 Badge convergenza
-                },
-                reasoning: `Magia AI: ${bestPick.label} (${bestPick.prob}%)`,
-
-                // 🔥 Campi extra per Admin Card
-                top3Scores: top3Scores,
-                isReinforced: isReinforced
-            });
+        if (goldenSignals.length === 0) {
+            console.log(`[Magia AI] Scartata: ${match.partita} - Nessun segnale nel range @${GOLDEN_MIN}-${GOLDEN_MAX}`);
+            return;
         }
+
+        // 2. Priorità: GOAL > 1X2/DC
+        let bestPick = null;
+        const goalSignals = goldenSignals.filter(s => s.type === 'GOALS').sort((a, b) => b.prob - a.prob);
+        const fallbackSignals = goldenSignals.filter(s => s.type === '1X2' || s.type === 'DC').sort((a, b) => b.prob - a.prob);
+
+        if (goalSignals.length > 0) {
+            bestPick = goalSignals[0];
+        } else if (fallbackSignals.length > 0) {
+            bestPick = fallbackSignals[0];
+        } else {
+            return; // Non dovrebbe succedere grazie al filtro precedente
+        }
+
+        // 🔥 Segnale Rafforzato: AI tip = DB tip?
+        const isReinforced = bestPick.label === match.tip ||
+            bestPick.label === match.tip?.replace('+', 'Over ').replace('-', 'Under ');
+
+        // 🔥 Top 3 Risultati Esatti per Admin Card
+        const top3Scores = (sim.exactScores || []).slice(0, 3).map(s => ({
+            score: s.score,
+            percent: s.percent
+        }));
+
+        magicMatches.push({
+            ...match,
+            // Override main props for UI display (Strategy View)
+            tip: bestPick.label,        // Magia AI Tip
+            quota: bestPick.estimatedOdd, // Magia AI Odd
+            score: Math.min(100, Math.round(bestPick.prob)),
+
+            // Keep Original Data for comparison in UI (Card)
+            originalDBTip: match.tip,
+            originalDBQuota: match.quota,
+
+            // Magia Metadata
+            strategy: 'magia_ai',
+            magicStats: {
+                ...sim,
+                tipMagiaAI: bestPick.label,
+                probMagiaAI: bestPick.prob,
+                oddMagiaAI: bestPick.estimatedOdd,
+                top3Scores: top3Scores,           // 🔥 Top 3 risultati esatti
+                isReinforced: isReinforced        // 🔥 Badge convergenza
+            },
+            reasoning: `Magia AI: ${bestPick.label} (${bestPick.prob}%)`,
+
+            // 🔥 Campi extra per Admin Card
+            top3Scores: top3Scores,
+            isReinforced: isReinforced
+        });
     });
 
     return magicMatches;
@@ -1958,10 +1915,8 @@ function distributeStrategies(calculatedMatches, allMatchesHistory) {
             // Include everything (Blacklist filtering should ideally happen, but let's pass all for now or filter empty tips)
             filtered = calculatedMatches.filter(m => m.tip && m.tip.trim() !== '');
         } else if (strat.type === 'italia') {
-            filtered = calculatedMatches.filter(m => {
-                const l = (m.lega || '').toLowerCase();
-                return l.includes('italy') || l.includes('ita ') || l.includes('serie');
-            });
+            // ITALIA: filter ONLY leagues starting with EU-ITA (as requested by Socio)
+            filtered = calculatedMatches.filter(m => (m.lega || '').startsWith('EU-ITA'));
         } else if (strat.type === 'top_eu') {
             // 🔍 DEBUG TOP EU - DETTAGLIATO
             console.log('🔍 [DEBUG TOP EU] topEuLeagues array:', topEuLeagues);
@@ -2058,18 +2013,19 @@ function getMagiaStats(match, allMatchesHistory) {
 
     // League Goal & Entropy Factors
     const leagueNorm = (match.lega || '').toLowerCase();
+    const cleanLega = leagueNorm.replace(/\[.*?\]\s*/g, '');
     let goalFactor = 1.0;
     let entropyFactor = 1.0;
 
     for (const [l, factor] of Object.entries(LEAGUE_GOAL_FACTORS)) {
-        if (leagueNorm.includes(l)) {
+        if (leagueNorm.includes(l) || cleanLega.includes(l)) {
             goalFactor = factor;
             break;
         }
     }
 
     for (const [l, factor] of Object.entries(LEAGUE_ENTROPY_FACTORS)) {
-        if (leagueNorm.includes(l)) {
+        if (leagueNorm.includes(l) || cleanLega.includes(l)) {
             entropyFactor = factor;
             break;
         }
@@ -2080,12 +2036,15 @@ function getMagiaStats(match, allMatchesHistory) {
     let motivationA = 1.0;
 
     // Check if standings are available for this league
-    const leagueIdMap = window.LEAGUE_MAPPING || {};
-    let leagueId = null;
-    for (const [key, id] of Object.entries(leagueIdMap)) {
-        if (leagueNorm.includes(key)) {
-            leagueId = id;
-            break;
+    let leagueId = match.leagueId || null;
+
+    // 🔗 Use Registry loaded at startup (clean solution - no LEAGUE_MAPPING)
+    if (!leagueId && window.leaguesRegistry) {
+        // leaguesRegistry is a Map loaded once at admin startup
+        const registryEntry = window.leaguesRegistry.get(match.lega) ||
+            window.leaguesRegistry.get(match.lega?.toLowerCase());
+        if (registryEntry && registryEntry.leagueId) {
+            leagueId = registryEntry.leagueId;
         }
     }
 
@@ -2099,44 +2058,78 @@ function getMagiaStats(match, allMatchesHistory) {
         } else {
             standings = cache[leagueId];
         }
+        if (!standings) console.warn(`[EngineDebug] No standings for ID ${leagueId} in cache`);
+    } else {
+        console.warn(`[EngineDebug] Skip standings lookup: leagueId=${leagueId}, cache=${!!cache}`);
     }
 
+    const motivationBadges = [];
+    let rankH = null;
+    let rankA = null;
+
     if (standings) {
-        const stdH = standings.find(s =>
-            s.team.name.toLowerCase().includes(teams.home.toLowerCase()) ||
-            teams.home.toLowerCase().includes(s.team.name.toLowerCase())
-        );
-        const stdA = standings.find(s =>
-            s.team.name.toLowerCase().includes(teams.away.toLowerCase()) ||
-            teams.away.toLowerCase().includes(s.team.name.toLowerCase())
-        );
+        const idH = match.teamIdHome;
+        const idA = match.teamIdAway;
+
+        const stdH = standings.find(s => {
+            if (idH && s.team.id === idH) return true;
+            const sName = normalizeTeamName(s.team.name);
+            const normH = normalizeTeamName(teams.home);
+            return sName.includes(normH) || normH.includes(sName);
+        });
+        const stdA = standings.find(s => {
+            if (idA && s.team.id === idA) return true;
+            const sName = normalizeTeamName(s.team.name);
+            const normA = normalizeTeamName(teams.away);
+            return sName.includes(normA) || normA.includes(sName);
+        });
 
         if (stdH && stdA) {
+            rankH = stdH.rank;
+            rankA = stdA.rank;
             const totalTeams = standings.length;
-            sim.motivationBadges = [];
 
             // High Motivation: Fighting for Title/Europe (Top 4) or Relegation (Bottom 4)
             if (stdH.rank >= totalTeams - 4) {
                 motivationH += 0.15;
-                sim.motivationBadges.push({ team: 'H', type: 'SALVEZZA', label: 'Lotta Salvezza 🆘' });
+                motivationBadges.push({ team: 'H', type: 'SALVEZZA', label: 'Lotta Salvezza 🆘' });
             } else if (stdH.rank <= 4) {
                 motivationH += 0.10;
-                sim.motivationBadges.push({ team: 'H', type: 'TITOLO', label: 'Corsa Titolo/EU 🏆' });
+                motivationBadges.push({ team: 'H', type: 'TITOLO', label: 'Corsa Titolo/EU 🏆' });
             }
 
             if (stdA.rank >= totalTeams - 4) {
                 motivationA += 0.15;
-                sim.motivationBadges.push({ team: 'A', type: 'SALVEZZA', label: 'Lotta Salvezza 🆘' });
+                motivationBadges.push({ team: 'A', type: 'SALVEZZA', label: 'Lotta Salvezza 🆘' });
             } else if (stdA.rank <= 4) {
                 motivationA += 0.10;
-                sim.motivationBadges.push({ team: 'A', type: 'TITOLO', label: 'Corsa Titolo/EU 🏆' });
+                motivationBadges.push({ team: 'A', type: 'TITOLO', label: 'Corsa Titolo/EU 🏆' });
             }
 
             // Direct Clash: If teams are within 3 points of each other
             if (Math.abs(stdH.points - stdA.points) <= 3) {
                 motivationH += 0.05;
                 motivationA += 0.05;
-                sim.motivationBadges.push({ team: 'B', type: 'SCONTRO', label: 'Scontro Diretto ⚔️' });
+                motivationBadges.push({ team: 'B', type: 'SCONTRO', label: 'Scontro Diretto ⚔️' });
+            }
+
+            // 🔥 TECHNICAL GAP CORRECTION (Home/Away Strength)
+            if (stdH.home && stdH.all && stdH.home.played >= 3) {
+                const homeGfAvg = stdH.home.goals.for / stdH.home.played;
+                const seasonGfAvg = stdH.all.goals.for / stdH.all.played;
+                if (seasonGfAvg > 0) {
+                    const homeFactor = homeGfAvg / seasonGfAvg;
+                    // Boost if home performance > season avg, penalize if weaker
+                    motivationH *= (0.95 + (Math.min(1.2, homeFactor) * 0.05));
+                }
+            }
+            if (stdA.away && stdA.all && stdA.away.played >= 3) {
+                const awayGfAvg = stdA.away.goals.for / stdA.away.played;
+                const seasonGfAvg = stdA.all.goals.for / stdA.all.played;
+                if (seasonGfAvg > 0) {
+                    const awayFactor = awayGfAvg / seasonGfAvg;
+                    motivationA *= (0.95 + (Math.min(1.2, awayFactor) * 0.05));
+                }
             }
         }
     }
@@ -2147,6 +2140,26 @@ function getMagiaStats(match, allMatchesHistory) {
         homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor * motivationA;
 
     const sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita, entropyFactor);
+    sim.motivationBadges = motivationBadges;
+    sim.rankH = rankH;
+    sim.rankA = rankA;
+    sim.leagueId = leagueId;
+
+    // 🔥 EXPERT STATS (Form & Goals)
+    sim.expertStats = {
+        home: {
+            form: homeStats.currForm.outcomes || [],
+            avgScored: homeStats.season.avgScored,
+            avgConceded: homeStats.season.avgConceded,
+            formScored: homeStats.currForm.avgScored
+        },
+        away: {
+            form: awayStats.currForm.outcomes || [],
+            avgScored: awayStats.season.avgScored,
+            avgConceded: awayStats.season.avgConceded,
+            formScored: awayStats.currForm.avgScored
+        }
+    };
     /**
      * STATISTICAL ENGINE v4.0.0 - ELITE MODE REFINED
      * Last update: 17/01/2026 - Bugfix HT Sniper Confidence
@@ -2193,8 +2206,8 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.winAway = sim.winAway * ratio;
 
     // 🔥 POINT 4: CATEGORY GAP DETECTION (v4.1)
-    const cupKeywords = ['cup', 'coppa', 'league cup', 'fa cup', 'trophy', 'championship cup', 'dfb pokal', 'kopa', 'coupe'];
-    const isCupMatch = cupKeywords.some(k => leagueNorm.includes(k));
+    const cupKeywords = ['cup', 'coppa', 'trofeo', 'fa cup', 'copa', 'final', 'supercup', 'supercoppa', 'super cup', 'qualifiers', 'play-off', 'friendlies', 'friendly', 'international', 'spareggio'];
+    const isCupMatch = cupKeywords.some(k => leagueNorm.includes(k)) && !leagueNorm.includes('league');
     let isCategoryGap = false;
 
     if (isCupMatch) {
@@ -2229,6 +2242,12 @@ function getMagiaStats(match, allMatchesHistory) {
         dc1X: sim.dc1X,
         dcX2: sim.dcX2,
         dc12: sim.dc12,
+
+        // Intelligence Fields
+        expertStats: sim.expertStats,
+        rankH: sim.rankH,
+        rankA: sim.rankA,
+        leagueId: sim.leagueId,
 
         // Goal markets
         over15: sim.over15,
