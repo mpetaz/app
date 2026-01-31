@@ -7,11 +7,13 @@ window.STRATEGY_CONFIG = {
         MAX_ODD: 1.90,          // 🔥 Tetto massimo quota v4.1
         MIN_SMART_SCORE: 60,   // 🔥 Veto assoluto sotto 60 v4.1
         THRESHOLDS: [
-            { type: 'DC', label: 'Double Chance', minProb: 85, minOdd: 1.18 },
+            { type: 'DC', label: '12', minProb: 90, minOdd: 1.18 },         // Alzata al 90% per sicurezza
+            { type: 'DC', label: '1X', minProb: 85, minOdd: 1.18 },
+            { type: 'DC', label: 'X2', minProb: 85, minOdd: 1.18 },
             { type: 'GOALS', label: 'Over 1.5', minProb: 75, minOdd: 1.22 },
-            { type: '1X2', label: '1X2 / BTTS', minProb: 65, minOdd: 1.60 }, // Alzata soglia
-            { type: 'GOALS', label: 'Gol', minProb: 75, minOdd: 1.60 },      // Alzata soglia
-            { type: 'GOALS', label: 'Over 2.5', minProb: 75, minOdd: 1.50 }  // Alzata soglia v4.1 richiesto socio
+            { type: '1X2', label: '1X2 / BTTS', minProb: 65, minOdd: 1.60 },
+            { type: 'GOALS', label: 'Gol', minProb: 75, minOdd: 1.60 },
+            { type: 'GOALS', label: 'Over 2.5', minProb: 82, minOdd: 1.50 }  // Alzata soglia v4.4 richiesto socio
         ],
         // Fallback se nessuna strategia passa le soglie
         FALLBACK: {

@@ -16,12 +16,13 @@ const LocalDB = {
     storeStrategies: 'strategies_history',
     storeLeagues: 'leagues_registry',
     storeCatalog: 'leagues_catalog', // NEW: Full API-Football catalog
+    storeMagiaAI: 'magia_ai_predictions', // 🔥 NEW v13.0: Sandbox for AI World Predictions
     db: null,
 
     async init() {
         if (this.db) return;
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 5); // Upgrade to v5 for leagues_catalog
+            const request = indexedDB.open(this.dbName, 6); // Upgrade to v6 for magia_ai_predictions
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
@@ -38,6 +39,9 @@ const LocalDB = {
                     const catalogStore = db.createObjectStore(this.storeCatalog, { keyPath: 'id' });
                     catalogStore.createIndex('country', 'country', { unique: false });
                     catalogStore.createIndex('name', 'name', { unique: false });
+                }
+                if (!db.objectStoreNames.contains(this.storeMagiaAI)) {
+                    db.createObjectStore(this.storeMagiaAI, { keyPath: 'id' });
                 }
             };
 
@@ -102,6 +106,23 @@ const LocalDB = {
         });
     },
 
+    async deleteMatch(id) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], "readwrite");
+            const store = transaction.objectStore(this.storeName);
+
+            // 🔥 Tenta entrambi i tipi per sicurezza (IndexedDB è type-sensitive)
+            store.delete(String(id));
+            if (!isNaN(id) && id !== '') {
+                store.delete(Number(id));
+            }
+
+            transaction.oncomplete = () => resolve(true);
+            transaction.onerror = (event) => reject(event);
+        });
+    },
+
     async loadMatches() {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
@@ -120,12 +141,71 @@ const LocalDB = {
         });
     },
 
+    // ==================== MAGIA AI PREDICTIONS (SANDBOX) ====================
+
+    async saveMagiaMatches(matches) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeMagiaAI], "readwrite");
+            const store = transaction.objectStore(this.storeMagiaAI);
+            matches.forEach(match => store.put(match));
+            transaction.oncomplete = () => resolve(true);
+            transaction.onerror = (event) => reject(event);
+        });
+    },
+
+    async updateMagiaMatches(matches) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeMagiaAI], "readwrite");
+            const store = transaction.objectStore(this.storeMagiaAI);
+            matches.forEach(match => store.put(match));
+            transaction.oncomplete = () => resolve(true);
+            transaction.onerror = (event) => reject(event);
+        });
+    },
+
+    async loadMagiaMatches() {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeMagiaAI], "readonly");
+            const store = transaction.objectStore(this.storeMagiaAI);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async deleteMagiaMatch(id) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeMagiaAI], "readwrite");
+            const store = transaction.objectStore(this.storeMagiaAI);
+
+            // 🔥 Tenta entrambi i tipi
+            store.delete(String(id));
+            if (!isNaN(id) && id !== '') {
+                store.delete(Number(id));
+            }
+
+            transaction.oncomplete = () => resolve(true);
+            transaction.onerror = (event) => reject(event);
+        });
+    },
+
+    async clearMagiaStore() {
+        if (!this.db) await this.init();
+        const transaction = this.db.transaction([this.storeMagiaAI], "readwrite");
+        transaction.objectStore(this.storeMagiaAI).clear();
+    },
+
     async clear() {
         if (!this.db) await this.init();
-        const transaction = this.db.transaction([this.storeName, this.storeStrategies, this.storeLeagues], "readwrite");
+        const transaction = this.db.transaction([this.storeName, this.storeStrategies, this.storeLeagues, this.storeMagiaAI], "readwrite");
         transaction.objectStore(this.storeName).clear();
         transaction.objectStore(this.storeStrategies).clear();
         transaction.objectStore(this.storeLeagues).clear();
+        transaction.objectStore(this.storeMagiaAI).clear();
         console.log("[LocalDB] Cleared all stores");
     },
 
@@ -185,6 +265,43 @@ const LocalDB = {
         });
     },
 
+    async deleteMatchFromHistory(date, matchId) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readwrite");
+            const store = transaction.objectStore(this.storeStrategies);
+            const getRequest = store.get(date);
+
+            getRequest.onsuccess = async () => {
+                const record = getRequest.result;
+                if (!record || !record.strategies) {
+                    resolve(false);
+                    return;
+                }
+
+                let updated = false;
+                for (const stratId in record.strategies) {
+                    const strat = record.strategies[stratId];
+                    if (strat.matches) {
+                        const originalLen = strat.matches.length;
+                        strat.matches = strat.matches.filter(m => String(m.id) !== String(matchId));
+                        if (strat.matches.length !== originalLen) updated = true;
+                    }
+                }
+
+                if (updated) {
+                    record.lastUpdated = Date.now();
+                    const putRequest = store.put(record);
+                    putRequest.onsuccess = () => resolve(true);
+                    putRequest.onerror = (e) => reject(e);
+                } else {
+                    resolve(false);
+                }
+            };
+            getRequest.onerror = (e) => reject(e);
+        });
+    },
+
     // ==================== LEAGUES REGISTRY (Dizionario Dinamico) ====================
 
     async saveLeagueMapping(name, id, meta = {}) {
@@ -217,6 +334,17 @@ const LocalDB = {
         });
     },
 
+    async deleteLeagueMapping(name) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeLeagues], "readwrite");
+            const store = transaction.objectStore(this.storeLeagues);
+            const request = store.delete(name.toLowerCase().trim());
+            request.onsuccess = () => resolve(true);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
     async getAllLeagues() {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
@@ -239,6 +367,10 @@ const LocalDB = {
                     name: m.label.toLowerCase().trim(),
                     leagueId: parseInt(m.id),
                     updatedAt: Date.now(),
+                    trustScore: m.trustScore,
+                    mode: m.mode,
+                    samples: m.samples,
+                    o15_wr: m.o15_wr,
                     ...m.meta
                 };
                 store.put(record);
@@ -477,7 +609,12 @@ async function uploadMatchesToFirebase(type, dataToUpload, existingMatches = [],
         if (m.data && m.partita) existingMap.set(`${m.data}_${m.partita}`, m.id);
     });
 
-    for (const match of dataToUpload) {
+    // Helper per rimuovere undefined (che fa crashare Firebase)
+    const cleanForFirebase = (obj) => JSON.parse(JSON.stringify(obj));
+
+    for (const matchRaw of dataToUpload) {
+        const match = cleanForFirebase(matchRaw);
+
         // Try to find existing ID
         let existingId = match.id;
         if (!existingId) {
@@ -489,7 +626,7 @@ async function uploadMatchesToFirebase(type, dataToUpload, existingMatches = [],
 
         if (existingId) {
             // MERGE UPDATE
-            const docRef = window.doc(matchesCollection, existingId);
+            const docRef = window.doc(matchesCollection, String(existingId));
             operations.push({
                 type: 'set',
                 ref: docRef,
@@ -581,6 +718,11 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                     if (m.teamIdAway !== undefined) matchData.teamIdAway = m.teamIdAway;
                     if (m.expertStats !== undefined) matchData.expertStats = m.expertStats;
 
+                    // 🔥 Intelligence Fields (Normalization for PWA)
+                    if (m.probMagiaAI !== undefined) matchData.probMagiaAI = m.probMagiaAI;
+                    if (m.smartScore !== undefined) matchData.smartScore = m.smartScore;
+                    if (m.pickDescription !== undefined) matchData.pickDescription = m.pickDescription;
+
                     // Compact magicStats (only if exists)
                     if (m.magicStats) {
                         matchData.magicStats = {};
@@ -589,6 +731,7 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                         if (m.magicStats.oddMagiaAI !== undefined) matchData.magicStats.oddMagiaAI = m.magicStats.oddMagiaAI;
                         if (m.magicStats.smartScore !== undefined) matchData.magicStats.smartScore = m.magicStats.smartScore;
                         if (m.magicStats.top3Scores !== undefined) matchData.magicStats.top3Scores = m.magicStats.top3Scores;
+                        if (m.magicStats.pickDescription !== undefined) matchData.magicStats.pickDescription = m.magicStats.pickDescription;
 
                         // 🔥 Intelligence in magicStats too
                         if (m.magicStats.motivationBadges !== undefined) matchData.magicStats.motivationBadges = m.magicStats.motivationBadges;
@@ -651,6 +794,107 @@ async function cleanupOldStrategies(db) {
     }
 }
 
+/**
+ * 🔥 NEW v12.0: Load League Trust Scores from Firebase
+ */
+async function loadLeagueTrust(db) {
+    try {
+        const trustCol = window.collection(db, "league_trust");
+        const snapshot = await window.getDocs(trustCol);
+        const trustMap = {};
+        snapshot.forEach(docSnap => {
+            trustMap[docSnap.id] = docSnap.data();
+        });
+        window.LEAGUE_TRUST = trustMap;
+        console.log(`[Trust] Loaded ${Object.keys(trustMap).length} league trust scores`);
+        return trustMap;
+    } catch (e) {
+        console.error("[Trust] Load Error:", e);
+        return {};
+    }
+}
+
+/**
+ * 🔥 NEW v12.0: Update League Trust Scores based on recent results
+ * This is the heart of the Self-Learning system.
+ */
+async function updateLeagueTrustHistory(db, matches) {
+    if (!matches || matches.length === 0) return;
+
+    const leaguesToUpdate = {}; // leagueName -> { won, lost, tips }
+
+    matches.forEach(m => {
+        if (!m.lega || !m.risultato || !m.tip) return;
+        // Normalizzazione Tip per compatibilità con evaluateTipLocally
+        const result = window.evaluateTipLocally(m.tip, m.risultato);
+        if (!result) return;
+
+        if (!leaguesToUpdate[m.lega]) {
+            leaguesToUpdate[m.lega] = { won: 0, total: 0 };
+        }
+
+        leaguesToUpdate[m.lega].total++;
+        if (result === 'Vinto') leaguesToUpdate[m.lega].won++;
+    });
+
+    const operations = [];
+    const trustCol = window.collection(db, "league_trust");
+
+    for (const [leagueName, stats] of Object.entries(leaguesToUpdate)) {
+        const docRef = window.doc(trustCol, leagueName);
+
+        // Rolling update logic: weight the new results into the existing score
+        const currentTrust = (window.LEAGUE_TRUST && window.LEAGUE_TRUST[leagueName]) ? window.LEAGUE_TRUST[leagueName] : { trust: 5, samples: 0, o15_wr: 75 };
+
+        const newWR = (stats.won / stats.total) * 100;
+        const weight = Math.min(0.2, stats.total / ((currentTrust.samples || 0) + stats.total));
+        const updatedWR = ((currentTrust.o15_wr || 75) * (1 - weight)) + (newWR * weight);
+
+        let newTrust = currentTrust.trust || 5;
+        if (newWR > 80 && stats.total >= 2) newTrust = Math.min(10, newTrust + 0.5);
+        if (newWR < 60 && stats.total >= 2) newTrust = Math.max(1, newTrust - 0.5);
+
+        const currentMode = newTrust >= 7 ? 'SNIPER' : (newTrust <= 4 ? 'DEFENDER' : 'STANDARD');
+
+        operations.push({
+            type: 'set',
+            ref: docRef,
+            data: {
+                trust: parseFloat(newTrust.toFixed(1)),
+                o15_wr: parseFloat(updatedWR.toFixed(1)),
+                samples: (currentTrust.samples || 0) + stats.total,
+                lastUpdate: Date.now(),
+                mode: currentMode
+            },
+            options: { merge: true }
+        });
+
+        // 🔥 NEW v12.0: UPDATE LOCAL DB REGISTRY TOO
+        (async () => {
+            try {
+                const existing = await window.LocalDB.getLeagueMapping(leagueName);
+                if (existing) {
+                    await window.LocalDB.saveLeagueMapping(leagueName, existing.leagueId, {
+                        trustScore: parseFloat(newTrust.toFixed(1)),
+                        mode: currentMode,
+                        samples: (currentTrust.samples || 0) + stats.total,
+                        o15_wr: parseFloat(updatedWR.toFixed(1))
+                    });
+                }
+            } catch (err) {
+                console.warn(`[LocalTrust] Sync error for ${leagueName}:`, err);
+            }
+        })();
+    }
+
+    if (operations.length > 0) {
+        console.log(`[Trust] Updating ${operations.length} leagues trust scores...`);
+        await safeBatchCommit(db, operations);
+        // Refresh local memory
+        await loadLeagueTrust(db);
+    }
+}
+
 // Export for global usage
 window.LocalDB = LocalDB;
 window.databaseManager = {
@@ -658,5 +902,7 @@ window.databaseManager = {
     uploadMatchesToFirebase,
     saveStrategyToHistory,
     cleanupOldStrategies,
-    cleanupOldFirebaseHistory: cleanupOldStrategies // Alias for clarity in plan
+    cleanupOldFirebaseHistory: cleanupOldStrategies,
+    loadLeagueTrust,
+    updateLeagueTrustHistory
 };

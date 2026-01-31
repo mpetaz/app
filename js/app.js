@@ -4256,13 +4256,9 @@ async function loadLiveHubMatches() {
 
         if (match.fixtureId) {
             tradingPick = tradingPicks.find(p => String(p.fixtureId) === String(match.fixtureId));
+
         }
-        if (!tradingPick) {
-            tradingPick = tradingPicks.find(p => {
-                const pName = (p.partita || '').toLowerCase().replace(/\s+/g, '');
-                return pName === matchNameNorm || matchNameNorm.includes(pName) || pName.includes(matchNameNorm);
-            });
-        }
+        // REMOVED: Name-based fuzzy matching (caused false positives)
 
         // Prepare match for unified card renderer - merge trading data if found
         const preparedMatch = {
@@ -4546,8 +4542,8 @@ function getUnifiedMatches() {
             const mId = m.id || `${m.data || 'today'}_${nName}`;
 
             if (!masterMap.has(mId)) {
-                // Fuzzy check
-                const existingKey = Array.from(masterMap.keys()).find(k => k.includes(nName));
+                // Fuzzy check - SAFE STRING CONVERSION
+                const existingKey = Array.from(masterMap.keys()).find(k => String(k).includes(nName));
                 if (existingKey) {
                     const existing = masterMap.get(existingKey);
                     updateEntry(existing, id, m);
