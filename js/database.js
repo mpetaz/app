@@ -702,6 +702,7 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                     if (m.esito !== undefined) matchData.esito = m.esito;
                     if (m.ora !== undefined) matchData.ora = m.ora;
                     if (m.fixtureId !== undefined) matchData.fixtureId = m.fixtureId;
+                    if (m.kickoffTimestamp !== undefined) matchData.kickoffTimestamp = m.kickoffTimestamp; // ⏰ SWISS TIME
                     if (m.originalDBTip !== undefined) matchData.originalDBTip = m.originalDBTip;
                     if (m.originalDBQuota !== undefined) matchData.originalDBQuota = m.originalDBQuota;
                     if (m.isReinforced !== undefined) matchData.isReinforced = m.isReinforced;

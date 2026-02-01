@@ -478,14 +478,30 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // ... rest of the function ...
     // 0. LIVE HUB SYNC: Check if we have real-time score/status for this match-tip
     const mName = match.partita || "";
-    // CRITICAL: Use tradingInstruction.action if available (same as Backend)
-    const mTip = match.tradingInstruction?.action || match.tip || "";
+    // CRITICAL FIX: Always use the action from the original object if it exists
+    const mTip = (match.tradingInstruction && typeof match.tradingInstruction === 'object' && match.tradingInstruction.action)
+        ? match.tradingInstruction.action
+        : (match.tip || "");
 
     // DEBUG: Initial State Check for Bhayangkara (REMOVED)
     // DEEP NORMALIZATION (Same as Backend)
-    const mKey = mName.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
-    const tKey = mTip.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
-    const hubId = `${mKey}_${tKey}`;
+    // ID-PURE NORMALIZATION (Swiss consistency)
+    const normalizeDeep = (str) => {
+        if (!str) return "";
+        return str.toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+            .replace(/[^a-z0-9]/g, "")
+            .replace(/(.)\1+/g, "$1");
+    };
+
+    const mKey = normalizeDeep(mName);
+    const tKey = normalizeDeep(mTip);
+
+    // ID-PURE PROTOCOL: Use fixtureId-based Hub key exclusively. 🇨🇭
+    if (!match.fixtureId) {
+        console.warn(`[LiveHub] ⚠️ Missing fixtureId for ${mName}. Sync disabled.`);
+    }
+    const hubId = match.fixtureId ? `${match.fixtureId}_${tKey}` : null;
     // 🛡️ STRATEGIA ID-FIRST (Socio's Protocol): Se abbiamo l'ID, cerchiamo quello e basta.
     let liveHubData = match._liveHubRef;
 
@@ -495,70 +511,16 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         liveHubData = Object.values(window.liveScoresHub).find(v => String(v.fixtureId) === targetId);
     }
 
-    // Calcolo stato temporale (necessario per fallbacks e badge)
+    // Calcolo stato temporale (Protocollo Timezone 🇮🇹)
     const matchDate = match.data || new Date().toISOString().split('T')[0];
     const matchTime = match.ora || match.api_time || '00:00';
-    const kickoffTime = new Date(`${matchDate}T${matchTime}:00`);
-    const hasResult = match.risultato && match.risultato.includes('-');
-    const matchNotStarted = !hasResult && kickoffTime > new Date();
 
-    // Se ancora non abbiamo nulla, proviamo con mKey_tKey (solo se la partita è iniziata)
-    if (!liveHubData && !matchNotStarted) {
-        liveHubData = window.liveScoresHub[hubId];
-    }
+    // Priorità al kickoffTimestamp (UTC) salvato, altrimenti fallback (interpretato come locale)
+    const kickoffTime = match.kickoffTimestamp ? new Date(match.kickoffTimestamp) : new Date(`${matchDate}T${matchTime}:00`);
 
-    // FUZZY FALLBACK: Only if match has started
-    if (!liveHubData && !matchNotStarted) {
-        // Only try fuzzy if we have a substantial name (len > 3)
-        if (mKey.length > 3) {
-            const hubKeys = Object.keys(window.liveScoresHub);
-            // 1. Try "contains" check first (faster)
-            let bestKey = hubKeys.find(k => k.startsWith(mKey) || (k.includes(mKey) && k.includes(tKey)));
-
-            // 2. If still nothing, use Levenshtein (if available from utils)
-            if (!bestKey && typeof window.levenshteinDistance === 'function') {
-                let bestDist = Infinity;
-                hubKeys.forEach(k => {
-                    // Check if tip matches first
-                    if (!k.includes(tKey)) return;
-
-                    const kMatchPart = k.split('_')[0]; // Extract match part
-                    const dist = window.levenshteinDistance(mKey, kMatchPart);
-                    // Match length for normalization
-                    const maxLen = Math.max(mKey.length, kMatchPart.length);
-                    // Only accept if similarity > 80% (dist < 20% of length)
-                    if (dist < maxLen * 0.2 && dist < bestDist) {
-                        bestDist = dist;
-                        bestKey = k;
-                    }
-                });
-            }
-
-            if (bestKey) {
-                liveHubData = window.liveScoresHub[bestKey];
-                console.log(`[LiveHub] 🔦 Fuzzy Match Found: "${hubId}" -> "${bestKey}"`);
-            } else {
-                // 3. GLOBAL MATCH FALLBACK (Advanced): Find ANY record for this match, regardless of tip.
-                // We handle "Torino-Roma" vs "Roma-Torino" by checking if both team names are present.
-                const teamParts = mKey.split(/vs|-|:/).filter(t => t.length > 2);
-
-                bestKey = hubKeys.find(k => {
-                    const kLower = k.toLowerCase();
-                    // If we have distinct team names, both must be in the hub key
-                    if (teamParts.length >= 2) {
-                        return teamParts.every(tp => kLower.includes(tp));
-                    }
-                    // Fallback to simple inclusion
-                    return kLower.includes(mKey);
-                });
-
-                if (bestKey) {
-                    liveHubData = window.liveScoresHub[bestKey];
-                    console.log(`[LiveHub] 🌍 Global Match Fallback (Smart): Found "${bestKey}" for "${mKey}"`);
-                }
-            }
-        }
-    }
+    // ID-PURE Protocol: NO fallbacks allowed. 🛡️
+    // If not found by fixtureId above, we don't try fuzzy or exactly matching by name.
+    // This forces precision and helps identify missing fixtureIds in Step 1.
 
     // DEBUG rimosso - causava spam nella console
 
@@ -588,7 +550,9 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         if (elapsedMinute >= 90 && match.status !== 'FT' && match.status !== 'AET' && match.status !== 'PEN') {
             const matchTimeStr = match.ora || '00:00';
             const matchDateStr = match.data || new Date().toISOString().split('T')[0];
-            const kickoff = new Date(`${matchDateStr}T${matchTimeStr}:00`);
+
+            // Protocollo Timezone: Use kickoffTimestamp for expected end time calculation
+            const kickoff = match.kickoffTimestamp ? new Date(match.kickoffTimestamp) : new Date(`${matchDateStr}T${matchTimeStr}:00`);
             const expectedEndTime = kickoff.getTime() + (130 * 60 * 1000); // kickoff + 2h10m
 
             if (Date.now() > expectedEndTime) {
@@ -722,21 +686,97 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const card = document.createElement('div');
     // Color coding based on result (DARKER/VIVID colors) - ONLY for FINISHED matches
     let esitoClass = '';
-    const finalEsito = (match.esito || "").toUpperCase();
+    let finalEsito = (match.esito || "").toUpperCase(); // Changed to `let`
 
     // STANDARD LOGIC (Clean): Status MUST be FT/AET/PEN
     const isFinished = match.status === 'FT' || match.status === 'AET' || match.status === 'PEN';
 
+    // --- 🩺 DOTTORE RUSSO PROTOCOL: GLOBAL TIP RESOLUTION (Hoist) ---
+    // Resolve tip EARLY so it's available for JIT Result Calculation for ALL cards (Trading & Standard).
+    let resolvedTip = match.tip || '-';
+    let resolvedQuota = match.quota || null;
+    let resolvedProb = match.probabilita || 0;
+
+    // Strict Lookup: If tip is missing (common in Trading Cards), fetch it from Standard Data ('all')
+    if (window.strategiesData && window.strategiesData['all'] && window.strategiesData['all'].matches) {
+        // Attempt A: Strict ID
+        let foundMatch = window.strategiesData['all'].matches.find(m => window.generateUniversalMatchId(m) === bettingMatchId);
+
+        // Attempt B: Name Fuzzy Lookup (Double Key)
+        if (!foundMatch) {
+            const cleanName = (match.partita || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            foundMatch = window.strategiesData['all'].matches.find(m => {
+                const mName = (m.partita || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                return mName.includes(cleanName) || cleanName.includes(mName);
+            });
+        }
+
+        if (foundMatch) {
+            // Prefer found data if current data is placeholder
+            if (resolvedTip === '-' || !resolvedTip) resolvedTip = foundMatch.tip || '-';
+            if (!resolvedQuota) resolvedQuota = foundMatch.quota || null;
+
+            // Magia AI Override (Check if this match is also in Magia AI)
+            const magiaStrat = Object.values(window.strategiesData).find(s => s && (s.id === 'magia_ai' || s.name?.includes('MAGIA AI')));
+            if (magiaStrat && magiaStrat.matches) {
+                let magiaMatch = magiaStrat.matches.find(m => window.generateUniversalMatchId(m) === bettingMatchId);
+
+                if (magiaMatch && magiaMatch.magicStats) {
+                    const mt = (magiaMatch.magicStats.tipMagiaAI || '').toUpperCase().trim();
+                    const ct = (resolvedTip || '').toUpperCase().trim();
+                    if (mt && ct && mt === ct) {
+                        if (magiaMatch.magicStats.oddMagiaAI) resolvedQuota = magiaMatch.magicStats.oddMagiaAI;
+                    }
+                }
+            }
+        }
+    }
+
     if (isFinished || liveHubData?.status === 'FT') {
-        if (finalEsito === 'WIN' || finalEsito === 'VINTO') {
+        if (!finalEsito && match.risultato && (resolvedTip && resolvedTip !== '-')) {
+            // JIT Calculation: Use established resolvedTip as single source of truth
+            const parts = match.risultato.split('-').map(s => parseInt(s.trim()));
+            if (parts.length === 2) {
+                const [h, a] = parts;
+                const tot = h + a;
+                const t = resolvedTip.toUpperCase().replace(/\s/g, '');
+
+                let calc = null;
+                if (t === '1') calc = h > a ? 'VINTO' : 'PERSO';
+                else if (t === 'X') calc = h === a ? 'VINTO' : 'PERSO';
+                else if (t === '2') calc = a > h ? 'VINTO' : 'PERSO';
+                else if (t === '1X') calc = h >= a ? 'VINTO' : 'PERSO';
+                else if (t === 'X2') calc = a >= h ? 'VINTO' : 'PERSO';
+                else if (t === '12') calc = h !== a ? 'VINTO' : 'PERSO';
+                else if (t === 'GG' || t === 'GOL' || t === 'BTTS' || t === 'YES') calc = (h > 0 && a > 0) ? 'VINTO' : 'PERSO';
+                else if (t === 'NG' || t === 'NOGOL' || t === 'NO') calc = (h === 0 || a === 0) ? 'VINTO' : 'PERSO';
+                else if (t.includes('OVER') || t.includes('+')) {
+                    const thr = parseFloat(t.replace(/[^\d.]/g, ''));
+                    calc = tot > thr ? 'VINTO' : 'PERSO';
+                } else if (t.includes('UNDER') || t.includes('-')) {
+                    const thr = parseFloat(t.replace(/[^\d.]/g, ''));
+                    calc = tot < thr ? 'VINTO' : 'PERSO';
+                } else if (t.includes('LAYTHEDRAW') || t.includes('LAYDRAW')) {
+                    calc = h !== a ? 'VINTO' : 'PERSO';
+                }
+
+                if (calc) {
+                    finalEsito = calc; // Apply outcome to color the background
+                }
+            }
+        }
+
+        const checkEsito = (finalEsito || "").toUpperCase();
+
+        if (checkEsito === 'WIN' || checkEsito === 'VINTO') {
             esitoClass = 'bg-gradient-to-b from-green-200 to-green-300 border-green-400 ring-2 ring-green-300';
-        } else if (finalEsito === 'LOSE' || finalEsito === 'PERSO') {
+        } else if (checkEsito === 'LOSE' || checkEsito === 'PERSO') {
             esitoClass = 'bg-gradient-to-b from-red-200 to-red-300 border-red-400 ring-2 ring-red-300';
-        } else if (finalEsito === 'CASH_OUT' || finalEsito === 'CASHOUT') {
+        } else if (checkEsito === 'CASH_OUT' || checkEsito === 'CASHOUT') {
             esitoClass = 'bg-gradient-to-b from-yellow-200 to-yellow-300 border-yellow-400 ring-2 ring-yellow-300';
-        } else if (finalEsito === 'STOP_LOSS') {
+        } else if (checkEsito === 'STOP_LOSS') {
             esitoClass = 'bg-gradient-to-b from-rose-300 to-rose-400 border-rose-500 ring-2 ring-rose-400';
-        } else if (finalEsito === 'PUSH' || finalEsito === 'VOID' || finalEsito === 'RIMBORSATO') {
+        } else if (checkEsito === 'PUSH' || checkEsito === 'VOID' || checkEsito === 'RIMBORSATO') {
             esitoClass = 'bg-gradient-to-b from-gray-200 to-gray-300 border-gray-400 ring-2 ring-gray-300';
         }
     }
@@ -1030,25 +1070,74 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         `;
     } else if (isTrading) {
         // --- 🧬 HYBRID TRADING CARD: Mostra Trading + Betting ---
+        // --- 🧬 HYBRID TRADING CARD: Mostra Trading + Betting ---
         const tData = window.resolveTradingData(match);
 
-        // 🧪 GOLDEN PROTOCOL for Hybrid Betting Box
-        const bettingBoxBg = isGoldCard ? 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-lg ring-2 ring-amber-300' : 'bg-blue-600/10 border-blue-500/30';
-        const bettingBoxBorder = isGoldCard ? 'border-amber-400' : 'border-blue-500/40';
-        const bettingTipText = isGoldCard ? 'text-amber-950' : 'text-slate-800';
-        const bettingTitleText = isGoldCard ? 'text-amber-900' : 'text-blue-600';
-        const aiBadgeStyle = isGoldBadge ? 'bg-gradient-to-r from-amber-400 to-yellow-600 text-black shadow-md animate-pulse' : 'bg-purple-600 text-white';
+        // 🩺 DOTTORE RUSSO PROTOCOL: Strict Data Retrieval (No Fallbacks)
+        let betTip = '-';
+        let betQuota = null;
+        let betProb = 0;
+        let isGoldBadge = false;
+        let aiLabel = '';
+
+        // 1. MINIERA DEL BETTING (Sorgente: 'all')
+        if (window.strategiesData && window.strategiesData['all'] && window.strategiesData['all'].matches) {
+            const bettingMatch = window.strategiesData['all'].matches.find(m => window.generateUniversalMatchId(m) === bettingMatchId);
+
+            if (bettingMatch) {
+                betTip = bettingMatch.tip || '-';
+                betQuota = bettingMatch.quota || null;
+                // Parse numeric probability (e.g. "75%" -> 75)
+                betProb = parseFloat(String(bettingMatch.probabilita || '0').replace('%', ''));
+
+                // 2. RAFFINAZIONE MAGIA AI (Override)
+                const magiaStrat = Object.values(window.strategiesData).find(s => s && (s.id === 'magia_ai' || s.name?.includes('MAGIA AI')));
+                if (magiaStrat && magiaStrat.matches) {
+                    const magiaMatch = magiaStrat.matches.find(m => window.generateUniversalMatchId(m) === bettingMatchId);
+
+                    if (magiaMatch && magiaMatch.magicStats) {
+                        const magiaTip = (magiaMatch.magicStats.tipMagiaAI || '').toUpperCase().trim();
+                        const currentTip = (betTip || '').toUpperCase().trim();
+
+                        if (magiaTip && currentTip && magiaTip === currentTip) {
+                            // ✅ MATCH CONFIRMED: Apply Override
+                            isGoldBadge = true;
+                            aiLabel = 'MAGIA AI';
+
+                            // Overwrite with High Precision Data
+                            if (magiaMatch.magicStats.oddMagiaAI) {
+                                betQuota = magiaMatch.magicStats.oddMagiaAI;
+                            }
+                            if (magiaMatch.magicStats.mcProbForTip) {
+                                betProb = parseFloat(magiaMatch.magicStats.mcProbForTip);
+                            }
+                        }
+                    }
+                }
+            } else {
+                console.warn(`[HybridDebug] ❌ Match NON trovato in 'all': ${match.partita} (ID: ${bettingMatchId})`);
+            }
+        } else {
+            console.warn(`[HybridDebug] ⚠️ Strategies 'all' MISSING or empty!`, window.strategiesData);
+        }
+
+        // 🧪 Visual styling based on Gold Status
+        const bettingBoxBg = isGoldBadge ? 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-lg ring-2 ring-amber-300' : 'bg-blue-600/10 border-blue-500/30';
+        const bettingBoxBorder = isGoldBadge ? 'border-amber-400' : 'border-blue-500/40';
+        const bettingTipText = isGoldBadge ? 'text-amber-950' : 'text-slate-800';
+        const bettingTitleText = isGoldBadge ? 'text-amber-900' : 'text-blue-600';
+        const aiBadgeStyle = isGoldBadge ? 'bg-gradient-to-r from-amber-400 to-yellow-600 text-black shadow-md animate-pulse' : 'hidden';
 
         primarySignalHTML = `
             <div class="px-4 pb-4">
                 <!-- 1. Betting Signal (Integrated & GOLD Ready) -->
-                <div class="${bettingBoxBg} ${bettingBoxBorder} border-2 rounded-2xl p-4 text-center mb-4 relative overflow-hidden group shadow-sm">
-                     ${isAIPick ? `<div class="absolute top-0 right-0 ${aiBadgeStyle} text-[9px] font-black px-2 py-1 rounded-bl shadow-sm">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
+                <div class="${bettingBoxBg} ${bettingBoxBorder} border-2 rounded-2xl p-4 text-center mb-4 relative overflow-hidden group shadow-sm transition-all duration-500">
+                     ${isGoldBadge ? `<div class="absolute top-0 right-0 ${aiBadgeStyle} text-[9px] font-black px-2 py-1 rounded-bl shadow-sm">${aiLabel}</div>` : ''}
                      <span class="text-[10px] font-black ${bettingTitleText} uppercase tracking-widest mb-1.5 block">CONSIGLIO BETTING</span>
                      <div class="flex justify-center items-center gap-3">
-                        <span class="text-xl font-black ${bettingTipText}">${match.tip || '-'}</span>
-                        ${match.quota ? `<span class="${isGoldCard ? 'bg-amber-600' : 'bg-blue-600'} text-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm">@ ${match.quota}</span>` : ''}
-                        <span class="${isGoldCard ? 'bg-white/50 text-amber-900 border-amber-300' : 'bg-blue-100 text-blue-700 border-blue-200'} border px-2 py-0.5 rounded-lg text-xs font-black shadow-xs">${rankingValue}</span>
+                        <span class="text-xl font-black ${bettingTipText}">${betTip}</span>
+                        ${betQuota ? `<span class="${isGoldBadge ? 'bg-amber-600' : 'bg-blue-600'} text-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm">@ ${betQuota}</span>` : ''}
+                        <span class="${isGoldBadge ? 'bg-white/50 text-amber-900 border-amber-300' : 'bg-blue-100 text-blue-700 border-blue-200'} border px-2 py-0.5 rounded-lg text-xs font-black shadow-xs">${Math.round(betProb)}%</span>
                      </div>
                 </div>
 
@@ -1081,7 +1170,46 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             </div>
         `;
     } else {
-        // --- 🧪 GOLDEN PROTOCOL VISUALS ---
+        // --- 🧪 GOLDEN PROTOCOL VISUALS (Standard Betting Card) ---
+
+        // 🩺 DOTTORE RUSSO PROTOCOL: Strict Data Retrieval (No Fallbacks)
+        let betTip = '-';
+        let betQuota = null;
+        let betProb = 0;
+        let isGoldBadge = false;
+        let aiLabel = '';
+
+        // 1. MINIERA DEL BETTING (Sorgente: 'all')
+        if (window.strategiesData && window.strategiesData['all'] && window.strategiesData['all'].matches) {
+            const bettingMatch = window.strategiesData['all'].matches.find(m => window.generateUniversalMatchId(m) === bettingMatchId);
+
+            if (bettingMatch) {
+                betTip = bettingMatch.tip || '-';
+                betQuota = bettingMatch.quota || null;
+                betProb = parseFloat(String(bettingMatch.probabilita || '0').replace('%', ''));
+
+                // 2. RAFFINAZIONE MAGIA AI (Override)
+                const magiaStrat = Object.values(window.strategiesData).find(s => s && (s.id === 'magia_ai' || s.name?.includes('MAGIA AI')));
+                if (magiaStrat && magiaStrat.matches) {
+                    const magiaMatch = magiaStrat.matches.find(m => window.generateUniversalMatchId(m) === bettingMatchId);
+
+                    if (magiaMatch && magiaMatch.magicStats) {
+                        const magiaTip = (magiaMatch.magicStats.tipMagiaAI || '').toUpperCase().trim();
+                        const currentTip = (betTip || '').toUpperCase().trim();
+
+                        if (magiaTip && currentTip && magiaTip === currentTip) {
+                            // ✅ MATCH CONFIRMED: Apply Override
+                            isGoldBadge = true;
+                            aiLabel = 'MAGIA AI';
+                            if (magiaMatch.magicStats.oddMagiaAI) betQuota = magiaMatch.magicStats.oddMagiaAI;
+                            if (magiaMatch.magicStats.mcProbForTip) betProb = parseFloat(magiaMatch.magicStats.mcProbForTip);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply Gold/Standard Styles based on Strict Lookup Result
         const cardBgClass = isGoldCard ? 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-[0_0_25px_rgba(251,191,36,0.4)] ring-4 ring-amber-400/50' : 'bg-white';
         const badgeStyle = isGoldBadge ? 'bg-gradient-to-r from-amber-400 to-yellow-600 text-black shadow-lg shadow-amber-200 ring-2 ring-white animate-pulse' : 'bg-purple-600 text-white';
         const pillTextCol = isGoldCard ? 'text-amber-900' : 'text-blue-200';
@@ -1093,18 +1221,18 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         primarySignalHTML = `
             <div class="px-4 pb-4 flex flex-col items-center gap-3">
                 <!-- Standard Main Tip (Blue Pill or GOLD PILL) -->
-                <div class="w-full ${mainPillBg} rounded-xl py-2 px-3 text-center shadow-md relative overflow-hidden">
-                     ${isAIPick ? `<div class="absolute top-0 right-0 ${badgeStyle} text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-bl shadow-lg">${isMagiaAI ? 'MAGIA AI' : 'SPECIAL AI'}</div>` : ''}
+                <div class="w-full ${mainPillBg} rounded-xl py-2 px-3 text-center shadow-md relative overflow-hidden group">
+                     ${isGoldBadge ? `<div class="absolute top-0 right-0 ${badgeStyle} text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-bl shadow-lg">${aiLabel}</div>` : ''}
                      <span class="text-xs uppercase font-bold ${isGoldCard ? 'text-amber-800' : 'text-blue-200'} block mb-0.5">CONSIGLIO</span>
-                     <span class="text-lg font-black tracking-wide ${mainTipText}">${match.tip}</span>
-                     ${match.quota ? `<span class="ml-2 ${isGoldCard ? 'bg-amber-600 text-white' : 'bg-blue-500/50 text-white'} px-1.5 rounded text-sm font-bold">@ ${match.quota}</span>` : ''}
+                     <span class="text-lg font-black tracking-wide ${mainTipText}">${betTip}</span>
+                     ${betQuota ? `<span class="ml-2 ${isGoldCard ? 'bg-amber-600 text-white' : 'bg-blue-500/50 text-white'} px-1.5 rounded text-sm font-bold">@ ${betQuota}</span>` : ''}
                 </div>
 
                 <!-- Secondary/HT Tip (Purple Pill) -->
                 <div class="w-[80%] ${isGoldCard ? 'bg-white/40 border-amber-300 text-amber-900' : 'bg-purple-50 border-purple-100 text-purple-800'} border rounded-full py-1 px-3 text-center flex justify-between items-center shadow-sm">
                      <span class="text-xs font-black uppercase ${isGoldCard ? 'text-amber-700' : 'text-purple-400'}">0.5 HT</span>
-                     <span class="text-xs font-bold ${isGoldCard ? 'text-amber-900' : 'text-purple-700'}">Prob. ${match.probabilita || '70%'}</span>
-                     ${match.quota ? `<span class="${isGoldCard ? 'bg-amber-500 text-white' : 'bg-purple-100 text-purple-600'} px-1.5 rounded text-xs font-bold">@ 1.45</span>` : ''}
+                     <span class="text-xs font-bold ${isGoldCard ? 'text-amber-900' : 'text-purple-700'}">Prob. ${Math.round(betProb)}%</span>
+                     ${betQuota ? `<span class="${isGoldCard ? 'bg-amber-500 text-white' : 'bg-purple-100 text-purple-600'} px-1.5 rounded text-xs font-bold">@ 1.45</span>` : ''}
                 </div>
             </div>
         `;
@@ -2506,10 +2634,10 @@ async function loadData(dateToLoad = null) {
                             const action = ti.action || 'Trading';
                             const entryTiming = ti.entry?.timing || '';
                             const exitTiming = ti.exit?.timing || '';
-                            p.tradingInstruction = `${action} | ${entryTiming} → ${exitTiming}`.replace(/\|  →/g, '').trim();
-                            p._originalInstructionObj = ti;
+                            // FIXED: store formatted string in a separate property, keep original object
+                            p.displayInstruction = `${action} | ${entryTiming} → ${exitTiming}`.replace(/\|  →/g, '').trim();
                         } else if (!ti) {
-                            p.tradingInstruction = "MONITORAGGIO ATTIVO";
+                            p.displayInstruction = "MONITORAGGIO ATTIVO";
                         }
 
                         p.hasTradingStrategy = true;

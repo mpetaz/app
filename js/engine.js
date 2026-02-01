@@ -443,6 +443,7 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
     let weightedScored = 0;
     let weightedConceded = 0;
     let totalWeight = 0;
+    let wins = 0, draws = 0, losses = 0;
 
     allTeamMatches.forEach(m => {
         const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
@@ -456,6 +457,13 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
             weightedScored += (isTeamHome ? hg : ag) * weight;
             weightedConceded += (isTeamHome ? ag : hg) * weight;
             totalWeight += weight;
+
+            // Stats 1X2 per Draw Rate reale
+            const teamG = isTeamHome ? hg : ag;
+            const oppG = isTeamHome ? ag : hg;
+            if (teamG > oppG) wins++;
+            else if (teamG === oppG) draws++;
+            else losses++;
         }
     });
 
@@ -463,7 +471,10 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
         avgScored: totalWeight > 0 ? weightedScored / totalWeight : 1.3,
         avgConceded: totalWeight > 0 ? weightedConceded / totalWeight : 1.2,
         matches: allTeamMatches.length,
-        totalWeight: totalWeight
+        totalWeight: totalWeight,
+        wins: wins,
+        draws: draws,
+        losses: losses
     };
 
     if (tip === 'ALL') {
@@ -2321,11 +2332,15 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.eloRatingA = Math.round(eloRatingA);
     sim.eloDiff = Math.round(eloDiff);
 
-    // Hybrid refinement (Draw Penalty)
-    const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
-    const histAwayDraw = (awayStats.season.draws / awayStats.season.matches) * 100 || 25;
+    // Hybrid refinement (Draw Penalty) v4.5 "Real Draw"
+    const weightSim = (window.STRATEGY_CONFIG && window.STRATEGY_CONFIG.ENGINE) ? window.STRATEGY_CONFIG.ENGINE.HYBRID_DRAW_WEIGHT_SIM : 0.7;
+    const weightHist = (window.STRATEGY_CONFIG && window.STRATEGY_CONFIG.ENGINE) ? window.STRATEGY_CONFIG.ENGINE.HYBRID_DRAW_WEIGHT_HIST : 0.3;
+
+    const histHomeDraw = homeStats.season.matches > 0 ? (homeStats.season.draws / homeStats.season.matches) * 100 : 25;
+    const histAwayDraw = awayStats.season.matches > 0 ? (awayStats.season.draws / awayStats.season.matches) * 100 : 25;
     const avgHistDraw = (histHomeDraw + histAwayDraw) / 2;
-    let hybridDraw = (sim.draw * 0.7) + (avgHistDraw * 0.3);
+
+    let hybridDraw = (sim.draw * weightSim) + (avgHistDraw * weightHist);
 
     const dbTip = (match.tip || '').trim();
     if (dbTip === '1' || dbTip === '2') {
@@ -2365,8 +2380,11 @@ function getMagiaStats(match, allMatchesHistory) {
     const normalizedLega = (match.lega || "").trim();
     const trustData = (window.LEAGUE_TRUST && window.LEAGUE_TRUST[normalizedLega]) ? window.LEAGUE_TRUST[normalizedLega] : { trust: 5, mode: 'STANDARD' };
 
-    // Default Signals
-    let allSignals = [
+    // 🔥 NEW v4.5: MAGIA FIRBA (Marketing-First Selection Logic)
+    // Goal: Win Rate over Value. Priority to "safe" low odds.
+
+    // Preparation: Map odds to signals
+    const allSignals = [
         { label: '1', prob: sim.winHome, type: '1X2' },
         { label: 'X', prob: sim.draw, type: '1X2' },
         { label: '2', prob: sim.winAway, type: '1X2' },
@@ -2374,38 +2392,55 @@ function getMagiaStats(match, allMatchesHistory) {
         { label: 'X2', prob: sim.dcX2, type: 'DC' },
         { label: '12', prob: sim.dc12, type: 'DC' },
         { label: '+1.5', prob: sim.over15, type: 'GOALS' },
-        { label: '+2.5', prob: sim.over25, type: 'GOALS' },
         { label: '-3.5', prob: sim.under35, type: 'GOALS' },
         { label: '+0.5 HT', prob: sim.ht05, type: 'GOALS' }
-    ].sort((a, b) => b.prob - a.prob);
+    ];
 
-    let bestPick = allSignals[0];
+    allSignals.forEach(s => {
+        const tip = s.label;
+        if (tip === '1') s.odd = match.quota1 || 1.25;
+        else if (tip === 'X') s.odd = match.quotaX || 1.25;
+        else if (tip === '2') s.odd = match.quota2 || 1.25;
+        else if (tip === '1X') s.odd = match.bookmaker1X || match.q1X || 1.25;
+        else if (tip === 'X2') s.odd = match.bookmakerX2 || match.qX2 || 1.25;
+        else if (tip === '12') s.odd = match.bookmaker12 || match.q12 || 1.25;
+        else if (tip === '+1.5') s.odd = match.bookmakerOver15 || 1.25;
+        else if (tip === '+2.5') s.odd = match.bookmakerOver25 || 1.25;
+        else if (tip === '-3.5') s.odd = match.bookmakerUnder35 || 1.25;
+        else if (tip === '+0.5 HT') s.odd = match.bookmakerOver05HT || 1.25;
+        else s.odd = 1.25;
+    });
 
-    // Assetto DEFENDER: Se la lega è inaffidabile, preferiamo mercati conservativi (Under 3.5 / 0.5 HT)
-    if (trustData.mode === 'DEFENDER') {
-        const defenderPicks = allSignals.filter(s =>
-            (s.label === 'Under 3.5' && s.prob >= 75) ||
-            (s.label === '0.5 HT' && s.prob >= 82) ||
-            (s.label === 'Over 1.5' && s.prob >= 85) // Solo se strasicuro
-        ).sort((a, b) => b.prob - a.prob);
+    // Strategy Rules:
+    // 1. Hard Cap @ 1.40
+    // 2. 1.30-1.40 ONLY if Prob >= 80%
+    // 3. Serie B/C Over 1.5 ONLY if Odd > 1.20
+    const hardCap = 1.40;
+    const isHardLeague = normalizedLega.includes('Serie B') || normalizedLega.includes('Serie C');
 
-        if (defenderPicks.length > 0) {
-            bestPick = defenderPicks[0];
-            console.log(`[Engine] 🛡️ Defender Mode active for ${normalizedLega}. Selected: ${bestPick.label}`);
-        }
-    }
-    // Assetto SNIPER: Se la lega è solida, l'AI è "figa" e cerca valore anche a @1.25
-    else if (trustData.mode === 'SNIPER') {
-        // In modalità Sniper, diamo la precedenza agli Over se la prob è buona
-        const sniperPicks = allSignals.filter(s =>
-            (s.label === 'Over 1.5' && s.prob >= 74) ||
-            (s.label === '1' && s.prob >= 65) ||
-            (s.label === '2' && s.prob >= 65)
-        );
-        if (sniperPicks.length > 0) {
-            bestPick = sniperPicks[0];
-            console.log(`[Engine] 🎯 Sniper Mode active for ${normalizedLega}. Selected: ${bestPick.label}`);
-        }
+    let candidates = allSignals.filter(s => {
+        // Rule 1: Hard Cap
+        if (s.odd > hardCap) return false;
+
+        // Rule 2: Range 1.30-1.40 requires 80% Prob
+        if (s.odd >= 1.30 && s.prob < 80) return false;
+
+        // Rule 3: Hard League Over 1.5 Risk Filter
+        if (isHardLeague && s.label === '+1.5' && s.odd <= 1.20) return false;
+
+        return true;
+    });
+
+    // Order by PROBABILITY (Marketing-First: Win more, don't care about value)
+    candidates.sort((a, b) => b.prob - a.prob);
+
+    if (candidates.length > 0) {
+        bestPick = candidates[0];
+        console.log(`[Engine] 🔮 Magia Firba Selected: ${bestPick.label} (Prob: ${bestPick.prob}%, Odd: ${bestPick.odd})`);
+    } else {
+        // Absolute Fallback: lowest odd available among standard signals
+        bestPick = [...allSignals].sort((a, b) => a.odd - b.odd)[0];
+        console.log(`[Engine] ⚠️ Fallback to Lowest Odd: ${bestPick.label}`);
     }
 
     // 🔥 Add Trust & Mode Info to output (Already in return object)
