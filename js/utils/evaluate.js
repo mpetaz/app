@@ -13,7 +13,7 @@
  * @param {string} risultato - The final score (e.g., "2-1")
  * @returns {string|null} - 'Vinto', 'Perso', or null if can't evaluate
  */
-export function evaluateTipLocally(tip, risultato) {
+export function evaluateTipLocally(tip, risultato, isFinished = true) {
     if (!tip || !risultato) return null;
 
     const parts = risultato.split('-').map(s => parseInt(s.trim()));
@@ -26,18 +26,37 @@ export function evaluateTipLocally(tip, risultato) {
 
     // --- TRADING SPECIFICO: Pattern esatti valutati PRIMA dei generici ---
 
-    // "Back Under X" = vinci se total < X (stesso di Lay Over)
-    if (t.includes("back under 3.5") || t.includes("lay over 3.5")) return total < 4 ? 'Vinto' : 'Perso';
-    if (t.includes("back under 2.5") || t.includes("lay over 2.5")) return total < 3 ? 'Vinto' : 'Perso';
-    if (t.includes("back under 1.5") || t.includes("lay over 1.5")) return total < 2 ? 'Vinto' : 'Perso';
+    // "Back Under X" = vinci se total < X
+    if (t.includes("back under 3.5") || t.includes("lay over 3.5")) {
+        if (total >= 4) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
+    }
+    if (t.includes("back under 2.5") || t.includes("lay over 2.5")) {
+        if (total >= 3) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
+    }
+    if (t.includes("back under 1.5") || t.includes("lay over 1.5")) {
+        if (total >= 2) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
+    }
 
-    // "Back Over X" = vinci se total >= X (stesso di Lay Under)
-    if (t.includes("back over 2.5") || t.includes("lay under 2.5")) return total >= 3 ? 'Vinto' : 'Perso';
-    if (t.includes("back over 3.5") || t.includes("lay under 3.5")) return total >= 4 ? 'Vinto' : 'Perso';
+    // "Back Over X" = vinci se total >= X
+    if (t.includes("back over 2.5") || t.includes("lay under 2.5")) {
+        if (total >= 3) return 'Vinto';
+        if (total > 0) return 'Cash-out';
+        return 'Perso';
+    }
+    if (t.includes("back over 3.5") || t.includes("lay under 3.5")) {
+        if (total >= 4) return 'Vinto';
+        if (total > 0) return 'Cash-out';
+        return 'Perso';
+    }
 
     // Lay the Draw
     if (t.includes("lay the draw") || t.includes("lay draw") || t.includes("laythedraw")) {
-        return gH !== gA ? 'Vinto' : 'Perso';
+        if (gH !== gA) return 'Vinto';
+        if (total >= 2) return 'Cash-out';
+        return 'Perso';
     }
 
     // Over/Under logic (standard)
@@ -45,17 +64,31 @@ export function evaluateTipLocally(tip, risultato) {
     if (t.includes("+1.5") || t.includes("over 1.5") || t.match(/\bo\s?1\.5/)) return total >= 2 ? 'Vinto' : 'Perso';
     if (t.includes("+2.5") || t.includes("over 2.5") || t.match(/\bo\s?2\.5/)) return total >= 3 ? 'Vinto' : 'Perso';
     if (t.includes("+3.5") || t.includes("over 3.5") || t.match(/\bo\s?3\.5/)) return total >= 4 ? 'Vinto' : 'Perso';
-    if (t.includes("-0.5") || t.includes("under 0.5") || t.match(/\bu\s?0\.5/)) return total < 1 ? 'Vinto' : 'Perso';
-    if (t.includes("-1.5") || t.includes("under 1.5") || t.match(/\bu\s?1\.5/)) return total < 2 ? 'Vinto' : 'Perso';
-    if (t.includes("-2.5") || t.includes("under 2.5") || t.match(/\bu\s?2\.5/)) return total < 3 ? 'Vinto' : 'Perso';
-    if (t.includes("-3.5") || t.includes("under 3.5") || t.match(/\bu\s?3\.5/)) return total < 4 ? 'Vinto' : 'Perso';
+
+    if (t.includes("-0.5") || t.includes("under 0.5") || t.match(/\bu\s?0\.5/)) {
+        if (total >= 1) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
+    }
+    if (t.includes("-1.5") || t.includes("under 1.5") || t.match(/\bu\s?1\.5/)) {
+        if (total >= 2) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
+    }
+    if (t.includes("-2.5") || t.includes("under 2.5") || t.match(/\bu\s?2\.5/)) {
+        if (total >= 3) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
+    }
+    if (t.includes("-3.5") || t.includes("under 3.5") || t.match(/\bu\s?3\.5/)) {
+        if (total >= 4) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
+    }
 
     // BTTS / No Goal
     if (t === "gg" || t.includes("btts") || t === "gol" || t === "goal") {
         return (gH > 0 && gA > 0) ? 'Vinto' : 'Perso';
     }
     if (t === "ng" || t === "no gol" || t === "no goal" || t.includes("no goal")) {
-        return (gH === 0 || gA === 0) ? 'Vinto' : 'Perso';
+        if (gH > 0 && gA > 0) return 'Perso';
+        return isFinished ? 'Vinto' : 'Live (Green)';
     }
 
     // 1X2 / Double Chance

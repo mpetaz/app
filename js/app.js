@@ -621,7 +621,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // ID Consistente per stelline
     const bettingMatchId = window.generateUniversalMatchId(match);
-    const tradingMatchId = window.getTradingPickId ? window.getTradingPickId(match.partita) : bettingMatchId;
+    const tradingMatchId = window.getTradingPickId ? window.getTradingPickId(match) : bettingMatchId;
     const matchId = isTrading ? tradingMatchId : bettingMatchId;
 
     // Check favorites with correct ID format
@@ -1909,7 +1909,7 @@ window.loadTradingPicks = function (date) {
 
             // Merge functionality
             const mergedPicks = picks.map(pick => {
-                const pickId = window.getTradingPickId(pick.partita);
+                const pickId = window.getTradingPickId(pick);
 
                 // Try multiple ID formats for matching
                 let sig = signalsMap[pickId] || signalsMap[`trading_${pickId} `] || signalsMap[pickId.replace('trading_', '')];
@@ -2088,7 +2088,7 @@ window.renderTradingCards = function (picks) {
     if (tradingFilterState === 'live') {
         filtered = filtered.filter(p => (p.liveData?.elapsed || p.liveData?.minute || 0) > 0);
     } else if (tradingFilterState === 'favs') {
-        filtered = filtered.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita)));
+        filtered = filtered.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p)));
     }
 
     if (filtered.length === 0) {
@@ -2101,7 +2101,7 @@ window.renderTradingCards = function (picks) {
 
     // 2. Smart Sorting
     const getPriority = (p) => {
-        const isFav = (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita));
+        const isFav = (window.tradingFavorites || []).includes(window.getTradingPickId(p));
         const isLive = (p.liveData?.elapsed || p.liveData?.minute || 0) > 0;
         if (isFav && isLive) return 1;
         if (isLive) return 2;
@@ -2199,8 +2199,17 @@ window.renderTradingCards = function (picks) {
     }
 }
 
-// Helper to generate consistent Trading Pick IDs (Matches backend logic)
-window.getTradingPickId = function (partita) {
+// Helper to generate consistent Trading Pick IDs (ID-Pure Protocol)
+window.getTradingPickId = function (input) {
+    if (!input) return null;
+
+    // Phase 1: Object with fixtureId (Absolute Priority)
+    if (typeof input === 'object' && input.fixtureId) {
+        return String(input.fixtureId);
+    }
+
+    // Phase 2: String or object without fixtureId (Legacy Fallback)
+    const partita = typeof input === 'object' ? (input.partita || input.matchName || "") : input;
     const cleanName = (partita || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     return `trading_${cleanName}`;
 };
@@ -2299,7 +2308,7 @@ window.toggleTradingFavorite = async function (matchId) {
 
 window.renderTradingFavoritesInStarTab = function () {
     const picks = lastTradingPicksCache || [];
-    const activeFavs = picks.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p.partita)));
+    const activeFavs = picks.filter(p => (window.tradingFavorites || []).includes(window.getTradingPickId(p)));
     window.activeTradingFavoritesCount = activeFavs.length;
     window.updateMyMatchesCount();
 
@@ -3382,7 +3391,7 @@ window.toggleFlag = async function (matchId, matchData = null) {
 
     // 🏆 CRITICAL: If this is a Trading Pick, redirect to tradingFavorites system
     if (foundMatch && window.isTradingPick(foundMatch)) {
-        const tradingId = window.getTradingPickId ? window.getTradingPickId(foundMatch.partita) : matchId;
+        const tradingId = window.getTradingPickId ? window.getTradingPickId(foundMatch) : matchId;
         console.log(`[toggleFlag] Redirecting Trading Pick "${foundMatch.partita}" to tradingFavorites`);
         window.toggleTradingFavorite(tradingId);
         return; // Exit early - trading picks use their own system
@@ -3529,7 +3538,7 @@ window.updateMyMatchesCount = function () {
 
     // 🏆 FIX: Only count Trading favorites that are present in today's active list
     const activeTradingCount = (window.lastTradingPicksCache || []).filter(p => {
-        const pId = window.getTradingPickId ? window.getTradingPickId(p.partita) : p.partita;
+        const pId = window.getTradingPickId ? window.getTradingPickId(p) : (p.partita || "");
         return (window.tradingFavorites || []).includes(pId);
     }).length;
 
