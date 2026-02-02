@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot, Timestamp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs, onSnapshot, Timestamp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-functions.js";
 
@@ -62,7 +62,7 @@ const DEBOUNCE_MS = 2000; // Aumentato per ridurre flickering
 
 let isRegisterMode = false;
 let warningStats = null;
-let tradingFavorites = []; // IDs of favorite trading picks
+window.tradingFavorites = []; // IDs of favorite trading picks
 let currentTradingDate = new Date().toISOString().split('T')[0];
 let tradingUnsubscribe = null; // For real-time updates
 let strategiesUnsubscribe = null; // For real-time betting updates
@@ -2231,79 +2231,130 @@ window.generateUniversalMatchId = function (match) {
     return `${mDate}_${mName}`;
 };
 
+/**
+ * 🛰️ INVERTED INDEX SYNC (Scalable Notifications)
+ * Adds/removes user from match_subscribers collection
+ */
+async function updateMatchSubscribers(fixtureId, isAdding, type, matchData = null) {
+    if (!window.currentUser || !fixtureId) return;
+
+    // Get chat ID from profile
+    const chatId = window.currentUserProfile?.telegramChatId;
+    if (!chatId) return console.log('[Sync] No Telegram chatId, skipping inverted index.');
+
+    const subRef = doc(db, "match_subscribers", String(fixtureId));
+
+    // Subscriber object
+    // Subscriber object (Including user preferences to avoid extra BE reads)
+    const subData = {
+        userId: window.currentUser.uid,
+        chatId: String(chatId),
+        type: type,
+        notifyKickoff: window.currentUserProfile?.notifyKickoff !== false,
+        notifyGoal: window.currentUserProfile?.notifyGoal !== false,
+        notifyResult: window.currentUserProfile?.notifyResult !== false,
+        notifyLive: window.currentUserProfile?.notifyLive !== false,
+        matchName: matchData?.partita || matchData?.matchName || '',
+        addedAt: new Date().toISOString()
+    };
+
+    try {
+        if (isAdding) {
+            await setDoc(subRef, {
+                subscribers: arrayUnion(subData),
+                updatedAt: Timestamp.now()
+            }, { merge: true });
+            console.log(`[Sync] 🛰️ Added to match_subscribers/${fixtureId}`);
+        } else {
+            // Firestore arrayRemove needs exact object match for objects. 
+            // To be safe, we fetch and filter if it's a removal, or just use a simplified object if we can.
+            // But since we want precision, let's fetch once.
+            const snap = await getDoc(subRef);
+            if (snap.exists()) {
+                const subs = snap.data().subscribers || [];
+                const filtered = subs.filter(s => s.userId !== window.currentUser.uid);
+                await updateDoc(subRef, { subscribers: filtered, updatedAt: Timestamp.now() });
+                console.log(`[Sync] 🛰️ Removed from match_subscribers/${fixtureId}`);
+            }
+        }
+    } catch (e) {
+        console.error('[Sync] Inverted Index Error:', e);
+    }
+}
+
 window.loadTradingFavorites = async function () {
     if (!window.currentUser) return;
     try {
         const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
         if (favDoc.exists()) {
-            const rawFavorites = favDoc.data().tradingPicks || [];
+            const data = favDoc.data();
+            // NEW: Support both legacy and unified paths
+            const rawFavorites = data.tradingPicks || [];
             window.tradingFavorites = [...new Set(rawFavorites)];
 
-            console.log('[Trading] Favorites loaded (Total History):', window.tradingFavorites.length);
+            // BACKUP SYNC: If we find bettingPicks here, sync them to window.selectedMatches
+            if (data.bettingPicks && Array.isArray(data.bettingPicks)) {
+                window.selectedMatches = data.bettingPicks;
+                if (window.updateMyMatchesCount) window.updateMyMatchesCount();
+            }
 
-            // We do NOT update the count here yet, because we don't know how many are active today.
-            // activeTradingFavoritesCount will be set by renderTradingFavoritesInStarTab when it runs.
-            // But we can trigger a render if we are on the star tab.
+            console.log('[Trading] Favorites loaded:', window.tradingFavorites.length);
+
             if (document.getElementById('page-my-matches')?.classList.contains('active')) {
                 window.renderTradingFavoritesInStarTab();
-            } else {
-                // Initial fallback: treat all as active until proven otherwise, OR 0.
-                // Better to wait for render.
-                window.updateMyMatchesCount();
             }
         }
     } catch (e) { console.error("Load Trading Favs Error", e); }
 };
 
-window.toggleTradingFavorite = async function (matchId) {
+window.toggleTradingFavorite = async function (matchId, fixtureId = null) {
     if (!window.currentUser) return alert("Accedi per salvare");
 
-    const idx = tradingFavorites.indexOf(matchId);
+    // 1. UPDATE LOCAL STATE
+    if (!Array.isArray(window.tradingFavorites)) window.tradingFavorites = [];
+    const idx = window.tradingFavorites.indexOf(matchId);
     const wasAdded = idx < 0;
 
     if (wasAdded) {
-        tradingFavorites.push(matchId);
+        window.tradingFavorites.push(matchId);
         console.log('[Trading] ⭐ Added to favorites:', matchId);
     } else {
-        tradingFavorites.splice(idx, 1);
+        window.tradingFavorites.splice(idx, 1);
         console.log('[Trading] ✕ Removed from favorites:', matchId);
     }
 
-    // Sync state
-    window.tradingFavorites = tradingFavorites;
-
-    // 🔧 SURGICAL UI UPDATE: Update only the star button (no scroll jump!)
+    // 2. SURGICAL UI UPDATE
     const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
     btns.forEach(btn => {
         const icon = btn.querySelector('i');
         if (!icon) return;
-
         if (wasAdded) {
-            // ACTIVATE: Make star yellow
             icon.classList.remove('fa-regular', 'text-white/60', 'text-slate-300', 'text-white/70');
             icon.classList.add('fa-solid', 'text-yellow-300', 'drop-shadow-md');
         } else {
-            // DEACTIVATE: Make star empty
             icon.classList.remove('fa-solid', 'text-yellow-300', 'text-yellow-500', 'drop-shadow-md');
             icon.classList.add('fa-regular', 'text-white/60');
         }
     });
 
-    // Update badge count (favorite count in footer)
     if (window.updateMyMatchesCount) window.updateMyMatchesCount();
+    if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
 
-    // Update Star Tab if visible
-    if (window.renderTradingFavoritesInStarTab) {
-        window.renderTradingFavoritesInStarTab();
-    }
-
-    // Save to Firebase (async, don't block UI)
+    // 3. SYNC TO FIREBASE (Unified)
     try {
+        // A. Update User Document (for persistence and list view)
         await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
             tradingPicks: tradingFavorites,
             updatedAt: new Date().toISOString()
         }, { merge: true });
-    } catch (e) { console.error("Error saving favorites:", e); }
+
+        // B. Update Inverted Index (for Scalable Backend Notifications)
+        // Only if fixtureId is provided (ID-Pure Protocol)
+        if (fixtureId || matchId.includes('_')) {
+            const fId = fixtureId || matchId.replace('trading_', '');
+            await updateMatchSubscribers(fId, wasAdded, 'trading');
+        }
+    } catch (e) { console.error("Error saving trading favorites:", e); }
 };
 
 window.renderTradingFavoritesInStarTab = function () {
@@ -2535,22 +2586,59 @@ document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
 const deleteAllMatchesBtn = document.getElementById('delete-all-matches-btn');
 if (deleteAllMatchesBtn) {
     deleteAllMatchesBtn.addEventListener('click', async () => {
-        if (confirm("Sei sicuro di voler cancellare tutte le partite salvate?")) {
-            window.selectedMatches = [];
-            window.updateMyMatchesCount();
-            // Remove all trading favorites too if desired, or just betting matches
-            // User requested "Delete All" to clear both betting and trading in previous session.
-            // Let's clear both for consistency with that request.
+        if (!window.currentUser) return alert("Accedi per gestire i preferiti.");
+
+        if (confirm("Sei sicuro di voler cancellare TUTTE le partite salvate (Strategie + Trading)?")) {
             try {
-                tradingFavorites = [];
-                await setDoc(doc(db, "users", window.currentUser.uid, "data", "trading_favorites"), { ids: [], updated: Date.now() });
-                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), { matches: [], updated: Date.now() });
-                alert("Tutti i preferiti cancellati.");
-                // Refresh UI
-                const starBtns = document.querySelectorAll('.fa-star.fa-solid'); // Reset stars
-                starBtns.forEach(el => el.parentElement.innerHTML = '<i class="fa-regular fa-star"></i>');
-                if (window.renderTradingFavoritesInStarTab) window.renderTradingFavoritesInStarTab();
-            } catch (e) { console.error(e); }
+                // 1. COLLECT ALL FIXTURE IDs to clear Inverted Index
+                const fixtureIdsToClear = new Set();
+
+                // From Strategy Matches
+                (window.selectedMatches || []).forEach(m => {
+                    if (m.fixtureId) fixtureIdsToClear.add(String(m.fixtureId));
+                });
+
+                // From Trading Favorites (We need to map IDs to fixtureIds if possible, 
+                // but since we keep reference in window.tradingFavorites, if they are currently loaded 
+                // we can find them in liveScoresHub or similar. 
+                // To be safe, we clear everything we can find.)
+                (window.tradingFavorites || []).forEach(tId => {
+                    // Try to extract fixtureId from string if it follows 'trading_12345'
+                    const match = tId.match(/trading_(\d+)/);
+                    if (match) fixtureIdsToClear.add(match[1]);
+                });
+
+                // 2. CLEAR INVERTED INDEX (Sequential to avoid rate limits/overload)
+                console.log(`[ClearAll] Cleaning ${fixtureIdsToClear.size} index entries...`);
+                for (const fId of fixtureIdsToClear) {
+                    await updateMatchSubscribers(fId, false, 'cleanup');
+                }
+
+                // 3. RESET LOCAL STATE
+                window.selectedMatches = [];
+                window.tradingFavorites = [];
+                if (typeof tradingFavorites !== 'undefined') tradingFavorites = []; // Update local scope variable if exists
+
+                // 4. SYNC TO FIREBASE (UNIFIED)
+                await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
+                    tradingPicks: [],
+                    bettingPicks: [],
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+
+                // 5. SYNC TO LEGACY PATH
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
+                    matches: [],
+                    updated: Date.now()
+                });
+
+                window.updateMyMatchesCount();
+                alert("Tutti i preferiti cancellati correttamente.");
+                window.location.reload();
+            } catch (e) {
+                console.error("[ClearAll] Error:", e);
+                alert("Errore durante la cancellazione: " + e.message);
+            }
         }
     });
 }
@@ -2683,12 +2771,22 @@ async function loadData(dateToLoad = null) {
             }
         });
 
-        // Load Favorites (One-time or on change could be better, but staying consistent)
+        // Load Favorites (Unified First, Legacy Fallback)
         if (!dateToLoad && window.currentUser) {
-            const userMatches = await getDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"));
-            if (userMatches.exists()) {
-                window.selectedMatches = userMatches.data().matches || [];
+            const favDoc = await getDoc(doc(db, "user_favorites", window.currentUser.uid));
+            if (favDoc.exists()) {
+                const data = favDoc.data();
+                if (data.bettingPicks) window.selectedMatches = data.bettingPicks;
+                if (data.tradingPicks) window.tradingFavorites = data.tradingPicks;
+
                 if (window.updateMyMatchesCount) window.updateMyMatchesCount();
+            } else {
+                // Legacy Fallback
+                const userMatches = await getDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"));
+                if (userMatches.exists()) {
+                    window.selectedMatches = userMatches.data().matches || [];
+                    if (window.updateMyMatchesCount) window.updateMyMatchesCount();
+                }
             }
         }
 
@@ -3359,55 +3457,47 @@ window.toggleFlag = async function (matchId, matchData = null) {
     let foundMatch = null;
     let sourceStrategyId = null;
 
-    // Search in all loaded strategies and track which one provided the match
+    // Search in all loaded strategies
     if (window.strategiesData) {
         for (const [stratId, strat] of Object.entries(window.strategiesData)) {
             const matches = strat.matches || (Array.isArray(strat) ? strat : []);
-            const m = matches.find(x => {
-                const id = window.generateUniversalMatchId(x);
-                return id === matchId;
-            });
+            const m = matches.find(x => window.generateUniversalMatchId(x) === matchId);
             if (m) {
                 foundMatch = m;
                 sourceStrategyId = stratId;
-                break; // Stop searching once found
+                break;
             }
         }
     }
 
     // Fallback: Check if already in selectedMatches
     if (!foundMatch) {
-        foundMatch = window.selectedMatches.find(m => {
-            const id = window.generateUniversalMatchId(m);
-            return id === matchId;
-        });
+        foundMatch = window.selectedMatches.find(m => window.generateUniversalMatchId(m) === matchId);
     }
 
-    // 🔧 NEW: Use provided matchData for live-only matches
+    // NEW: Use provided matchData for live-only matches
     if (!foundMatch && matchData) {
         foundMatch = { ...matchData, id: matchId };
         sourceStrategyId = 'live_hub';
     }
 
-    // 🏆 CRITICAL: If this is a Trading Pick, redirect to tradingFavorites system
+    console.log(`[toggleFlag] MatchID=${matchId}, Found=${!!foundMatch}`);
+
+    // TRADING REDIRECT
     if (foundMatch && window.isTradingPick(foundMatch)) {
         const tradingId = window.getTradingPickId ? window.getTradingPickId(foundMatch) : matchId;
-        console.log(`[toggleFlag] Redirecting Trading Pick "${foundMatch.partita}" to tradingFavorites`);
-        window.toggleTradingFavorite(tradingId);
-        return; // Exit early - trading picks use their own system
+        window.toggleTradingFavorite(tradingId, foundMatch.fixtureId);
+        return;
     }
 
     if (foundMatch) {
-        // Ensure ID is consistent
         const consistentId = window.generateUniversalMatchId(foundMatch);
-
         const idx = window.selectedMatches.findIndex(m => window.generateUniversalMatchId(m) === consistentId);
+        const wasAdded = idx < 0;
 
-
-        if (idx >= 0) {
+        if (!wasAdded) {
             window.selectedMatches.splice(idx, 1);
         } else {
-            // CRITICAL: Save strategyId for proper live sync later
             window.selectedMatches.push({
                 ...foundMatch,
                 id: consistentId,
@@ -3417,53 +3507,50 @@ window.toggleFlag = async function (matchId, matchData = null) {
 
         if (window.updateMyMatchesCount) window.updateMyMatchesCount();
 
-        // Update Firebase
-        if (window.currentUser) {
-            try {
-                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
-                    matches: window.selectedMatches,
-                    updated: Date.now()
-                });
-            } catch (e) { console.error("Error saving favorites:", e); }
-        } else {
-            alert("Accedi per salvare i preferiti!");
-        }
-
-        // Update UI surgical fix (Non-destructive)
+        // UI SURGICAL UPDATE
         const btns = document.querySelectorAll(`button[data-match-id="${matchId}"]`);
         btns.forEach(b => {
             const i = b.querySelector('i');
             if (!i) return;
-
-            // Check if removing (idx >= 0 means it WAS in list)
-            if (idx >= 0) {
-                // BECOME INACTIVE
-                // Check if it was matching "light theme" (yellow-500) to revert to slate-300
+            if (!wasAdded) {
                 const isLight = b.classList.contains('text-yellow-500') || i.classList.contains('text-yellow-500');
                 const inactiveColor = isLight ? 'text-slate-300' : 'text-white/60';
-
                 b.classList.remove('flagged', 'text-yellow-300', 'text-yellow-500');
                 i.classList.remove('fa-solid', 'text-yellow-300', 'text-yellow-500', 'drop-shadow-md');
-
                 i.classList.add('fa-regular');
-                // Avoid adding duplicate classes
                 if (!i.classList.contains(inactiveColor)) i.classList.add(inactiveColor);
-
             } else {
-                // BECOME ACTIVE
-                // Check if it was "light theme" (slate-300) to use yellow-500
                 const isLight = i.classList.contains('text-slate-300');
                 const activeColor = isLight ? 'text-yellow-500' : 'text-yellow-300';
-
                 b.classList.add('flagged', activeColor);
-
-                i.classList.remove('fa-regular', 'text-slate-300', 'text-white/60', 'text-white/70', 'text-white/40', 'text-white/70');
-                i.classList.add('fa-solid', 'drop-shadow-md');
-                if (!i.classList.contains(activeColor)) i.classList.add(activeColor);
+                i.classList.remove('fa-regular', 'text-slate-300', 'text-white/60', 'text-white/40', 'text-white/70');
+                i.classList.add('fa-solid', 'drop-shadow-md', activeColor);
             }
         });
-    } else {
-        console.error("Match not found for ID:", matchId);
+
+        // SYNC TO FIREBASE (Unified)
+        if (window.currentUser) {
+            try {
+                // A. Update User Document (Legacy path + Unified backup)
+                await setDoc(doc(db, "user_favorites", window.currentUser.uid), {
+                    bettingPicks: window.selectedMatches,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+
+                // KEEP LEGACY PATH for safety während migration
+                await setDoc(doc(db, "users", window.currentUser.uid, "data", "selected_matches"), {
+                    matches: window.selectedMatches,
+                    updated: Date.now()
+                });
+
+                // B. Update Inverted Index (for Scalable Backend Notifications)
+                if (foundMatch.fixtureId) {
+                    await updateMatchSubscribers(foundMatch.fixtureId, wasAdded, 'strategy', foundMatch);
+                }
+            } catch (e) { console.error("Error saving favorites:", e); }
+        } else {
+            alert("Accedi per salvare i preferiti!");
+        }
     }
 };
 
