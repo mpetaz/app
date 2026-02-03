@@ -1087,8 +1087,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             if (bettingMatch) {
                 betTip = bettingMatch.tip || '-';
                 betQuota = bettingMatch.quota || null;
-                // Parse numeric probability (e.g. "75%" -> 75)
-                betProb = parseFloat(String(bettingMatch.probabilita || '0').replace('%', ''));
+                betProb = bettingMatch.probabilita || 0;
 
                 // 2. RAFFINAZIONE MAGIA AI (Override)
                 const magiaStrat = Object.values(window.strategiesData).find(s => s && (s.id === 'magia_ai' || s.name?.includes('MAGIA AI')));
@@ -1186,7 +1185,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             if (bettingMatch) {
                 betTip = bettingMatch.tip || '-';
                 betQuota = bettingMatch.quota || null;
-                betProb = parseFloat(String(bettingMatch.probabilita || '0').replace('%', ''));
+                betProb = bettingMatch.probabilita || 0;
 
                 // 2. RAFFINAZIONE MAGIA AI (Override)
                 const magiaStrat = Object.values(window.strategiesData).find(s => s && (s.id === 'magia_ai' || s.name?.includes('MAGIA AI')));
@@ -2216,19 +2215,13 @@ window.getTradingPickId = function (input) {
 
 /**
  * 🏆 UNIVERSAL MATCH ID GENERATOR
- * Ensures the same match has the same ID across all sections (Trading, Betting, Consigli)
- * Priority: fixtureId > composite name-based ID
+ * Ensures the same match has the same ID across all sections (Trading, Betting, Consigli)/**
+ * Generate a truly unique ID for a match.
+ * ONLY Fixture ID is used as source of truth.
  */
 window.generateUniversalMatchId = function (match) {
-    if (!match) return null;
-
-    // First Priority: Fixture ID (API Unique)
-    if (match.fixtureId) return String(match.fixtureId);
-
-    // Fallback: Normalized Name + Date
-    const mDate = match.data || new Date().toISOString().split('T')[0];
-    const mName = (match.partita || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(.)\1+/g, '$1');
-    return `${mDate}_${mName}`;
+    if (!match || !match.fixtureId) return null;
+    return String(match.fixtureId);
 };
 
 /**
@@ -2900,7 +2893,7 @@ function initLiveHubListener() {
             const activePageId = activePage?.id || 'unknown';
             const scrollPos = window.scrollY; // 🛡️ SAVE SCROLL
 
-            console.log(`[LiveHub] Active page: ${activePageId}`); // DEBUG LOG
+            console.log(`[LiveHub] Active page: ${activePageId}`);
 
             switch (activePageId) {
                 case 'page-trading-sportivo':
@@ -3429,10 +3422,10 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
             }
         } else {
             const children = enrichedMatches.map((m, idx) => {
-                const hasLiveStats = m.liveStats && Object.keys(m.liveStats).length > 0;
+                const isTradingMatch = m.isTrading || window.isTradingPick(m);
                 return createUniversalCard(m, idx, stratId, {
-                    detailedTrading: hasLiveStats,
-                    isTrading: hasLiveStats
+                    detailedTrading: isTradingMatch,
+                    isTrading: isTradingMatch
                 });
             });
             const newHtml = children.map(c => c.outerHTML).join('');
@@ -4762,17 +4755,15 @@ function getUnifiedMatches() {
         if (!isApproved) return;
 
         strat.matches.forEach(m => {
-            const nName = (m.partita || '').toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
-            const mId = m.id || `${m.data || 'today'}_${nName}`;
+            // ID-PURE PROTOCOL: Use fixtureId as the only source of truth.
+            if (!m.fixtureId) {
+                console.warn(`[getUnifiedMatches] ⚠️ Missing fixtureId for ${m.partita || 'Unknown'} in strategy ${id}. Skipping.`);
+                return;
+            }
+
+            const mId = String(m.fixtureId);
 
             if (!masterMap.has(mId)) {
-                // Fuzzy check - SAFE STRING CONVERSION
-                const existingKey = Array.from(masterMap.keys()).find(k => String(k).includes(nName));
-                if (existingKey) {
-                    const existing = masterMap.get(existingKey);
-                    updateEntry(existing, id, m);
-                    return;
-                }
                 const newEntry = { ...m };
                 updateEntry(newEntry, id, m);
                 masterMap.set(mId, newEntry);
@@ -4783,16 +4774,35 @@ function getUnifiedMatches() {
     });
 
     function updateEntry(entry, id, m) {
+        // 🛡️ RICH DATA PROTECTION PROTOCOL 🛡️
+        // Don't overwrite rich stats with null/undefined from other sources
+        if (m.expertStats && !entry.expertStats) entry.expertStats = m.expertStats;
+        if (m.rankH && !entry.rankH) entry.rankH = m.rankH;
+        if (m.rankA && !entry.rankA) entry.rankA = m.rankA;
+        if (m.motivationBadges && (!entry.motivationBadges || entry.motivationBadges.length === 0)) {
+            entry.motivationBadges = m.motivationBadges;
+        }
+        if (m.magicStats && !entry.magicStats) entry.magicStats = m.magicStats;
+
+        // Logical insights
+        const why = m.why || m.spiegazione || m.insight || "";
+        if (why && !(entry.why || entry.spiegazione || entry.insight)) entry.why = why;
+
+        // 🏆 TRADING SUPREMACY 🏆
+        const isTradingSource = (id === 'top_del_giorno' || m.isTrading === true);
+        if (isTradingSource) {
+            entry.isTrading = true;
+            if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+            if (m.strategy) entry.strategy = m.strategy;
+        }
+
         // 🏆 MAGIA AI SUPREMACY PROTOCOL 🏆
         const isMagia = id === 'magia_ai';
         const isSpecialAI = id === '___magia_ai';
-        const isGeneric = !isMagia && !isSpecialAI;
+        const isGeneric = !isMagia && !isSpecialAI && !isTradingSource;
 
-        // SE abbiamo già Magia AI, non permettiamo a nessuno di sovrascrivere 
-        // i campi core (esito, quota, confidence, tradingInstruction)
+        // If Magia AI already spoke, prevent generic strategies from overwriting core fields
         if (entry.isMagiaAI && !isMagia) {
-            // Se la Magia ha già parlato, le strategie generiche possono solo 
-            // aggiungere campi mancanti, ma non cambiare quelli core.
             if (m.tradingInstruction && !entry.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
             return;
         }
@@ -4800,9 +4810,7 @@ function getUnifiedMatches() {
         if (isMagia) {
             entry.isMagiaAI = true;
             entry.magiaTip = m.tip;
-            entry.tip = m.tip; // Force Magia AI tip
-
-            // Overwrite anything with Magia data
+            entry.tip = m.tip;
             if (m.quota) entry.quota = m.quota;
             if (m.confidence) entry.confidence = m.confidence;
             if (m.score) entry.score = m.score;
@@ -4812,7 +4820,6 @@ function getUnifiedMatches() {
         } else if (isSpecialAI) {
             entry.isSpecialAI = true;
             entry.specialTip = m.tip;
-            // Special AI contributes only if Magia hasn't set it
             if (!entry.isMagiaAI) {
                 if (m.tip) entry.tip = m.tip;
                 if (m.quota) entry.quota = m.quota;
@@ -4820,19 +4827,15 @@ function getUnifiedMatches() {
             }
         } else if (isGeneric) {
             entry.dbTip = m.tip;
-            // Solo se non già settato da AI
             if (!entry.tip) entry.tip = m.tip;
             if (!entry.quota) entry.quota = m.quota;
-            if (!entry.confidence) entry.confidence = m.confidence;
-            if (m.tradingInstruction && !entry.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+            if (m.confidence && !entry.confidence) entry.confidence = m.confidence;
         }
 
-        // Cumulative fallback for missing stats
+        // Cumulative fallback for missing basics
         if (!entry.confidence && m.confidence) entry.confidence = m.confidence;
         if (!entry.score && m.score) entry.score = m.score;
     }
 
     return Array.from(masterMap.values());
 }
-
-

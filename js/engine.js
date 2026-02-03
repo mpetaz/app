@@ -409,7 +409,7 @@ function analyzeLeaguePerformance(dbCompleto) {
     return leagueStats;
 }
 
-function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
+function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
     if (!dbCompleto || dbCompleto.length === 0) {
         return { color: 'black', stats: '', count: 0, total: 0, percentage: 0, penalty: 0, scoreValue: 0, details: '', season: { avgScored: 1.5, avgConceded: 1.0 }, currForm: { avgScored: 1.5, avgConceded: 1.0, matchCount: 0 } };
     }
@@ -431,9 +431,21 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
         // If 'ALL' tip (for Monte Carlo), take all history, otherwise filter by date if needed
         if (tip !== 'ALL' && matchDate < sixMonthsAgo) return false;
 
-        const team1 = (row.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-        const team2 = (row.partita || '').split(' - ').slice(1).join(' - ')?.toLowerCase().trim() || '';
-        return (team1 === teamNorm || team2 === teamNorm);
+        // 🏁 LOGICA IBRIDA "CERTIFICATA" (Swiss Watch)
+        if (row.homeId || row.awayId) {
+            // Se la riga storica ha ID, usiamo SOLO gli ID (Precisione Totale)
+            if (!teamId) return false;
+            const rowHId = String(row.homeId);
+            const rowAId = String(row.awayId);
+            const targetId = String(teamId);
+            return (rowHId === targetId || rowAId === targetId);
+        } else {
+            // Se la riga storica NON ha ID (Dati vecchi/CSV), usiamo il Nome Esatto
+            // NON usiamo fuzzy o "includes", solo uguaglianza perfetta
+            const t1 = (row.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
+            const t2 = (row.partita || '').split(' - ').slice(1).join(' - ')?.toLowerCase().trim() || '';
+            return (t1 === teamNorm || t2 === teamNorm);
+        }
     };
 
     const allTeamMatches = dbCompleto.filter(matchFilter);
@@ -446,8 +458,15 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
     let wins = 0, draws = 0, losses = 0;
 
     allTeamMatches.forEach(m => {
-        const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-        const isTeamHome = team1 === teamNorm;
+        // Determine if target team is home or away in THIS historical match
+        let isTeamHome = false;
+        if (teamId && (m.homeId || m.awayId)) {
+            isTeamHome = String(m.homeId) === String(teamId);
+        } else {
+            const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
+            isTeamHome = team1 === teamNorm;
+        }
+
         const res = m.risultato.match(/(\d+)-(\d+)/);
         if (res) {
             const hg = parseInt(res[1]);
@@ -683,7 +702,7 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
 }
 
 // Analizza tasso pareggi storico per una squadra
-function analyzeDrawRate(teamName, allMatches) {
+function analyzeDrawRate(teamName, allMatches, teamId = null) {
     if (!teamName || !allMatches) return { rate: 0, total: 0, draws: 0 };
 
     const teamLower = teamName.toLowerCase().trim();
@@ -691,8 +710,18 @@ function analyzeDrawRate(teamName, allMatches) {
     // Trova partite storiche della squadra (ultimi 30 match con risultato)
     const matchesSquadra = allMatches.filter(m => {
         if (!m.risultato || m.risultato.trim() === '') return false;
-        const partitaLower = (m.partita || '').toLowerCase();
-        return partitaLower.includes(teamLower);
+
+        // 🏁 LOGICA IBRIDA "CERTIFICATA"
+        if (m.homeId || m.awayId) {
+            if (!teamId) return false;
+            const targetId = String(teamId);
+            return (String(m.homeId) === targetId || String(m.awayId) === targetId);
+        } else {
+            // Fallback su nome ESATTO per storia vecchia (senza ID)
+            const partitaLower = (m.partita || '').toLowerCase();
+            const [t1, t2] = partitaLower.split(' - ').map(t => t.trim());
+            return (t1 === teamLower || t2 === teamLower);
+        }
     }).slice(0, 30); // Max 30 match
 
     if (matchesSquadra.length === 0) return { rate: 0, total: 0, draws: 0 };
@@ -739,8 +768,8 @@ function calculateScore05HT(partita, dbCompleto) {
         const teamHome = teams[0].trim();
         const teamAway = teams[1].trim();
 
-        const homeStats = analyzeTeamStats(teamHome, true, '+1.5', dbCompleto);
-        const awayStats = analyzeTeamStats(teamAway, false, '+1.5', dbCompleto);
+        const homeStats = analyzeTeamStats(teamHome, true, '+1.5', dbCompleto, partita.homeId);
+        const awayStats = analyzeTeamStats(teamAway, false, '+1.5', dbCompleto, partita.awayId);
 
         if (homeStats.total >= 5 && awayStats.total >= 5) {
             const homePerc = (homeStats.count / homeStats.total) * 100;
@@ -874,8 +903,8 @@ function calculateScore(partita, legheSet, tipsSet, leaguePerformance = {}, dbCo
     const teamAway = teams[1].trim();
 
     // Analizza statistiche squadre
-    const homeStats = analyzeTeamStats(teamHome, true, tipNorm, dbCompleto);
-    const awayStats = analyzeTeamStats(teamAway, false, tipNorm, dbCompleto);
+    const homeStats = analyzeTeamStats(teamHome, true, tipNorm, dbCompleto, partita.homeId);
+    const awayStats = analyzeTeamStats(teamAway, false, tipNorm, dbCompleto, partita.awayId);
 
     // ========== OVER/UNDER (+1.5, +2.5, -2.5, etc) ==========
     if (tipNorm.startsWith('+') || tipNorm.startsWith('-')) {
@@ -1296,8 +1325,8 @@ function transformToTradingStrategy(match, allMatches) {
     // 2. Betfair quota il pareggio ALTO (@3.40+) = c'è margine per il lay
     const teams = match.partita.split(' - ');
     if (teams.length === 2) {
-        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
-        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.homeId);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.awayId);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
         const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
         const drawOdds = bookmakerOdds.draw || 3.50;
@@ -1489,10 +1518,10 @@ function calculateAllTradingStrategies(match, allMatches) {
 
     // 2. LAY THE DRAW
     if (teams.length === 2) {
-        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
-        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.homeId);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.awayId);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
-        const mcDrawProb = magicData?.drawProb || 30;
+        const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
         const isBiscottoRisk = isDirectClash && mcDrawProb > 33;
 
         if ((mcDrawProb < 35 || avgHistDraw < 35) && !isBiscottoRisk) {
@@ -2140,8 +2169,8 @@ function getMagiaStats(match, allMatchesHistory) {
     const teams = parseTeams(match.partita);
     if (!teams) return null;
 
-    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory);
-    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory);
+    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory, match.homeId);
+    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory, match.awayId);
 
     // Relaxed form check: prioritize current form but fallback to season stats instead of returning null
     // if (homeStats.currForm.matchCount < 3 || awayStats.currForm.matchCount < 3) return null;
@@ -2528,6 +2557,7 @@ window.engine = {
     createSecondHalfSurgeStrategy,
     createUnder35TradingStrategy,
     extractHTProb,
+    calculateAllTradingStrategies,
     analyzeDrawRate,
     // NEW: Value Edge calculation
     calculateValueEdge,

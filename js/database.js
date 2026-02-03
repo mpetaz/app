@@ -697,6 +697,7 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                     if (m.data !== undefined) matchData.data = m.data;
                     if (m.tip !== undefined) matchData.tip = m.tip;
                     if (m.quota !== undefined) matchData.quota = m.quota;
+                    if (m.probabilita !== undefined) matchData.probabilita = m.probabilita;
                     if (m.score !== undefined) matchData.score = m.score;
                     if (m.risultato !== undefined) matchData.risultato = m.risultato;
                     if (m.esito !== undefined) matchData.esito = m.esito;
