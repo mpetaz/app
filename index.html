@@ -232,14 +232,18 @@
             </div>
 
             <!-- Tab Switch -->
-            <div class="flex gap-2 mb-4">
+            <div class="flex gap-1.5 mb-4">
                 <button id="history-tab-pronostici"
-                    class="flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg">
+                    class="flex-1 py-3 px-1 rounded-xl font-bold text-[10px] sm:text-xs md:text-sm transition-all bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg">
                     🎯 Pronostici
                 </button>
                 <button id="history-tab-trading"
-                    class="flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600">
+                    class="flex-1 py-3 px-1 rounded-xl font-bold text-[10px] sm:text-xs md:text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600">
                     📈 Trading
+                </button>
+                <button id="history-tab-tips"
+                    class="flex-1 py-3 px-1 rounded-xl font-bold text-[10px] sm:text-xs md:text-sm transition-all bg-gray-700 text-gray-300 hover:bg-gray-600">
+                    🪄 Consigli
                 </button>
             </div>
 
@@ -251,6 +255,11 @@
             <!-- Trading History (hidden by default) -->
             <div id="trading-history-list" class="space-y-3 hidden">
                 <!-- Populated dynamically with trading date cards -->
+            </div>
+
+            <!-- Tips History (hidden by default) -->
+            <div id="tips-history-list" class="space-y-3 hidden">
+                <!-- Populated dynamically with tips/parlays cards -->
             </div>
         </div>
 
