@@ -1507,6 +1507,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'BACK_OVER_25',
+                strategy: 'BACK_OVER_25',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1532,6 +1533,7 @@ function calculateAllTradingStrategies(match, allMatches) {
             if (s) {
                 qualified.push({
                     type: 'LAY_THE_DRAW',
+                    strategy: 'LAY_THE_DRAW',
                     confidence: Math.min(95, conf),
                     entryRange: s.tradingInstruction?.entry || null,
                     exitTarget: s.tradingInstruction?.exit || null,
@@ -1549,6 +1551,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'SECOND_HALF_SURGE',
+                strategy: 'SECOND_HALF_SURGE',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1566,6 +1569,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'UNDER_35_SCALPING',
+                strategy: 'UNDER_35_SCALPING',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1583,6 +1587,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'HT_SNIPER',
+                strategy: 'HT_SNIPER',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -2073,25 +2078,7 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
     const cupKeywords = ['champions league', 'europa league', 'conference league'];
 
     // Pre-calc Winrate 80 stats (Usa TUTTO lo storico per calcolare il WR)
-    let winrateLeagues = [];
-    if (allMatchesHistory && allMatchesHistory.length > 0) {
-        const leagueStats = {};
-        allMatchesHistory.forEach(m => {
-            if (!m.risultato) return;
-            const lega = normalizeLega(m.lega);
-            if (!leagueStats[lega]) leagueStats[lega] = { total: 0, wins: 0 };
-            leagueStats[lega].total++;
-            if (m.esito === 'Vinto') leagueStats[lega].wins++;
-        });
-        winrateLeagues = Object.keys(leagueStats).filter(lega => {
-            const stats = leagueStats[lega];
-            const winrate = stats.total > 0 ? (stats.wins / stats.total) * 100 : 0;
-
-            // 🔥 Usa soglia dinamica da presets se disponibile (default 80)
-            const targetWR = (presets.winrate_80 && presets.winrate_80.prob) ? presets.winrate_80.prob[0] : 80;
-            return winrate >= targetWR && stats.total >= 5;
-        });
-    }
+    // winrateLeagues calculation removed - now using manual presets from Socio.
 
     strategies.forEach(strat => {
         let filtered = [];
@@ -2114,8 +2101,29 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
                 return cupKeywords.some(k => l.includes(k));
             });
         } else if (strat.type === 'winrate_80') {
+            // 🔥 SOCIO PROTOCOL: No more autonomous statistical calculation.
+            // We use the manual selection (Leagues, Tips, Odds, Prob) from config.presets.
+            const p = presets.winrate_80 || {};
             filtered = matchesForStrategies.filter(m => {
-                return winrateLeagues.includes(normalizeLega(m.lega));
+                // 1. Leagues (Manual Selection)
+                if (p.leagues && p.leagues.length > 0) {
+                    if (!p.leagues.includes(normalizeLega(m.lega))) return false;
+                }
+                // 2. Tips
+                if (p.tips && p.tips.length > 0) {
+                    if (!p.tips.includes(m.tip)) return false;
+                }
+                // 3. Odds
+                if (p.odds && Array.isArray(p.odds)) {
+                    const q = parseFloat(m.quota);
+                    if (q < p.odds[0] || q > p.odds[1]) return false;
+                }
+                // 4. Prob
+                if (p.prob && Array.isArray(p.prob)) {
+                    const prob = parseFloat(m.probabilita);
+                    if (!isNaN(prob) && (prob < p.prob[0] || prob > p.prob[1])) return false;
+                }
+                return true;
             });
         }
 

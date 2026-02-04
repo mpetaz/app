@@ -68,7 +68,7 @@ export function formatDateLong(dateStr) {
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-    const date = new Date(dateStr + 'T00:00:00');
+    const date = new Date(dateStr + 'T12:00:00');
     const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
     const formattedDate = `${date.getDate()} ${months[date.getMonth()]}`;
 
@@ -76,6 +76,18 @@ export function formatDateLong(dateStr) {
     if (dateStr === yesterday) return `Ieri (${formattedDate})`;
 
     return formattedDate;
+}
+
+/**
+ * Format date in short Italian format (e.g., "16 Gen")
+ * @param {string} dateStr - Date string YYYY-MM-DD
+ * @returns {string} - Formatted date
+ */
+export function formatDateShort(dateStr) {
+    if (!dateStr) return "-";
+    const date = new Date(dateStr + 'T12:00:00');
+    const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+    return `${date.getDate()} ${months[date.getMonth()]}`;
 }
 
 /**
@@ -107,5 +119,6 @@ window.getRankingColor = getRankingColor;
 window.isMatchStale = isMatchStale;
 window.renderEventIcon = renderEventIcon;
 window.formatDateLong = formatDateLong;
+window.formatDateShort = formatDateShort;
 window.getDataHash = getDataHash;
 window.DEFAULT_LOGO_BASE64 = DEFAULT_LOGO_BASE64;
