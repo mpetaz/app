@@ -999,7 +999,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         <div class="bg-slate-50/50 rounded-t-2xl border-b border-slate-100">
             <!-- Slim Header -->
              <div class="text-center py-2 flex justify-center items-center gap-2 relative">
-                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">${match.lega || 'LEGA'}</span>
+                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest cursor-pointer select-none" onclick="window.triggerMatchDebug('${matchId}', this)">${match.lega || 'LEGA'}</span>
                  ${isLive && isTrading ? `<span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>` : ''}
              </div>
             ${badgesHTML}
@@ -2129,16 +2129,31 @@ window.renderTradingCards = function (picks) {
 }
 
 // Helper to generate consistent Trading Pick IDs (ID-Pure Protocol)
+// 🕵️‍♂️ DEBUG PROTOCOL: 5-Click Decoder
+const debugCounters = new Map();
+window.triggerMatchDebug = function (matchId, element) {
+    const now = Date.now();
+    const data = debugCounters.get(matchId) || { count: 0, last: 0 };
+    if (now - data.last > 2000) data.count = 0;
+    data.count++;
+    data.last = now;
+    debugCounters.set(matchId, data);
+    if (data.count >= 5) {
+        data.count = 0;
+        const m = (window.unifiedMatchesCache || []).find(m => window.getMantraId(m) === matchId) || {};
+        const liveHub = window.liveScoresHub ? window.liveScoresHub[matchId] : null;
+        const report = `📊 SOCIO-DEBUG REPORT\n\nMatch: ${m.partita || '?'}\nID (Mantra): ${matchId}\nFixtureID API: ${m.fixtureId || '🔴 MANCANTE'}\nStatus Admin: ${m.status || 'N/A'}\nLive Data (Match): ${m.liveData ? '✅ PRESENTE' : '🔴 ASSENTE'}\nLive Hub (Sync): ${liveHub ? '✅ CONNESSO' : '🔴 DISCONNESSO'}\nOra/Data: ${m.ora} - ${m.data}\n\n-------------------\nSocio, se FixtureID è Rosso, l'Admin non ha mappato l'ID.\nSe LiveHub è Rosso, il server non sta inviando aggiornamenti!`;
+        alert(report);
+        console.log('[SocioDebug] Full Match Object:', m);
+    }
+};
+
 // Helper to generate consistent Match IDs (FixtureID Mantra)
 window.getMantraId = function (match) {
     if (!match) return null;
-    // Preferiamo sempre il fixtureId (ID-Pure Protocol)
-    if (match.fixtureId) return String(match.fixtureId);
-
-    // Fallback: Hash del nome (per match non mappati o legacy)
-    const name = match.partita || match.matchName || "";
-    const clean = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return clean ? `m_${clean}` : null;
+    // 🛡️ PROTOCOLLO SOCIO ID-PURE 🇨🇭
+    // Il fixtureId è la LEGGE. Niente fallback, niente nomi.
+    return match.fixtureId ? String(match.fixtureId) : null;
 };
 
 // Legacy support: reindirizziamo tutto al Mantra
@@ -2185,8 +2200,12 @@ window.resolveMatchAuthority = function (match) {
 
     // 🔬 FIND REFERENCES FOR CROSS-CHECKING
     const allMatch = window.strategiesData?.['all']?.matches?.find(m => window.getMantraId(m) === matchId);
-    const magiaStratId = 'magia_ai'; // Standard Magia AI ID
-    const magiaMatch = window.strategiesData?.[magiaStratId]?.matches?.find(m => window.getMantraId(m) === matchId);
+
+    // Support multiple Magia AI variations (Pro and Special)
+    const magiaPro = window.strategiesData?.['magia_ai_raw']?.matches?.find(m => window.getMantraId(m) === matchId);
+    const magiaSpecial = window.strategiesData?.['___magia_ai']?.matches?.find(m => window.getMantraId(m) === matchId);
+
+    const magiaMatch = magiaPro || magiaSpecial;
 
     // 1. ELITE CHECK (winrate_80 Strategy) 🥇
     const eliteStrat = window.strategiesData?.['winrate_80'] || Object.values(window.strategiesData || {}).find(s => s?.id === 'winrate80');
@@ -2209,9 +2228,10 @@ window.resolveMatchAuthority = function (match) {
         result.badgeLabel = 'ELITE GOLD';
 
         // 🪄 CONSENSUS CHECK: If Magia AI agrees with same tip
-        if (magiaMatch && magiaMatch.magicStats) {
-            const mTip = (magiaMatch.magicStats.tipMagiaAI || '').toUpperCase().trim();
+        if (magiaMatch) {
+            const mTip = (magiaMatch.tip || magiaMatch.magicStats?.tipMagiaAI || '').toUpperCase().trim();
             const eTip = (result.tip || '').toUpperCase().trim();
+
             if (mTip && eTip && mTip === eTip && mTip !== '-') {
                 result.isMagia = true;
                 result.badgeLabel = 'ELITE 🥇 MAGIA 🪄';
@@ -2227,9 +2247,9 @@ window.resolveMatchAuthority = function (match) {
     }
 
     // 2. STANDARD MAGIA AI CHECK 🪄 (For non-elite matches)
-    if (magiaMatch && magiaMatch.magicStats) {
-        // Here we still check consensus with 'all' or original match
-        const magiaTip = (magiaMatch.magicStats.tipMagiaAI || '').toUpperCase().trim();
+    if (magiaMatch) {
+        // Consensus with 'all' or original match
+        const magiaTip = (magiaMatch.tip || magiaMatch.magicStats?.tipMagiaAI || '').toUpperCase().trim();
         const currentTip = (result.tip || '').toUpperCase().trim();
 
         if (magiaTip && currentTip && magiaTip === currentTip && magiaTip !== '-') {
@@ -2241,7 +2261,8 @@ window.resolveMatchAuthority = function (match) {
             result.titleColor = 'text-indigo-100';
             result.tipColor = 'text-white';
 
-            if (magiaMatch.magicStats.oddMagiaAI) result.quota = magiaMatch.magicStats.oddMagiaAI;
+            if (magiaMatch.magicStats?.oddMagiaAI) result.quota = magiaMatch.magicStats.oddMagiaAI;
+            else if (magiaMatch.quota) result.quota = magiaMatch.quota;
         }
     }
 
@@ -4862,12 +4883,12 @@ function getUnifiedMatches() {
     if (!window.strategiesData) return [];
 
     const masterMap = new Map();
-    const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'magia_ai', 'over_2_5_ai', 'top_del_giorno'];
+    const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'magia_ai_raw', 'over_2_5_ai', 'top_del_giorno'];
 
     Object.entries(window.strategiesData).forEach(([id, strat]) => {
         if (!strat || !strat.matches) return;
 
-        const isMagia = id === 'magia_ai' || id === '___magia_ai';
+        const isMagia = id === '___magia_ai' || id === 'magia_ai_raw';
         const isApproved = approved.includes(id) || isMagia;
         if (!isApproved) return;
 
@@ -4890,69 +4911,68 @@ function getUnifiedMatches() {
         });
     });
 
-    function updateEntry(entry, id, m) {
-        // 🛡️ RICH DATA PROTECTION PROTOCOL 🛡️
-        // Don't overwrite rich stats with null/undefined from other sources
-        if (m.expertStats && !entry.expertStats) entry.expertStats = m.expertStats;
-        if (m.rankH && !entry.rankH) entry.rankH = m.rankH;
-        if (m.rankA && !entry.rankA) entry.rankA = m.rankA;
-        if (m.motivationBadges && (!entry.motivationBadges || entry.motivationBadges.length === 0)) {
-            entry.motivationBadges = m.motivationBadges;
-        }
-        if (m.magicStats && !entry.magicStats) entry.magicStats = m.magicStats;
+    const finalMatches = Array.from(masterMap.values());
+    // 🔥 POPOLA CACHE PER DEBUG REPORT
+    window.unifiedMatchesCache = finalMatches;
+    return finalMatches;
+}
 
-        // Logical insights
-        const why = m.why || m.spiegazione || m.insight || "";
-        if (why && !(entry.why || entry.spiegazione || entry.insight)) entry.why = why;
+function updateEntry(entry, id, m) {
+    // 🛡️ RICH DATA PROTECTION PROTOCOL 🛡️
+    // Don't overwrite rich stats with null/undefined from other sources
+    if (m.expertStats && !entry.expertStats) entry.expertStats = m.expertStats;
+    if (m.rankH && !entry.rankH) entry.rankH = m.rankH;
+    if (m.rankA && !entry.rankA) entry.rankA = m.rankA;
+    if (m.motivationBadges && (!entry.motivationBadges || entry.motivationBadges.length === 0)) {
+        entry.motivationBadges = m.motivationBadges;
+    }
+    if (m.magicStats && !entry.magicStats) entry.magicStats = m.magicStats;
 
-        // 🏆 TRADING SUPREMACY 🏆
-        const isTradingSource = (id === 'top_del_giorno' || m.isTrading === true);
-        if (isTradingSource) {
-            entry.isTrading = true;
-            if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
-            if (m.strategy) entry.strategy = m.strategy;
-        }
+    // Logical insights
+    const why = m.why || m.spiegazione || m.insight || "";
+    if (why && !(entry.why || entry.spiegazione || entry.insight)) entry.why = why;
 
-        // 🏆 MAGIA AI SUPREMACY PROTOCOL 🏆
-        const isMagia = id === 'magia_ai';
-        const isSpecialAI = id === '___magia_ai';
-        const isGeneric = !isMagia && !isSpecialAI && !isTradingSource;
+    // 🏆 TRADING SUPREMACY 🏆
+    const isTradingSource = (id === 'top_del_giorno' || m.isTrading === true);
+    if (isTradingSource) {
+        entry.isTrading = true;
+        if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+        if (m.strategy) entry.strategy = m.strategy;
+    }
 
-        // If Magia AI already spoke, prevent generic strategies from overwriting core fields
-        if (entry.isMagiaAI && !isMagia) {
-            if (m.tradingInstruction && !entry.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
-            return;
-        }
+    // 🏆 MAGIA AI SUPREMACY PROTOCOL 🏆
+    const isMagia = id === 'magia_ai_raw';
+    const isSpecialAI = id === '___magia_ai';
+    const isGeneric = !isMagia && !isSpecialAI && !isTradingSource;
 
-        if (isMagia) {
-            entry.isMagiaAI = true;
+    // If Magia AI already spoke, prevent generic strategies from overwriting core fields
+    if (entry.isMagiaAI && !isMagia) {
+        if (m.tradingInstruction && !entry.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+        return;
+    } else if (isSpecialAI || isMagia) {
+        // PROTOCOLLO CONSENSO: isMagiaAI/isSpecialAI activated only if tip matches 'all'
+        const baseMatch = window.strategiesData?.['all']?.matches?.find(ref => window.getMantraId(ref) === String(m.fixtureId));
+        const baseTip = (baseMatch?.tip || '').toUpperCase().trim();
+        const aiTip = (m.tip || m.magicStats?.tipMagiaAI || '').toUpperCase().trim();
+
+        if (baseTip && aiTip && baseTip === aiTip && baseTip !== '-') {
+            if (isMagia) entry.isMagiaAI = true;
+            if (isSpecialAI) entry.isSpecialAI = true;
+
             entry.magiaTip = m.tip;
             entry.tip = m.tip;
             if (m.quota) entry.quota = m.quota;
             if (m.confidence) entry.confidence = m.confidence;
             if (m.score) entry.score = m.score;
-            if (m.ranking) entry.ranking = m.ranking;
             if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
-
-        } else if (isSpecialAI) {
-            entry.isSpecialAI = true;
-            entry.specialTip = m.tip;
-            if (!entry.isMagiaAI) {
-                if (m.tip) entry.tip = m.tip;
-                if (m.quota) entry.quota = m.quota;
-                if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
-            }
-        } else if (isGeneric) {
-            entry.dbTip = m.tip;
-            if (!entry.tip) entry.tip = m.tip;
-            if (!entry.quota) entry.quota = m.quota;
-            if (m.confidence && !entry.confidence) entry.confidence = m.confidence;
         }
-
-        // Cumulative fallback for missing basics
-        if (!entry.confidence && m.confidence) entry.confidence = m.confidence;
-        if (!entry.score && m.score) entry.score = m.score;
+    } else if (isGeneric) {
+        entry.dbTip = m.tip;
+        if (!entry.tip) entry.tip = m.tip;
+        if (!entry.quota) entry.quota = m.quota;
+        if (m.confidence && !entry.confidence) entry.confidence = m.confidence;
     }
 
-    return Array.from(masterMap.values());
+    // Cumulative fallback for missing basics
+    if (!entry.confidence && m.confidence) entry.confidence = m.confidence;
 }

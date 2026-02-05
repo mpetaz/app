@@ -2019,22 +2019,66 @@ function generateMagiaAI(matches, allMatchesHistory) {
  * This function is the core of Step 2B.
  * 🔥 UPDATED v14.0: Accepts config (blacklist, presets) for dynamic extraction
  */
+/**
+ * orchestrator: Distributes matches to strategies using strict FixtureID (Mantra Protocol)
+ * 🔥 UPDATED v15.0: Matches without fixtureId are DISCARDED. 
+ * Merges AI data and Betmines data using fixtureId as the universal key.
+ */
 function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate, config = {}) {
-    const blacklist = config.blacklist || [];
+    const blacklist = (config.blacklist || []).map(l => (l || "").toLowerCase().trim());
     const presets = config.presets || {};
 
-    if (!calculatedMatches || calculatedMatches.length === 0) return {};
+    if ((!calculatedMatches || calculatedMatches.length === 0) && (!allMatchesHistory || allMatchesHistory.length === 0)) {
+        return {};
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 1. UNIFIED POOL (ID-PURE PROTOCOL)
+    // ═══════════════════════════════════════════════════════════════════════
+    const pool = new Map();
+
+    // Helper to process a match into the pool
+    const processIntoPool = (m, isAI = false) => {
+        const fId = m.fixtureId || m.id; // Mantra: ID is the law
+        if (!fId) return; // DISCARD matches without ID
+
+        const key = String(fId);
+        const existing = pool.get(key);
+        if (existing) {
+            // MERGE: Favor enrichment
+            Object.assign(existing, m);
+            if (isAI) existing.isMagiaEnriched = true;
+        } else {
+            pool.set(key, { ...m });
+        }
+    };
+
+    // Load Betmines matches for today
+    (allMatchesHistory || []).forEach(m => {
+        if (m.data === selectedDate) processIntoPool(m, false);
+    });
+
+    // Load AI matches (Sandbox)
+    (calculatedMatches || []).forEach(m => {
+        if (m.data === selectedDate) processIntoPool(m, true);
+    });
+
+    const unifiedMatches = Array.from(pool.values());
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 2. GLOBAL FILTERS (Blacklist)
+    // ═══════════════════════════════════════════════════════════════════════
+    const cleanPool = unifiedMatches.filter(m => {
+        const legaOrig = (m.lega || "").toLowerCase().trim();
+        const legaNorm = normalizeLega(m.lega).toLowerCase().trim();
+        return !blacklist.includes(legaOrig) && !blacklist.includes(legaNorm);
+    });
 
     const results = {};
 
-    // 1. Magia AI (Clean Selection)
-    // 1. Magia AI Engine (Source for Special AI)
-    const magicMatches = generateMagiaAI(calculatedMatches, allMatchesHistory);
-
-    // Note: 'magia_ai' (the simple card) is now mostly handled via 'magia_ai_raw' snapshot in Step 1,
-    // but the engine logic must remain for '___magia_ai' extraction.
-
-    // 2. Standard Strategies Definitions
+    // ═══════════════════════════════════════════════════════════════════════
+    // 3. STRATEGY DISTRIBUTION
+    // ═══════════════════════════════════════════════════════════════════════
     const strategies = [
         { id: 'all', name: '📊 ALL', type: 'all' },
         { id: 'italia', name: '🇮🇹 ITALIA', type: 'italia' },
@@ -2043,94 +2087,42 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
         { id: 'winrate_80', name: '🔥 WINRATE 80%', type: 'winrate_80' }
     ];
 
-    // Pre-calculate Blacklist (Simplified: if we don't have blacklist loaded here, we skip it or assume calculatedMatches is clean enough? 
-    // Actually calculatedMatches comes from Step 1 which includes EVERYTHING.
-    // For "ALL" strategy we usually apply blacklist. 
-    // Since we don't have easy access to blacklist array here, we will define "ALL" as truly ALL for now or rely on specific filtering)
-
-    // 🔥 FILTRO BINARIO BETMINES: Filtra per data
-    // Inoltre applica la Blacklist Real-Time caricata da Firebase
-    const normBlacklist = blacklist.map(l => (l || "").toLowerCase().trim());
-
-    const matchesForStrategies = (allMatchesHistory || []).filter(m => {
-        const isDate = m.data === selectedDate;
-
-        // Check Blacklist
-        const legaOrig = (m.lega || "").toLowerCase().trim();
-        const legaNorm = normalizeLega(m.lega).toLowerCase().trim();
-        const isNotBlacklisted = !normBlacklist.includes(legaOrig) && !normBlacklist.includes(legaNorm);
-
-        return isDate && isNotBlacklisted;
-    });
-
-    // Helper for Filters - CORRECTED ISO CODES matching database format
     const topEuLeagues = [
-        'EU-ENG Premier League',     // Inghilterra
-        'EU-ESP La Liga',            // Spagna
-        'EU-DEU Bundesliga',         // Germania (DEU non GER!)
-        'EU-FRA Ligue 1',            // Francia
-        'EU-NED Eredivisie',         // Olanda
-        'EU-CHE Super League',       // Svizzera (CHE non SWI!)
-        'EU-PRT Primeira Liga',      // Portogallo (PRT non POR!)
-        'EU-BEL Pro League'          // Belgio
+        'EU-ENG Premier League', 'EU-ESP La Liga', 'EU-DEU Bundesliga',
+        'EU-FRA Ligue 1', 'EU-NED Eredivisie', 'EU-CHE Super League',
+        'EU-PRT Primeira Liga', 'EU-BEL Pro League'
     ];
-    // CUPS: Solo coppe EUROPEE (Champions, Europa League, Conference)
     const cupKeywords = ['champions league', 'europa league', 'conference league'];
-
-    // Pre-calc Winrate 80 stats (Usa TUTTO lo storico per calcolare il WR)
-    // winrateLeagues calculation removed - now using manual presets from Socio.
 
     strategies.forEach(strat => {
         let filtered = [];
 
-        // 🔥 USA matchesForStrategies (BETMINES) invece di calculatedMatches
         if (strat.type === 'all') {
-            // Include everything (Blacklist filtering should ideally happen, but let's pass all for now or filter empty tips)
-            filtered = matchesForStrategies.filter(m => m.tip && m.tip.trim() !== '');
+            // ALL: Keep matches with tips (either Betmines or AI)
+            filtered = cleanPool.filter(m => (m.tip && String(m.tip).trim() !== '') || m.magicStats?.tipMagiaAI);
         } else if (strat.type === 'italia') {
-            // ITALIA: filter ONLY leagues starting with EU-ITA (as requested by Socio)
-            filtered = matchesForStrategies.filter(m => (m.lega || '').startsWith('EU-ITA'));
+            filtered = cleanPool.filter(m => (m.lega || '').startsWith('EU-ITA'));
         } else if (strat.type === 'top_eu') {
-            filtered = matchesForStrategies.filter(m => {
+            filtered = cleanPool.filter(m => {
                 const l = (m.lega || '').toLowerCase().trim();
                 return topEuLeagues.some(k => l === k.toLowerCase().trim());
             });
         } else if (strat.type === 'cups') {
-            filtered = matchesForStrategies.filter(m => {
+            filtered = cleanPool.filter(m => {
                 const l = (m.lega || '').toLowerCase();
                 return cupKeywords.some(k => l.includes(k));
             });
         } else if (strat.type === 'winrate_80') {
-            // 🔥 SOCIO PROTOCOL: No more autonomous statistical calculation.
-            // We use the manual selection (Leagues, Tips, Odds, Prob) from config.presets.
             const p = presets.winrate_80 || {};
-            filtered = matchesForStrategies.filter(m => {
-                // 1. Leagues (Manual Selection)
-                if (p.leagues && p.leagues.length > 0) {
-                    if (!p.leagues.includes(normalizeLega(m.lega))) return false;
-                }
-                // 2. Tips
-                if (p.tips && p.tips.length > 0) {
-                    if (!p.tips.includes(m.tip)) return false;
-                }
-                // 3. Odds
-                if (p.odds && Array.isArray(p.odds)) {
-                    const q = parseFloat(m.quota);
-                    if (q < p.odds[0] || q > p.odds[1]) return false;
-                }
-                // 4. Prob
-                if (p.prob && Array.isArray(p.prob)) {
-                    const prob = parseFloat(m.probabilita);
-                    if (!isNaN(prob) && (prob < p.prob[0] || prob > p.prob[1])) return false;
-                }
+            filtered = cleanPool.filter(m => {
+                if (p.leagues?.length > 0 && !p.leagues.includes(normalizeLega(m.lega))) return false;
+                if (p.tips?.length > 0 && !p.tips.includes(m.tip)) return false;
+                if (p.odds && (parseFloat(m.quota) < p.odds[0] || parseFloat(m.quota) > p.odds[1])) return false;
+                if (p.prob && (parseFloat(m.probabilita) < p.prob[0] || parseFloat(m.probabilita) > p.prob[1])) return false;
                 return true;
             });
         }
 
-        // 🔍 DEBUG: Log ogni strategia
-        console.log(`🔍 [DEBUG distributeStrategies] ${strat.id}: filtered.length = ${filtered.length}`);
-
-        // SEMPRE salvare tutte le strategie, anche con 0 partite
         results[strat.id] = {
             id: strat.id,
             name: strat.name,
@@ -2141,17 +2133,17 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
         };
     });
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // 4. SPECIAL AI Strategy (__magia_ai)
+    // ═══════════════════════════════════════════════════════════════════════
+    // Extract matches that have valid AI simulation results
+    const magicMatches = generateMagiaAI(cleanPool, allMatchesHistory);
+    const minScore = presets.special_ai?.score?.[0] || 85;
+    const minProb = presets.special_ai?.prob?.[0] || 80;
 
-
-    // 3. Special AI Logic (___magia_ai)
-    const specialAiMatches = (magicMatches || []).filter(m => {
+    const specialAiMatches = magicMatches.filter(m => {
         const score = m.score || 0;
-        const prob = m.magicStats ? m.magicStats.probMagiaAI : 0;
-
-        // 🔥 Usa soglie dinamiche da presets se disponibili
-        const minScore = (presets.special_ai && presets.special_ai.score) ? presets.special_ai.score[0] : 85;
-        const minProb = (presets.special_ai && presets.special_ai.prob) ? presets.special_ai.prob[0] : 80;
-
+        const prob = m.magicStats?.probMagiaAI || 0;
         return score >= minScore && prob >= minProb;
     });
 
