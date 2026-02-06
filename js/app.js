@@ -1869,39 +1869,26 @@ window.loadTradingPicks = function (date) {
             const enrichedPicks = mergedPicks.map(pick => {
                 let hubMatch = null;
 
-                // 1. Sync with LiveHub
+                // 1. Sync with LiveHub (ID-Pure Only)
                 if (pick.fixtureId) {
-                    hubMatch = Object.values(liveHub).find(h => h.fixtureId == pick.fixtureId);
-                }
-                if (!hubMatch && pick.partita) {
-                    const cleanName = (pick.partita || '').toLowerCase().replace(/[^a-z]/g, '');
-                    hubMatch = Object.values(liveHub).find(h => {
-                        const hubName = (h.matchName || '').toLowerCase().replace(/[^a-z]/g, '');
-                        return hubName.includes(cleanName) || cleanName.includes(hubName);
-                    });
+                    hubMatch = Object.values(liveHub).find(h => String(h.fixtureId || '') === String(pick.fixtureId));
                 }
 
-                // 2. Sync with AI Metadata (Golden Protocol)
-                const pickNameNorm = (pick.partita || '').toLowerCase().replace(/[^a-z0-9]/g, "");
-                const aiMatch = unifiedMatches.find(u => {
-                    const uName = (u.partita || '').toLowerCase().replace(/[^a-z0-9]/g, "");
-                    return uName.includes(pickNameNorm) || pickNameNorm.includes(uName);
-                });
+                // 2. Sync with AI Metadata (ID-Pure Only)
+                const aiMatch = pick.fixtureId ? unifiedMatches.find(u => String(u.fixtureId || '') === String(pick.fixtureId)) : null;
 
                 let finalPick = { ...pick };
 
                 if (aiMatch) {
+                    // SOCIO: Betting data (tip, odd, prob) always comes from the AI/All metadata
+                    finalPick.tip = aiMatch.tip || aiMatch.magiaTip || pick.tip;
+                    finalPick.quota = aiMatch.quota || pick.quota;
+                    finalPick.probabilita = aiMatch.probabilita || aiMatch.confidence || pick.confidence || 0;
+
+                    // Metadata for Authority Control (Scelta Magica / Elite Gold)
                     finalPick.isMagiaAI = aiMatch.isMagiaAI;
                     finalPick.isSpecialAI = aiMatch.isSpecialAI;
                     finalPick.magiaTip = aiMatch.magiaTip;
-                    finalPick.specialTip = aiMatch.specialTip;
-                    finalPick.dbTip = aiMatch.dbTip;
-                    // If Magia AI is present, force its tip data for consistency
-                    if (aiMatch.isMagiaAI && aiMatch.magiaTip) {
-                        finalPick.tip = aiMatch.magiaTip;
-                        if (aiMatch.quota) finalPick.quota = aiMatch.quota;
-                        if (aiMatch.confidence) finalPick.confidence = aiMatch.confidence;
-                    }
                 }
 
                 if (hubMatch) {
@@ -1964,14 +1951,6 @@ window.renderTradingCards = function (picks) {
         if (pick.fixtureId) {
             const targetId = String(pick.fixtureId);
             hubMatch = Object.values(liveHub).find(h => String(h.fixtureId || '') === targetId);
-        }
-
-        if (!hubMatch && pick.partita) {
-            const cleanName = (pick.partita || '').toLowerCase().replace(/[^a-z]/g, '');
-            hubMatch = Object.values(liveHub).find(h => {
-                const hubName = (h.matchName || '').toLowerCase().replace(/[^a-z]/g, '');
-                return hubName.includes(cleanName) || cleanName.includes(hubName);
-            });
         }
 
         if (hubMatch) {
@@ -4981,8 +4960,10 @@ function updateEntry(entry, id, m) {
         if (!entry.tip) entry.tip = m.tip;
         if (!entry.quota) entry.quota = m.quota;
         if (m.confidence && !entry.confidence) entry.confidence = m.confidence;
+        if (m.probabilita && !entry.probabilita) entry.probabilita = m.probabilita;
     }
 
     // Cumulative fallback for missing basics
     if (!entry.confidence && m.confidence) entry.confidence = m.confidence;
+    if (!entry.probabilita && m.probabilita) entry.probabilita = m.probabilita;
 }
