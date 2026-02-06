@@ -1,6 +1,6 @@
-// TipsterAI Service Worker v3.5.55 - CONSIGLI UI & STAR FIX
+// TipsterAI Service Worker v4.1.3 - PARLAYS v2.0: Extended Pool + Time Filter
 // IMPORTANTE: Incrementare VERSION ogni volta che si fanno modifiche significative!
-const VERSION = '3.5.55';
+const VERSION = '4.1.3';
 const CACHE_NAME = `tipsterai-v${VERSION}`;
 
 // Solo assets statici che cambiano raramente
