@@ -3147,14 +3147,18 @@ function renderStrategies() {
     const unifiedMatches = getUnifiedMatches();
     const topLiveStrat = window.strategiesData['top_del_giorno'];
 
-    // Counts
+    // Counts (Case-Insensitive)
     const countTopLive = topLiveStrat?.matches?.length || 0;
-    const countItalia = unifiedMatches.filter(m => (m.lega || '').startsWith('EU-ITA')).length;
+    const countItalia = unifiedMatches.filter(m => (m.lega || '').toLowerCase().startsWith('eu-ita')).length;
     const countEuropa = unifiedMatches.filter(m => {
-        const l = m.lega || '';
-        return l.startsWith('EU-') && !l.startsWith('EU-ITA');
+        const l = (m.lega || '').toLowerCase();
+        return l.startsWith('eu-') && !l.startsWith('eu-ita');
     }).length;
-    const countMondo = unifiedMatches.filter(m => (m.lega || '') !== '' && !(m.lega || '').startsWith('EU-')).length;
+    const countAfrica = unifiedMatches.filter(m => (m.lega || '').toLowerCase().startsWith('af-')).length;
+    const countMondo = unifiedMatches.filter(m => {
+        const l = (m.lega || '').toLowerCase();
+        return l !== '' && !l.startsWith('eu-') && !l.startsWith('af-');
+    }).length;
 
     const children = [];
 
@@ -3166,6 +3170,9 @@ function renderStrategies() {
 
     // 3. EUROPA (Blue Premium)
     children.push(createBigBucketBox('europa', '🇪🇺 Europa', countEuropa, 'bg-gradient-to-br from-blue-800 to-indigo-950', '🇪🇺'));
+
+    // 3.5 AFRICA (Green/Yellow Premium)
+    children.push(createBigBucketBox('africa', '🌍 Africa', countAfrica, 'bg-gradient-to-br from-green-600 to-yellow-700', '🌍'));
 
     // 4. RESTO DEL MONDO (Yellow/Amber)
     children.push(createBigBucketBox('mondo', '🌎 Mondo', countMondo, 'bg-gradient-to-br from-amber-400 to-orange-600', '🌎'));
@@ -3217,6 +3224,7 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
     const ASSETS = {
         italia: 'img/flag_italy.png',
         europa: 'img/flag_europe.png',
+        africa: 'img/flag_africa.png',
         mondo: 'img/globe_world.png'
     };
 
@@ -3230,6 +3238,8 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
     } else if (id === 'europa') {
         bgImage = ASSETS.europa;
         extraDecoration = `<div class="absolute inset-0 z-0 opacity-20 mix-blend-overlay pointer-events-none animate-pulse-slow" style="background-image: radial-gradient(circle, #ffcc00 1.5px, transparent 1.5px); background-size: 30px 30px;"></div>`;
+    } else if (id === 'africa') {
+        bgImage = ASSETS.africa;
     } else if (id === 'mondo') {
         bgImage = ASSETS.mondo;
     }
@@ -3440,14 +3450,14 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
     }
 
     if (stratId === 'italia') {
-        filtered = filtered.filter(m => (m.lega || '').startsWith('EU-ITA'));
+        filtered = filtered.filter(m => (m.lega || '').toLowerCase().startsWith('eu-ita'));
     } else if (stratId === 'europa') {
         filtered = filtered.filter(m => {
             const l = m.lega || '';
-            return l.startsWith('EU-') && !l.startsWith('EU-ITA');
+            return l.toLowerCase().startsWith('eu-') && !l.toLowerCase().startsWith('eu-ita');
         });
     } else if (stratId === 'mondo') {
-        filtered = filtered.filter(m => (m.lega || '') !== '' && !(m.lega || '').startsWith('EU-'));
+        filtered = filtered.filter(m => (m.lega || '') !== '' && !(m.lega || '').toLowerCase().startsWith('eu-'));
     }
 
     // SUB-FILTERING (Italiane, Coppe, AI, etc.)
@@ -4850,7 +4860,7 @@ function applyInternalFiltering(matches, filter) {
     if (!filter || filter === 'all') return matches;
 
     if (filter === 'italiane') {
-        return matches.filter(m => (m.lega || '').startsWith('EU-ITA'));
+        return matches.filter(m => (m.lega || '').toLowerCase().startsWith('eu-ita'));
     }
 
     if (filter === 'coppe') {

@@ -229,7 +229,8 @@ function calculateTimeWeight(matchDateStr) {
 }
 
 function normalizeLega(lega) {
-    return lega.replace(/\s+/g, ' ').trim();
+    if (!lega) return '';
+    return lega.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**
@@ -1325,8 +1326,8 @@ function transformToTradingStrategy(match, allMatches) {
     // 2. Betfair quota il pareggio ALTO (@3.40+) = c'è margine per il lay
     const teams = match.partita.split(' - ');
     if (teams.length === 2) {
-        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.homeId);
-        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.awayId);
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.teamIdHome);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.teamIdAway);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
         const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
         const drawOdds = bookmakerOdds.draw || 3.50;
@@ -1519,8 +1520,8 @@ function calculateAllTradingStrategies(match, allMatches) {
 
     // 2. LAY THE DRAW
     if (teams.length === 2) {
-        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.homeId);
-        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.awayId);
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.teamIdHome);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.teamIdAway);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
         const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
         const isBiscottoRisk = isDirectClash && mcDrawProb > 33;
@@ -2101,16 +2102,14 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
             // ALL: Keep matches with tips (either Betmines or AI)
             filtered = cleanPool.filter(m => (m.tip && String(m.tip).trim() !== '') || m.magicStats?.tipMagiaAI);
         } else if (strat.type === 'italia') {
-            filtered = cleanPool.filter(m => (m.lega || '').startsWith('EU-ITA'));
+            filtered = cleanPool.filter(m => normalizeLega(m.lega).startsWith('eu-ita'));
         } else if (strat.type === 'top_eu') {
-            filtered = cleanPool.filter(m => {
-                const l = (m.lega || '').toLowerCase().trim();
-                return topEuLeagues.some(k => l === k.toLowerCase().trim());
-            });
+            const topEuLower = topEuLeagues.map(l => l.toLowerCase());
+            filtered = cleanPool.filter(m => topEuLower.includes(normalizeLega(m.lega)));
         } else if (strat.type === 'cups') {
             filtered = cleanPool.filter(m => {
-                const l = (m.lega || '').toLowerCase();
-                return cupKeywords.some(k => l.includes(k));
+                const l = normalizeLega(m.lega);
+                return cupKeywords.some(k => l.includes(k.toLowerCase()));
             });
         } else if (strat.type === 'winrate_80') {
             const p = presets.winrate_80 || {};
@@ -2169,8 +2168,8 @@ function getMagiaStats(match, allMatchesHistory) {
     const teams = parseTeams(match.partita);
     if (!teams) return null;
 
-    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory, match.homeId);
-    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory, match.awayId);
+    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory, match.teamIdHome);
+    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory, match.teamIdAway);
 
     // Relaxed form check: prioritize current form but fallback to season stats instead of returning null
     // if (homeStats.currForm.matchCount < 3 || awayStats.currForm.matchCount < 3) return null;
@@ -2213,8 +2212,7 @@ function getMagiaStats(match, allMatchesHistory) {
     // 🔗 Use Registry loaded at startup (clean solution - no LEAGUE_MAPPING)
     if (!leagueId && window.leaguesRegistry) {
         // leaguesRegistry is a Map loaded once at admin startup
-        const registryEntry = window.leaguesRegistry.get(match.lega) ||
-            window.leaguesRegistry.get(match.lega?.toLowerCase());
+        const registryEntry = window.leaguesRegistry.get(normalizeLega(match.lega));
         if (registryEntry && registryEntry.leagueId) {
             leagueId = registryEntry.leagueId;
         }
@@ -2406,7 +2404,7 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.isCupMatch = isCupMatch;
 
     // 🔥 NEW v12.0: ADAPTIVE LOGIC based on League Trust Score (Master Trust v12.0)
-    const normalizedLega = (match.lega || "").trim();
+    const normalizedLega = normalizeLega(match.lega);
     const trustData = (window.LEAGUE_TRUST && window.LEAGUE_TRUST[normalizedLega]) ? window.LEAGUE_TRUST[normalizedLega] : { trust: 5, mode: 'STANDARD' };
 
     // 🔥 NEW v4.5: MAGIA FIRBA (Marketing-First Selection Logic)

@@ -363,15 +363,16 @@ const LocalDB = {
             const store = transaction.objectStore(this.storeLeagues);
 
             mappings.forEach(m => {
+                const name = (m.name || m.label || '').toLowerCase().trim();
+                const leagueId = parseInt(m.leagueId || m.id);
+
+                if (!name || isNaN(leagueId)) return;
+
                 const record = {
-                    name: m.label.toLowerCase().trim(),
-                    leagueId: parseInt(m.id),
-                    updatedAt: Date.now(),
-                    trustScore: m.trustScore,
-                    mode: m.mode,
-                    samples: m.samples,
-                    o15_wr: m.o15_wr,
-                    ...m.meta
+                    ...m,
+                    name: name,
+                    leagueId: leagueId,
+                    updatedAt: m.updatedAt || Date.now()
                 };
                 store.put(record);
             });
@@ -390,6 +391,96 @@ const LocalDB = {
     // Alias for getAllLeagues (used in admin.html)
     async getAllLeagueMappings() {
         return this.getAllLeagues();
+    },
+
+    // 🔥 NEW v12.1: Resolve league name via alias lookup
+    async resolveLeagueAlias(unknownName) {
+        if (!this.db) await this.init();
+        const normalized = unknownName.toLowerCase().trim();
+
+        // 1. Check if it exists directly
+        const direct = await this.getLeagueMapping(normalized);
+        if (direct) return { canonical: normalized, leagueId: direct.leagueId, source: 'direct' };
+
+        // 2. Check all leagues for alias match
+        const allLeagues = await this.getAllLeagues();
+        for (const league of allLeagues) {
+            if (league.aliases && Array.isArray(league.aliases)) {
+                for (const alias of league.aliases) {
+                    if (alias.toLowerCase().trim() === normalized) {
+                        return { canonical: league.name, leagueId: league.leagueId, source: 'alias' };
+                    }
+                }
+            }
+        }
+
+        // 3. Not found
+        return null;
+    },
+
+    // 🔥 NEW v12.1: Add alias to existing league
+    async addLeagueAlias(leagueId, aliasName) {
+        if (!this.db) await this.init();
+        const allLeagues = await this.getAllLeagues();
+        const target = allLeagues.find(l => l.leagueId === parseInt(leagueId));
+
+        if (!target) {
+            console.warn(`[LocalDB] Cannot add alias: leagueId ${leagueId} not found`);
+            return false;
+        }
+
+        const normalizedAlias = aliasName.toLowerCase().trim();
+        const aliases = target.aliases || [];
+
+        if (!aliases.includes(normalizedAlias)) {
+            aliases.push(normalizedAlias);
+            target.aliases = aliases;
+
+            return new Promise((resolve, reject) => {
+                const transaction = this.db.transaction([this.storeLeagues], "readwrite");
+                const store = transaction.objectStore(this.storeLeagues);
+                store.put(target);
+                transaction.oncomplete = () => {
+                    console.log(`[LocalDB] Added alias "${normalizedAlias}" to league ${target.name} (ID: ${leagueId})`);
+                    resolve(true);
+                };
+                transaction.onerror = (event) => reject(event);
+            });
+        }
+        return true; // Already exists
+    },
+
+    // 🔥 NEW v12.1: Find similar leagues for suggestions
+    findSimilarLeagues(unknownName, allLeagues) {
+        const normalized = unknownName.toLowerCase().trim();
+        const prefix = normalized.match(/^([a-z]{2}-[a-z]{3})/)?.[1] || null;
+
+        const candidates = [];
+        for (const league of allLeagues) {
+            const leaguePrefix = league.name.match(/^([a-z]{2}-[a-z]{3})/)?.[1] || null;
+
+            // Only match same country prefix
+            if (prefix && leaguePrefix && prefix === leaguePrefix) {
+                const sim = this._jaccardSimilarity(normalized, league.name);
+                if (sim >= 0.3) {
+                    candidates.push({
+                        name: league.name,
+                        leagueId: league.leagueId,
+                        similarity: sim
+                    });
+                }
+            }
+        }
+
+        return candidates.sort((a, b) => b.similarity - a.similarity).slice(0, 5);
+    },
+
+    _jaccardSimilarity(s1, s2) {
+        const words1 = new Set(s1.split(/\s+/));
+        const words2 = new Set(s2.split(/\s+/));
+        const intersection = [...words1].filter(w => words2.has(w)).length;
+        const union = new Set([...words1, ...words2]).size;
+        return union > 0 ? intersection / union : 0;
     },
 
     // Alias for loadMatches (used in admin.html)
@@ -805,7 +896,8 @@ async function loadLeagueTrust(db) {
         const snapshot = await window.getDocs(trustCol);
         const trustMap = {};
         snapshot.forEach(docSnap => {
-            trustMap[docSnap.id] = docSnap.data();
+            const key = docSnap.id.toLowerCase().trim();
+            trustMap[key] = docSnap.data();
         });
         window.LEAGUE_TRUST = trustMap;
         console.log(`[Trust] Loaded ${Object.keys(trustMap).length} league trust scores`);
@@ -823,20 +915,41 @@ async function loadLeagueTrust(db) {
 async function updateLeagueTrustHistory(db, matches) {
     if (!matches || matches.length === 0) return;
 
-    const leaguesToUpdate = {}; // leagueName -> { won, lost, tips }
+    // 🔥 Professional Cleaner (v12.1): Load registry for ID-to-Name canonicalization
+    const registry = await LocalDB.getAllLeagueMappings();
+    const idToName = {};
+    const nameToId = {};
+    registry.forEach(r => {
+        if (r.leagueId) {
+            const canonical = r.name.toLowerCase().trim();
+            idToName[parseInt(r.leagueId)] = canonical;
+            nameToId[canonical] = parseInt(r.leagueId);
+        }
+    });
+
+    const leaguesToUpdate = {}; // canonicalName -> { won, lost, tips }
 
     matches.forEach(m => {
         if (!m.lega || !m.risultato || !m.tip) return;
+        const normalizedLega = normalizeLega(m.lega); // current name
+
+        // Risoluzione Nome Canonico (ID-Centric)
+        let canonicalName = normalizedLega;
+        const leagueId = m.leagueId || nameToId[normalizedLega];
+        if (leagueId && idToName[leagueId]) {
+            canonicalName = idToName[leagueId];
+        }
+
         // Normalizzazione Tip per compatibilità con evaluateTipLocally
         const result = window.evaluateTipLocally(m.tip, m.risultato);
         if (!result) return;
 
-        if (!leaguesToUpdate[m.lega]) {
-            leaguesToUpdate[m.lega] = { won: 0, total: 0 };
+        if (!leaguesToUpdate[canonicalName]) {
+            leaguesToUpdate[canonicalName] = { won: 0, total: 0 };
         }
 
-        leaguesToUpdate[m.lega].total++;
-        if (result === 'Vinto') leaguesToUpdate[m.lega].won++;
+        leaguesToUpdate[canonicalName].total++;
+        if (result === 'Vinto') leaguesToUpdate[canonicalName].won++;
     });
 
     const operations = [];
