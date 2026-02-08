@@ -797,12 +797,15 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     const isAIPick = isMagiaAI || isSpecialAI;
     const isMagia = stratId === 'magia_ai';
 
-    // 🏆 REGOLA D'ORO (Socio's Protocol): Il settore di salvataggio decide il tipo.
-    // Se è nel Trading Box (Hub source=TRADING), card ricca. Altrimenti card normale.
+    // 🏆 REGOLA D'ORO (Socio's Protocol): L'identità della card è blindata.
+    // Se è stata classificata come Trading alla mattina, resta Trading SEMPRE. 
+    // Non permettiamo al "Live Hub" di declassarla a Betting cambiando la sorgente.
     let isTrading = window.isTradingPick(match) || options.isTrading;
+    /* 
     if (liveHubData && liveHubData.source) {
         isTrading = (liveHubData.source === 'TRADING');
     }
+    */
 
     // 🏆 CUP DETECTION (Socio's Protocol): Hide rankings for Cups/Finals
     const cupKeywords = ['cup', 'coppa', 'trofeo', 'fa cup', 'copa', 'final', 'supercup', 'supercoppa', 'super cup', 'qualifiers', 'play-off', 'friendlies', 'friendly', 'international', 'spareggio'];
