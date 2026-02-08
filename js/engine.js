@@ -1509,21 +1509,22 @@ function transformToTradingStrategy(match, allMatches) {
         const eloDiffValue = Math.round(eloDiff);
 
         // 1. Sintesi per la Card (Veloce, "Bodywork")
-        result.expertNarrative = `${result.reasoning} ${badges.length > 0 ? 'Spinta motivazionale rilevata.' : ''}`;
+        const badgeList = badges.map(b => typeof b === 'object' ? (b.text || JSON.stringify(b)) : b).join(', ');
+        result.expertNarrative = `${result.reasoning} ${badgeList.length > 0 ? `Contesto: ${badgeList}.` : ''}`;
 
         // 2. Briefing Tecnico per euGENIO (Il "Motore" profondo)
-        result.internalBrief = `BRIEFING TECNICO PER EUGENIO:
-Match: ${match.partita} (${match.lega})
+        result.internalBrief = `BRIEFING TECNICO EUGENIO:
+Partita: ${match.partita} (${match.lega})
 Strategia Suggerita: ${result.strategy}
 Confidenza: ${result.confidence}%
 Timing Operativo: ${result.tradingInstruction.entry.timing}
 Analisi Tecnica:
-- ELO Difference: ${eloDiffValue} (Vantaggio ${eloDiffValue > 0 ? 'Casa' : 'Ospite'})
-- Badges Motivazionali: ${badges.join(', ') || 'Nessuno'}
-- HT Probability: ${htProb}%
-- Valore Generatore (Score): ${score}
+- Differenza ELO: ${eloDiffValue} (Vantaggio ${eloDiffValue > 0 ? 'Casa' : 'Ospite'})
+- Segnali Motivazionali: ${badgeList || 'Nessuno'}
+- Probabilità HT: ${htProb}%
+- Valore AI (Score): ${score}
 Razionale Tattico: ${result.reasoning}
-Note Operative: Entrare nell'entry range suggerito. Se la pressione cala prima del target, valutare uscita anticipata.`;
+Note Operative: Seguire l'entry range. Valutare uscita anticipata se la pressione cala.`;
 
         result.tradingInstruction.entryRangeText = `@${result.tradingInstruction.entry.range[0].toFixed(2)}-${result.tradingInstruction.entry.range[1].toFixed(2)} (${result.tradingInstruction.entry.timing})`;
 
@@ -1556,9 +1557,10 @@ function calculateAllTradingStrategies(match, allMatches) {
     const teams = (match.partita || "").split(' - ');
 
     // Prep Briefing data
-    const badges = magicData?.motivationBadges || [];
-    const eloDiff = magicData?.eloDiff || 0;
-    const briefingBase = `\n- ELO Diff: ${eloDiff}\n- Badges: ${badges.join(', ') || 'Nessuno'}\n- HT Goal Prob: ${htProb}%`;
+    const badgesRaw = magicData?.motivationBadges || [];
+    const badges = badgesRaw.map(b => typeof b === 'object' ? (b.text || JSON.stringify(b)) : b);
+    const eloDiff = Math.round(magicData?.eloDiff || 0);
+    const briefingBase = `\n- Differenza ELO: ${eloDiff}\n- Segnali: ${badges.join(', ') || 'Nessuno'}\n- Probabilità HT: ${Math.round(htProb)}%`;
 
     const qualified = [];
 
@@ -1606,7 +1608,7 @@ function calculateAllTradingStrategies(match, allMatches) {
                     exitTarget: s.tradingInstruction?.exit || null,
                     reasoning: s.reasoning || null,
                     expertNarrative: `${s.reasoning} Analisi gap tecnico inclusa.`,
-                    internalBrief: `BRIEFING TECNICO: Lay The Draw. ${briefingBase}\n- Draw Prob (MC): ${mcDrawProb}%\n- Storico Pari: ${avgHistDraw}%\nRazionale: ${s.reasoning}`,
+                    internalBrief: `BRIEFING TECNICO: Lay The Draw. ${briefingBase}\n- Draw Prob (MC): ${Math.round(mcDrawProb)}%\n- Storico Pari: ${Math.round(avgHistDraw)}%\nRazionale: ${s.reasoning}`,
                     tradingInstruction: s.tradingInstruction
                 });
             }
@@ -1629,7 +1631,7 @@ function calculateAllTradingStrategies(match, allMatches) {
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
                 expertNarrative: `${s.reasoning} Attesa spinta offensiva.`,
-                internalBrief: `BRIEFING TECNICO: Second Half Surge. ${briefingBase}\n- Value Score: ${score}\n- Prob Totale: ${prob}%\nRazionale: ${s.reasoning}`,
+                internalBrief: `BRIEFING TECNICO: Second Half Surge. ${briefingBase}\n- Value Score: ${Math.round(score)}\n- Prob Totale: ${Math.round(prob)}%\nRazionale: ${s.reasoning}`,
                 tradingInstruction: s.tradingInstruction
             });
         }
@@ -1649,7 +1651,7 @@ function calculateAllTradingStrategies(match, allMatches) {
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
                 expertNarrative: `${s.reasoning} Ritmo controllato.`,
-                internalBrief: `BRIEFING TECNICO: Under 3.5 Scalping. ${briefingBase}\n- Under Prob: ${under35Prob}%\nRazionale: ${s.reasoning}`,
+                internalBrief: `BRIEFING TECNICO: Under 3.5 Scalping. ${briefingBase}\n- Under Prob: ${Math.round(under35Prob)}%\nRazionale: ${s.reasoning}`,
                 tradingInstruction: s.tradingInstruction
             });
         }

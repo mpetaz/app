@@ -193,6 +193,20 @@ Rispondi come un analista professionista, usando i dati sopra citati per giustif
 // ==================== HYBRID INTELLIGENCE: REAL-TIME ALERTS ====================
 let notifiedMatches = new Set(); // Session-based cache to avoid duplicate alerts
 
+// Helper to send Telegram alerts via Cloud Function
+window.sendTelegramAlert = async function (matchName, message) {
+    try {
+        const userId = auth?.currentUser?.uid;
+        if (!userId) return;
+
+        const sendFn = httpsCallable(functions, 'sendTelegramNotification');
+        await sendFn({ userId: userId, message: `🧞‍♂️ *euGENIO ALERT* - ${matchName}\n\n${message}` });
+        console.log(`[Telegram] ✅ Alert sent for ${matchName}`);
+    } catch (err) {
+        console.warn(`[Telegram] ❌ Failed to send alert:`, err);
+    }
+};
+
 window.checkTradingHybridAlerts = function (picks) {
     if (!picks || picks.length === 0) return;
 
@@ -205,14 +219,27 @@ window.checkTradingHybridAlerts = function (picks) {
         const totalGoals = scH + scA;
 
         // Unique ID for this specific alert window (match + minute phase)
-        const alertId = `${p.partita}_${minute > 45 ? '2T' : '1T'}_${p.strategy}`;
+        const stratSuffix = p.strategy ? (p.strategy?.id || p.strategy) : 'GEN';
+        const alertId = `${p.partita}_${minute > 45 ? '2T' : '1T'}_${stratSuffix}`;
 
         if (notifiedMatches.has(alertId)) return;
 
         let triggerAlert = false;
         let alertMsg = "";
 
-        // Logic based on Strategy Templates
+        // 1. DYNAMIC ODDS-BASED LOGIC (Real-Time Tactics)
+        // If the briefing contains a specific target entry, we track it
+        const brief = p.internalBrief || p.expertNarrative || p.reasoning || "";
+        if (brief.includes('[euGENIO LIVE')) {
+            const targetMatch = brief.match(/scenda a @?([\d\.]+)/) || brief.match(/sale a @?([\d\.]+)/);
+            if (targetMatch && targetMatch[1]) {
+                const targetOdd = parseFloat(targetMatch[1]);
+                // We'd need current live odds here. If not available, we skip this part
+                // For now, let's stick to time-based but with improved messaging
+            }
+        }
+
+        // 2. STRATEGY-BASED TRIGGERS
         if (p.strategy === 'HT_SNIPER' && minute >= 12 && minute <= 22 && totalGoals === 0) {
             triggerAlert = true;
             alertMsg = `Socio, siamo nella finestra **HT SNIPER**. Pressione costante, entriamo Over 0.5 HT se la quota è @1.55+.`;
@@ -227,6 +254,9 @@ window.checkTradingHybridAlerts = function (picks) {
         if (triggerAlert) {
             notifiedMatches.add(alertId);
             window.showEugenioSpeechBubble(p, alertMsg);
+
+            // 🔥 Push to Telegram too!
+            window.sendTelegramAlert(p.partita, alertMsg);
         }
     });
 };
