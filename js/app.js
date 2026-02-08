@@ -405,6 +405,8 @@ window.getLiveTradingAnalysis = async function (matchId) {
         alert("Dati match non trovati in memoria. Provo comunque a generare un'analisi basica... 🧞‍♂️");
     }
 
+    const finalMatchName = match?.partita || match?.matchName || matchName;
+
     // Extract data - handle multiple formats (Trading picks vs Live Hub)
     const elapsed = (match?.elapsed || match?.liveData?.elapsed || match?.minute || '0').toString().replace("'", "");
     const score = match?.score || match?.liveData?.score || match?.risultato || "0-0";
@@ -459,35 +461,32 @@ window.getLiveTradingAnalysis = async function (matchId) {
 - Timing: ${t.timing || match.timing || 'N/A'}`;
     }
 
-    const visibleQuestion = `euGENIO 🧞‍♂️, fammi un'analisi live di questo match: **${matchName}**`;
+    const visibleQuestion = `euGENIO 🧞‍♂️, fammi un'analisi live di questo match: **${finalMatchName}**`;
     const userName = (typeof getUserName === 'function') ? getUserName() : "Socio";
 
-    const hiddenDetailedPrompt = `Sei euGENIO, analista professionista di betting e trading sportivo.
+    const hiddenDetailedPrompt = `Sei euGENIO, Socio e Analista Pro.
+MATCH: ${finalMatchName}
+TEMPO: ${elapsed}' (Se è 0' o NS -> PRE-MATCH. Ignora dati live a zero.)
+RISULTATO: ${score}
+TIPO CARD: ${cardType}
+DATI CARD:
+- LIVELLO AUTORITÀ: ${authStatus} (SE È "ELITE GOLD" O "MAGIA", CITATO SUBITO COME FATTORE CHIAVE!)
+- Consiglio Betting (DA CARD): ${match?.tip || match?.magiaTip || match?.dbTip || match?.prediction || 'N/A'}${match?.confidence ? ` (${match.confidence}%)` : ''}
+- Consiglio Trading (DA CARD): ${match?.strategy || 'N/A'}${tradingDetails}
 
-**CONTESTO:** Stai analizzando una **${cardType}**.
+DATI LIVE (Solo se match iniziato):
+- xG: ${xg} | Press: ${stats.pressureValue}% | SOG: ${sog}
+- ELO Diff: ${Math.abs((match?.elo_home || 0) - (match?.elo_away || 0))}
 
-**DATI TECNICI DEL MATCH:**
-- Match: ${matchName}
-- Status Autorità: ${authStatus}${eloInfo}${ranking}${motivation}
-- Minuto: ${elapsed}' | Risultato: ${score} | Status: ${status}
-- Pressione Gol: ${stats.pressureValue || 'N/A'}%
-- Strategia/Tip: ${match?.strategy || match?.label || 'Monitoraggio'} | ${match?.tip || ''}${tradingDetails}
-- xG: ${xg} | SOG: ${sog} | Tiri Totali: ${totalShots}
-- Tiri in Area: ${shotsInside} | Corner: ${corners} | Possesso: ${pos}${eventsText}
-
-**FILOSOFIA SOCIO (ENGINE v5.0):**
-- Siamo nemici dei "Cigni Neri" (quote < 1.25).
-- Ogni Consiglio (Parlay) rispetta le nostre soglie di rischio.
-- Sii critico se i dati non supportano il pronostico della card.
-
-**STILE DI RISPOSTA:**
+**REGOLE FERREE:**
 1. Inizia con: "Ok ${userName}:"
-2. **Vai DRITTO AL PUNTO**. Evita preamboli tipo "Analizzando i dati..." o "Sulla base delle statistiche...".
-3. Usa i dati (xG, Tiri in Area, Corner, SOG) per la tua analisi.
-4. **VERDICT CHIARO**: Entra/Esci/Attendi/Cashout + motivazione.
-5. **COMMENTO CARD**: Valuta se l'Ingresso/Uscita previsto sulla card è ancora valido o se bisogna cambiare piano.
-6. Sii professionale ma anche **coinvolgente**. Sei un Socio esperto, non un robot.
-7. Libertà di espressione: parla quanto serve, ma non dilungarti se non necessario.`;
+2. **ANALISI CONTESTUALE**:
+   - Se PRE-MATCH (0' o NS): Ignora xG/SOG. Analizza SOLO valore ELO, Badges e perché la card è **${authStatus}** (cita se è GOLD/MAGIA).
+   - Se LIVE: Analizza la pressione e i dati reali.
+3. **CITA BETTING E TRADING**: Dimmi cosa fare sia per la bet semplice (${match?.tip || 'N/A'}) che per il trading.
+4. **NO DIDATTICA**: Non spiegare le strategie.
+5. **VERDICT SECCO**: Entra / Attendi / Esci.
+6. **STILE**: Professionale, diretto, max 3 paragrafi brevi.`;
 
 
 
@@ -834,45 +833,42 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // Style Configuration
     let headerClass = 'bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950';
     let headerIcon = '<i class="fa-solid fa-futbol"></i>';
-    let headerTitle = 'Analisi Match';
+    let headerTitle = 'BETTING';
 
     if (isMagia) {
         headerClass = 'bg-slate-100 border-b border-slate-200';
         headerIcon = '<i class="fa-solid fa-microchip text-indigo-500"></i>';
-        headerTitle = 'Magia AI Scanner';
+        headerTitle = 'MAGIA AI SCANNER';
     } else if (isTrading) {
+        headerTitle = 'TRADING'; // ⚡ SOCIO: Clean Title
         switch (match.strategy) {
             case 'BACK_OVER_25':
                 headerClass = 'bg-gradient-to-r from-purple-600 to-blue-600';
                 headerIcon = '📊';
-                headerTitle = 'Trading: BACK OVER 2.5';
                 break;
             case 'LAY_THE_DRAW':
             case 'LAY_DRAW':
                 headerClass = 'bg-gradient-to-r from-orange-500 to-red-500';
                 headerIcon = '🎯';
-                headerTitle = 'Trading: LAY THE DRAW';
                 break;
             case 'HT_SNIPER':
                 headerClass = 'bg-gradient-to-r from-red-600 to-rose-700 animate-pulse';
                 headerIcon = '🎯';
-                headerTitle = 'HT SNIPER';
                 break;
             case 'SECOND_HALF_SURGE':
                 headerClass = 'bg-gradient-to-r from-orange-600 to-amber-700';
                 headerIcon = '🔥';
-                headerTitle = '2ND HALF SURGE';
                 break;
             case 'UNDER_35_SCALPING':
                 headerClass = 'bg-gradient-to-r from-emerald-600 to-teal-700';
                 headerIcon = '🛡️';
-                headerTitle = 'Trading: UNDER SCALPING';
                 break;
             default:
-                headerClass = 'bg-gradient-to-r from-indigo-600 to-blue-700';
+                headerClass = 'bg-gradient-to-r from-gray-700 to-gray-800';
                 headerIcon = '📈';
-                headerTitle = 'Trading Sportivo';
         }
+    } else {
+        headerTitle = 'BETTING'; // ⚡ SOCIO: Clean Title
     }
 
     const card = document.createElement('div');
@@ -975,6 +971,10 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     ${!isCupMatch ? `<span class="bg-indigo-500 text-white px-1.5 py-0.5 rounded text-xs font-black shadow-sm">${rankingValue}</span>` : ''}
                 </div>
                 <div class="flex items-center gap-2">
+                    <button onclick="event.stopPropagation(); window.getLiveTradingAnalysis('${matchId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs font-bold transition flex items-center gap-1.5 shadow-md border border-indigo-700" title="Chiedi a euGENIO">
+                        <span class="text-xs">🧞‍♂️</span>
+                        <span class="text-[9px] uppercase font-black tracking-wider">euGENIO Live</span>
+                    </button>
                     ${match.ora ? `<div class="text-slate-400 text-xs font-bold flex items-center gap-1"><i class="fa-regular fa-clock"></i> ${match.ora}</div>` : ''}
                     ${flagBtnHTML}
                 </div>
@@ -989,7 +989,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     ${!isCupMatch ? rankingBadgeHTML : ''}
                 </div>
                 <div class="flex items-center gap-2">
-                    ${match.ora ? `<span class="text-xs bg-white/20 px-2 py-0.5 rounded font-bold">⏰ ${match.ora}</span>` : ''}
+                    <button onclick="event.stopPropagation(); window.getLiveTradingAnalysis('${matchId}')" class="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded text-xs font-bold transition flex items-center gap-1.5 shadow-sm border border-white/10" title="Chiedi a euGENIO">
+                        <span class="text-xs">🧞‍♂️</span>
+                        <span class="text-[9px] uppercase font-black tracking-wider">euGENIO Live</span>
+                    </button>
+                    ${match.ora ? `<span class="text-xs bg-white/20 px-2 py-0.5 rounded font-bold flex items-center gap-1"><i class="fa-regular fa-clock"></i> ${match.ora}</span>` : ''}
                     ${flagBtnHTML}
                 </div>
                 ${isLive && isTrading ? `
@@ -1412,10 +1416,6 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                     </div>
                 </div>
                 
-                <!-- Live Insight Button -->
-                <button onclick="window.getLiveTradingAnalysis('${matchId}')" class="w-full mt-2 bg-indigo-100 text-indigo-700 py-2 rounded-lg text-xs font-bold hover:bg-indigo-200 transition flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-brain"></i> euGENIO LIVE INSIGHT
-                </button>
             </div>
         `;
     } else if (isTrading) {
@@ -3405,8 +3405,8 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
         ${extraDecoration}
         
         <!-- Search Icon Trigger (Top Right) -->
-        <div class="absolute top-4 right-4 z-30 opacity-60 hover:opacity-100 hover:scale-120 transition-all search-trigger p-2" title="Cerca in questa categoria">
-            <i class="fa-solid fa-magnifying-glass text-lg shadow-sm"></i>
+        <div class="absolute top-3 right-3 z-30 opacity-100 hover:scale-110 transition-all search-trigger p-3 bg-black/20 rounded-full backdrop-blur-sm border border-white/10 flex items-center justify-center shadow-lg" title="Cerca in questa categoria">
+            <i class="fa-solid fa-magnifying-glass text-2xl drop-shadow-md text-white"></i>
         </div>
         
         <div class="relative z-20 flex items-center justify-between w-full">
@@ -3549,8 +3549,8 @@ window.renderLiveHubCard = function (match) {
 window.showRanking = function (stratId, data, sortMode = 'confidence') {
     if (!stratId) return;
 
-    // VIRTUAL STRATEGIES: Italia/Europa/Mondo don't need external data
-    const isVirtualStrategy = ['italia', 'europa', 'mondo'].includes(stratId);
+    // VIRTUAL STRATEGIES: Italia/Europa/Mondo/Africa don't need external data
+    const isVirtualStrategy = ['italia', 'europa', 'mondo', 'africa'].includes(stratId);
 
     // If strat is missing, try to recover from global data (but skip for virtual strategies)
     if (!data && !isVirtualStrategy) data = window.strategiesData[stratId] || window.strategiesData['all'];
@@ -3577,15 +3577,16 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
 
     if (filterBar) {
         const italiaFilters = document.getElementById('filters-italia');
-        if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia' || stratId === 'top_del_giorno') {
+        if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia' || stratId === 'africa' || stratId === 'top_del_giorno') {
             filterBar.classList.remove('hidden');
             if (europaFilters) europaFilters.classList.toggle('hidden', stratId !== 'europa');
             if (italiaFilters) italiaFilters.classList.toggle('hidden', stratId !== 'italia');
-            if (mondoFilters) mondoFilters.classList.toggle('hidden', stratId !== 'mondo');
+            if (mondoFilters) mondoFilters.classList.toggle('hidden', stratId !== 'mondo' && stratId !== 'africa');
 
             if (stratId === 'europa') titleNode.textContent = '🇪🇺 Europa & AI';
             else if (stratId === 'italia') titleNode.textContent = '🇮🇹 Calcio Italiano';
             else if (stratId === 'mondo') titleNode.textContent = '🌎 Resto del Mondo';
+            else if (stratId === 'africa') titleNode.textContent = '🌍 Calcio Africa';
             else titleNode.textContent = '🚀 TRADING TOP';
         } else {
             filterBar.classList.add('hidden');
@@ -3595,7 +3596,7 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
 
     // BASE FILTERING (Italia vs Europa vs Mondo)
     let filtered = [];
-    if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia') {
+    if (stratId === 'europa' || stratId === 'mondo' || stratId === 'italia' || stratId === 'africa') {
         filtered = getUnifiedMatches();
     } else {
         filtered = [...(data.matches || [])];
@@ -3609,7 +3610,9 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
             return l.toLowerCase().startsWith('eu-') && !l.toLowerCase().startsWith('eu-ita');
         });
     } else if (stratId === 'mondo') {
-        filtered = filtered.filter(m => (m.lega || '') !== '' && !(m.lega || '').toLowerCase().startsWith('eu-'));
+        filtered = filtered.filter(m => (m.lega || '') !== '' && !(m.lega || '').toLowerCase().startsWith('eu-') && !(m.lega || '').toLowerCase().startsWith('af-'));
+    } else if (stratId === 'africa') {
+        filtered = filtered.filter(m => (m.lega || '').toLowerCase().startsWith('af-'));
     }
 
     // SUB-FILTERING (Italiane, Coppe, AI, etc.)
@@ -4129,16 +4132,15 @@ ${eugenioPromptCache?.additionalContext || ''}
 ${eugenioPromptCache?.tradingKnowledge || ''}
 
 ** REGOLE COMUNICAZIONE:**
-    1. Conversazione normale: saluta ${userName} solo al primo messaggio
-2. Analisi Profonda Live:
-- Inizia con "Ok ${userName}:"
-    - NO presentazioni, NO saluti ripetuti
-        - Vai dritto ai dati e alle indicazioni
-3. NON ripetere mai dati visibili(minuto, punteggio)
-4. SPIEGA SEMPRE il PERCHÉ basandoti sui dati tecnici
-5. Usa linguaggio professionale ma empatico
-6. NO limiti di lunghezza - scrivi tutto quello che serve
-7. Chiudi con indicazione operativa chiara e motivata`;
+1. Saluta ${userName} solo al primo messaggio della sessione.
+2. **ANALISI NARRATIVA (PRO)**: Non limitarti a ripetere i numeri sterili (es. non dire "ELO 0").
+   - Spiega IL PERCHÉ della scelta (es. "Il Bologna è in forma nelle ultime 5, mentre il Parma fatica fuori casa").
+   - Usa i dati (Classifica, Forma, Probabilità) per argomentare il consiglio.
+   - Dai valore aggiunto che l'utente non vede a colpo d'occhio.
+3. **STILE DI SCRITTURA**: Professionale, fluido, ma diretto. Niente giri di parole inutili.
+4. **NO DIDATTICA BASICA**: Non spiegare le regole del gioco, ma spiega la STRATEGIA applicata a QUESTA partita.
+5. **VERDETTI CHIARI**: Concludi sempre con un consiglio operativo motivato (es. "Ottima base per multipla data la probabilità del 79%").
+6. **MAX 3 PARAGRAFI**: Sii denso di contenuto ma breve nella forma.`;
 
 
 
@@ -4154,7 +4156,7 @@ ${eugenioPromptCache?.tradingKnowledge || ''}
 
             if (!hasWelcomed) {
                 const welcomeMsg = `Ciao ${getUserName()} ! 👋 Sono euGENIO 🧞‍♂️. Come posso aiutarti oggi ? `;
-                appendMessage(welcomeMsg, 'ai');
+                typewriterMessage(welcomeMsg, 'ai');
                 hasWelcomed = true;
             }
         } else {
@@ -4234,7 +4236,8 @@ ${eugenioPromptCache?.tradingKnowledge || ''}
             chatHistory.push({ role: "model", parts: [{ text: responseText }] });
 
             const htmlText = responseText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
-            appendMessage(htmlText, 'ai'); // Typewriter disabled for now to prevent flickering
+            // 🔥 SOCIO UPDATE: Use Typewriter effect for AI responses
+            typewriterMessage(htmlText, 'ai');
 
         } catch (err) {
             const loading = document.getElementById('ai-loading');
@@ -5033,8 +5036,8 @@ function applyInternalFiltering(matches, filter) {
     }
 
     if (filter === 'ai') {
-        // AI Choices (Special AI + Magia AI) - Precise flags from getUnifiedMatches
-        return matches.filter(m => m.isSpecialAI || m.isMagiaAI);
+        // AI Choices (Special AI + Magia AI + Winrate 80)
+        return matches.filter(m => m.isSpecialAI || m.isMagiaAI || m.isWinrate80);
     }
 
     return matches;
@@ -5089,11 +5092,16 @@ function updateEntry(entry, id, m) {
     }
     if (m.magicStats && !entry.magicStats) entry.magicStats = m.magicStats;
 
+    // AI Visibility Flags
+    if (id === 'winrate_80') entry.isWinrate80 = true;
+    if (id === '___magia_ai') entry.isSpecialAI = true;
+    if (id === 'magia_ai_raw') entry.isMagiaAI = true;
+
     // Logical insights
     const why = m.why || m.spiegazione || m.insight || "";
     if (why && !(entry.why || entry.spiegazione || entry.insight)) entry.why = why;
 
-    // 🏆 TRADING SUPREMACY 🏆
+    // 🏆 TRADING SIGNAL (top_del_giorno > all)
     const isTradingSource = (id === 'top_del_giorno' || m.isTrading === true);
     if (isTradingSource) {
         entry.isTrading = true;
@@ -5101,44 +5109,41 @@ function updateEntry(entry, id, m) {
         if (m.strategy) entry.strategy = m.strategy;
     }
 
-    // 🏆 MAGIA AI SUPREMACY PROTOCOL 🏆
-    const isMagia = id === 'magia_ai_raw';
-    const isSpecialAI = id === '___magia_ai';
-    const isGeneric = !isMagia && !isSpecialAI && !isTradingSource;
 
-    // If Magia AI already spoke, prevent generic strategies from overwriting core fields
-    if (entry.isMagiaAI && !isMagia) {
-        if (m.tradingInstruction && !entry.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
-        return;
-    } else if (isSpecialAI || isMagia) {
-        // PROTOCOLLO CONSENSO: isMagiaAI/isSpecialAI activated only if tip matches 'all'
-        const baseMatch = window.strategiesData?.['all']?.matches?.find(ref => window.getMantraId(ref) === String(m.fixtureId));
-        const baseTip = (baseMatch?.tip || '').toUpperCase().trim();
-        const aiTip = (m.tip || m.magicStats?.tipMagiaAI || '').toUpperCase().trim();
-
-        if (baseTip && aiTip && baseTip === aiTip && baseTip !== '-') {
-            if (isMagia) entry.isMagiaAI = true;
-            if (isSpecialAI) entry.isSpecialAI = true;
-
-            entry.magiaTip = m.tip;
-            entry.tip = m.tip;
-            if (m.quota) entry.quota = m.quota;
-            if (m.confidence) entry.confidence = m.confidence;
-            if (m.score) entry.score = m.score;
-            if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
-        }
-    } else if (isGeneric) {
-        entry.dbTip = m.tip;
-        // SOCIO: Only allow real Tips to overwrite. If current is '-' or empty, take the new one.
-        const currentTip = (entry.tip || '').trim();
-        if (!currentTip || currentTip === '-') entry.tip = m.tip;
-
-        if (!entry.quota || entry.quota === '-') entry.quota = m.quota;
-        if (m.confidence && !entry.confidence) entry.confidence = m.confidence;
-        if (m.probabilita && !entry.probabilita) entry.probabilita = m.probabilita;
+    // 👑 GERARCHIA SUPREMA TIP/ODDS/PROB 👑
+    // 1. STRATEGIA 'ALL' COMANDA SU TUTTO (Master Source)
+    if (id === 'all') {
+        entry.tip = m.tip; // TIP MASTER
+        entry.quota = m.quota; // BASE ODDS
+        entry.confidence = m.confidence; // BASE CONFIDENCE
+        entry.probabilita = m.probabilita;
+        entry.dbTip = m.tip; // Keep track as dbTip too
+        // Esito calculations for coloring cards
+        if (m.esito) entry.esito = m.esito;
+        if (m.risultato) entry.risultato = m.risultato;
     }
 
-    // Cumulative fallback for missing basics
-    if (!entry.confidence && m.confidence) entry.confidence = m.confidence;
-    if (!entry.probabilita && m.probabilita) entry.probabilita = m.probabilita;
+    // 2. MAGIA AI PRO (magia_ai_raw) - Può aggiornare SOLO QUOTA/PROB se il TIP coincide
+    else if (id === 'magia_ai_raw') {
+        // Normalizza tips per confronto
+        const masterTip = (entry.tip || "").toUpperCase().trim();
+        const aiTip = (m.tip || "").toUpperCase().trim();
+
+        // Se entry.tip è vuoto (non ancora processato 'all') o coincide
+        if (!masterTip || masterTip === aiTip) {
+            // Se 'all' non è ancora arrivato, prendiamo tutto temporaneamente
+            if (!masterTip) entry.tip = m.tip;
+
+            // AGGIORNAMENTO DATI DA AI (Più recenti/validi)
+            if (m.quota && m.quota !== '-') entry.quota = m.quota;
+            if (m.confidence) entry.confidence = m.confidence;
+            if (m.probabilita) entry.probabilita = m.probabilita;
+
+            // Flag Magia
+            entry.isMagiaAI = true;
+        }
+    }
+
+    // 3. TUTTE LE ALTRE (winrate_80, top_eu, ecc.) - NON TOCCANO DATA CORE (Tip/Quota/Prob)
+    // Servono solo per accendere flag o aggiungere metadati (già gestiti sopra)
 }
