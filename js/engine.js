@@ -1038,6 +1038,17 @@ function createBackOver25Strategy(match, htProb, allMatches) {
 
 // Helper: Crea strategia HT SNIPER (0.5 HT Live)
 function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
+    const magicData = match.magicStats;
+    const badges = magicData?.motivationBadges || [];
+    const isTitleRace = badges.includes('🏆 Corsa Titolo');
+
+    // Dimamizza Entry & Stop Loss
+    let entryTiming = 'Minuto 15-20';
+    let stopLossTime = 'Fine 1° Tempo';
+
+    if (htProb >= 80) entryTiming = 'Minuto 10-15 (Aggressive)';
+    if (isTitleRace) stopLossTime = 'Intervallo';
+
     return {
         ...match,
         _originalTip: match.tip || 'N/A',
@@ -1046,8 +1057,8 @@ function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
         tradingInstruction: {
             action: 'Back Over 0.5 HT',
             entry: {
-                range: [1.50, 2.00],
-                timing: 'Minuto 15-20'
+                range: [1.50, 2.05],
+                timing: entryTiming
             },
             exit: {
                 target: 1.10,
@@ -1055,11 +1066,12 @@ function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
             },
             stopLoss: {
                 trigger: 1.01,
-                timing: 'Fine 1° Tempo'
+                timing: stopLossTime
             }
         },
         confidence: forcedConfidence || Math.min(95, htProb),
-        reasoning: `ALTA PROBABILITÀ GOL 1°T (${htProb}%). Se 0-0 al minuto 20, la quota diventa di estremo valore.`,
+        reasoning: `ALTA PROBABILITÀ GOL 1°T (${htProb}%). ` +
+            (htProb >= 80 ? "Avvio previsto a ritmi altissimi." : "Se 0-0 al minuto 20, la quota diventa di estremo valore."),
         badge: {
             text: '🎯 HT SNIPER',
             color: 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse'
@@ -1070,6 +1082,13 @@ function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
 // Helper: Crea strategia SECOND HALF SURGE (0.5 ST)
 function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = null) {
     const prob = match.magicStats?.prob || match.probabilita || 65;
+    const badges = match.magicStats?.motivationBadges || [];
+    const isRelegation = badges.includes('🆘 Lotta Salvezza');
+
+    // Dinamizza Entry
+    let timing = 'Minuto 55-65';
+    if (isRelegation) timing = 'Minuto 65-75 (Late Surge)';
+
     return {
         ...match,
         _originalTip: match.tip || 'N/A',
@@ -1078,8 +1097,8 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
         tradingInstruction: {
             action: 'Back Over 0.5 ST',
             entry: {
-                range: [1.60, 2.00],
-                timing: 'Minuto 55-65'
+                range: [1.60, 2.10],
+                timing: timing
             },
             exit: {
                 target: 1.10,
@@ -1091,7 +1110,8 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
             }
         },
         confidence: forcedConfidence || Math.min(95, prob),
-        reasoning: `Match ad alta intensità statistica. Ottimo per sfruttare il calo delle quote nel secondo tempo tra il minuto 60 e 80.`,
+        reasoning: `Match ad alta intensità statistica (${prob}%). ` +
+            (isRelegation ? "Possibile sblocco tardivo dovuto alla tensione salvezza." : "Ottimo per sfruttare il calo delle quote tra il min 60 e 80."),
         badge: {
             text: '🔥 SEC HALF SURGE',
             color: 'bg-orange-600 text-white border-orange-700 shadow-sm'
@@ -1102,6 +1122,13 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
 // Helper: Crea strategia LAY THE DRAW
 function createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, isHighProb = false, forcedConfidence = null) {
     const mcDrawProb = match.magicStats?.drawProb || match.magicStats?.draw || 30;
+    const badges = match.magicStats?.motivationBadges || [];
+    const isDirectClash = badges.includes('⚔️ Scontro Diretto');
+
+    // Dinamizza Entry
+    let entryTiming = 'Live @ 15-20 min';
+    if (isDirectClash) entryTiming = 'Live @ 25-30 min (Prudente)';
+
     return {
         ...match,
         _originalTip: match.tip || 'N/A',
@@ -1110,8 +1137,8 @@ function createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate
         tradingInstruction: {
             action: 'Lay The Draw',
             entry: {
-                range: [3.40, 4.50],
-                timing: 'Live @ 15-20 min'
+                range: [3.30, 4.60],
+                timing: entryTiming
             },
             exit: {
                 target: 2.00,
@@ -1123,7 +1150,9 @@ function createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate
             }
         },
         confidence: forcedConfidence || Math.min(95, 100 - mcDrawProb),
-        reasoning: `Alta probabilità segno (no pareggio) (${Math.round(100 - mcDrawProb)}%) + basso tasso pareggi storico (${avgHistDraw.toFixed(0)}%) + top campionato con pochi pareggi.`,
+        reasoning: `Analisi LTD (Risk Pareggio: ${Math.round(mcDrawProb)}%). ` +
+            (isDirectClash ? "Tensione da scontro diretto: ingresso posticipato per evitare il pari iniziale." : "Basso tasso pareggi storico rilevato.") +
+            (badges.length > 0 ? ` [Contesto: ${badges.join(', ')}]` : ""),
         badge: {
             text: '🎲 LAY THE DRAW',
             color: 'bg-blue-600 text-white border-blue-700 shadow-sm'
@@ -1437,16 +1466,29 @@ function transformToTradingStrategy(match, allMatches) {
         return null;
     }
 
-    // Ordina per confidence decrescente con Professional First Rule
+    // Ordina per confidence decrescente con Professional First Rule & Diversity Boost
     strategies.sort((a, b) => {
         const isAProf = ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'].includes(a.type);
         const isBProf = ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'].includes(b.type);
 
-        // Professional First: Se una professionale ha confidende > 70%, vince su HT Sniper non-eccelso
-        if (isAProf && !isBProf && a.confidence >= 70 && b.confidence < 90) return -1;
-        if (!isAProf && isBProf && b.confidence >= 70 && a.confidence < 90) return 1;
+        // professional penalty se LTD è già troppo frequente (simulato con un piccolo random se vicine)
+        let scoreA = a.confidence;
+        let scoreB = b.confidence;
 
-        return b.confidence - a.confidence;
+        // Piccola spinta a Over 2.5 e Surge per bilanciare LTD
+        if (a.type === 'BACK_OVER_25' || a.type === 'SECOND_HALF_SURGE') scoreA += 5;
+        if (b.type === 'BACK_OVER_25' || b.type === 'SECOND_HALF_SURGE') scoreB += 5;
+
+        // Professional Priority: Se una professionale ha confidende > 70%, vince su HT Sniper non-eccelso
+        if (isAProf && !isBProf && scoreA >= 70 && scoreB < 90) return -1;
+        if (!isAProf && isBProf && scoreB >= 70 && scoreA < 90) return 1;
+
+        // Divergence factor: se sono molto vicine (diff < 3%), introduciamo una piccola variabilità
+        if (Math.abs(scoreB - scoreA) < 3) {
+            return (Math.random() - 0.5);
+        }
+
+        return scoreB - scoreA;
     });
 
     const bestStrategy = strategies[0];
@@ -1462,14 +1504,36 @@ function transformToTradingStrategy(match, allMatches) {
     // Crea e ritorna la strategia vincente - PASSA LA CONFIDENCE PESATA
     const result = bestStrategy.create(bestStrategy.confidence);
     if (result) {
+        // 🔥 EXPERT NARRATIVE & INTERNAL BRIEF (Hybrid Intelligence)
+        const badges = magicData?.motivationBadges || [];
+        const eloDiffValue = Math.round(eloDiff);
+
+        // 1. Sintesi per la Card (Veloce, "Bodywork")
+        result.expertNarrative = `${result.reasoning} ${badges.length > 0 ? 'Spinta motivazionale rilevata.' : ''}`;
+
+        // 2. Briefing Tecnico per euGENIO (Il "Motore" profondo)
+        result.internalBrief = `BRIEFING TECNICO PER EUGENIO:
+Match: ${match.partita} (${match.lega})
+Strategia Suggerita: ${result.strategy}
+Confidenza: ${result.confidence}%
+Timing Operativo: ${result.tradingInstruction.entry.timing}
+Analisi Tecnica:
+- ELO Difference: ${eloDiffValue} (Vantaggio ${eloDiffValue > 0 ? 'Casa' : 'Ospite'})
+- Badges Motivazionali: ${badges.join(', ') || 'Nessuno'}
+- HT Probability: ${htProb}%
+- Valore Generatore (Score): ${score}
+Razionale Tattico: ${result.reasoning}
+Note Operative: Entrare nell'entry range suggerito. Se la pressione cala prima del target, valutare uscita anticipata.`;
+
+        result.tradingInstruction.entryRangeText = `@${result.tradingInstruction.entry.range[0].toFixed(2)}-${result.tradingInstruction.entry.range[1].toFixed(2)} (${result.tradingInstruction.entry.timing})`;
+
         // LIMITA A MAX 3 STRATEGIE per evitare "sempre le solite 2"
         const topStrategies = strategies.slice(0, 3);
 
         result._allPossibleStrategies = topStrategies.map(s => {
             const stratObj = s.create();
-            // Merge metadata with the full strategy object
             return {
-                ...stratObj, // Include instructions, badges, etc.
+                ...stratObj,
                 type: s.type,
                 confidence: s.confidence,
                 label: stratObj?.badge?.text || stratObj?.tradingInstruction?.action || s.type,
@@ -1491,19 +1555,18 @@ function calculateAllTradingStrategies(match, allMatches) {
     const score = magicData?.score || match.score || 0;
     const teams = (match.partita || "").split(' - ');
 
-    const qualified = [];
-
-    // ANALISI ELITE
+    // Prep Briefing data
     const badges = magicData?.motivationBadges || [];
-    const hasMotivation = badges.length > 0;
-    const isDirectClash = badges.includes('⚔️ Scontro Diretto');
-    const isTitleRace = badges.includes('🏆 Corsa Titolo');
-    const isRelegationFight = badges.includes('🆘 Lotta Salvezza');
+    const eloDiff = magicData?.eloDiff || 0;
+    const briefingBase = `\n- ELO Diff: ${eloDiff}\n- Badges: ${badges.join(', ') || 'Nessuno'}\n- HT Goal Prob: ${htProb}%`;
+
+    const qualified = [];
 
     // 1. BACK OVER 2.5
     const over25Prob = magicData?.over25 ? magicData.over25 : (magicData?.over25Prob || 0);
-    if (over25Prob >= 45 || score >= 60) {
-        const conf = Math.min(98, Math.round((over25Prob * 0.6) + (score * 0.4)) + 15 + (hasMotivation ? 5 : 0));
+    // v3.1: Increased weight of magic score for more dynamic over/surge picks
+    if (over25Prob >= 45 || score >= 55) {
+        const conf = Math.min(98, Math.round((over25Prob * 0.5) + (score * 0.5)) + 15 + (badges.length > 0 ? 8 : 0));
         const s = createBackOver25Strategy(match, htProb, allMatches, conf);
         if (s) {
             qualified.push({
@@ -1513,6 +1576,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
+                expertNarrative: `${s.reasoning} ${badges.length > 0 ? 'Analisi motivazionale attiva.' : ''}`,
+                internalBrief: `BRIEFING TECNICO: Back Over 2.5. ${briefingBase}\nRazionale: ${s.reasoning}`,
                 tradingInstruction: s.tradingInstruction
             });
         }
@@ -1524,11 +1589,12 @@ function calculateAllTradingStrategies(match, allMatches) {
         const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.teamIdAway);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
         const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
-        const isBiscottoRisk = isDirectClash && mcDrawProb > 33;
+        const isBiscottoRisk = (badges.includes('⚔️ Scontro Diretto') && mcDrawProb > 33);
 
         if ((mcDrawProb < 35 || avgHistDraw < 35) && !isBiscottoRisk) {
-            let conf = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3))) + 15;
-            if (isRelegationFight) conf += 5;
+            // v3.1: Normalized LTD confidence (reduced base bonus from +15 to +5 to allow competition)
+            let conf = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3))) + 5;
+            if (badges.includes('🆘 Lotta Salvezza')) conf += 5;
 
             const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 25 && avgHistDraw < 28, Math.min(95, conf));
             if (s) {
@@ -1539,6 +1605,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                     entryRange: s.tradingInstruction?.entry || null,
                     exitTarget: s.tradingInstruction?.exit || null,
                     reasoning: s.reasoning || null,
+                    expertNarrative: `${s.reasoning} Analisi gap tecnico inclusa.`,
+                    internalBrief: `BRIEFING TECNICO: Lay The Draw. ${briefingBase}\n- Draw Prob (MC): ${mcDrawProb}%\n- Storico Pari: ${avgHistDraw}%\nRazionale: ${s.reasoning}`,
                     tradingInstruction: s.tradingInstruction
                 });
             }
@@ -1546,8 +1614,11 @@ function calculateAllTradingStrategies(match, allMatches) {
     }
 
     // 3. SECOND HALF SURGE
-    if (score >= 55 && prob >= 50) {
-        const conf = Math.min(95, Math.round((score * 0.5) + (prob * 0.3) + 15) + 10);
+    // v3.0: Lowered threshold (score 50 instead of 55, prob 45 instead of 50) to allow more variety
+    if (score >= 50 && prob >= 45) {
+        let conf = Math.min(95, Math.round((score * 0.5) + (prob * 0.3) + 15) + 10);
+        if (badges.includes('🆘 Lotta Salvezza')) conf += 7;
+
         const s = createSecondHalfSurgeStrategy(match, allMatches, conf);
         if (s) {
             qualified.push({
@@ -1557,6 +1628,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
+                expertNarrative: `${s.reasoning} Attesa spinta offensiva.`,
+                internalBrief: `BRIEFING TECNICO: Second Half Surge. ${briefingBase}\n- Value Score: ${score}\n- Prob Totale: ${prob}%\nRazionale: ${s.reasoning}`,
                 tradingInstruction: s.tradingInstruction
             });
         }
@@ -1564,7 +1637,7 @@ function calculateAllTradingStrategies(match, allMatches) {
 
     // 4. UNDER 3.5 SCALPING
     const under35Prob = 100 - (over25Prob || 50) + 15;
-    if (under35Prob >= 60 && !hasMotivation) {
+    if (under35Prob >= 60 && badges.length === 0) {
         const conf = Math.min(90, Math.round(under35Prob * 0.7 + 15));
         const s = createUnder35TradingStrategy(match, conf);
         if (s) {
@@ -1575,6 +1648,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
+                expertNarrative: `${s.reasoning} Ritmo controllato.`,
+                internalBrief: `BRIEFING TECNICO: Under 3.5 Scalping. ${briefingBase}\n- Under Prob: ${under35Prob}%\nRazionale: ${s.reasoning}`,
                 tradingInstruction: s.tradingInstruction
             });
         }
@@ -1582,8 +1657,12 @@ function calculateAllTradingStrategies(match, allMatches) {
 
     // 5. HT SNIPER (Sempre per ultimo per sorpasso professional)
     const htGoalProb = magicData?.htGoalProb || htProb;
-    if (htProb >= 65 || htGoalProb >= 60) {
-        const conf = Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (isTitleRace ? 5 : 0)) - 25;
+    // v3.0: Lowered threshold (htProb 60 instead of 65)
+    if (htProb >= 60 || htGoalProb >= 60) {
+        let conf = Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (badges.includes('🏆 Corsa Titolo') ? 5 : 0));
+        // v3.0: Rimosso il -25 penalty per permettere a HT Sniper di competere con le professionali
+        conf = Math.max(40, conf);
+
         const s = createHTSniperStrategy(match, htProb, conf);
         if (s) {
             qualified.push({
@@ -1593,6 +1672,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
+                expertNarrative: `${s.reasoning} Focus avvio rapido.`,
+                internalBrief: `BRIEFING TECNICO: HT Sniper. ${briefingBase}\n- HT Prob: ${htProb}%\nRazionale: ${s.reasoning}`,
                 tradingInstruction: s.tradingInstruction
             });
         }
@@ -2037,31 +2118,25 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
     // 1. UNIFIED POOL (ID-PURE PROTOCOL)
     // ═══════════════════════════════════════════════════════════════════════
     const pool = new Map();
-
-    // Helper to process a match into the pool
-    const processIntoPool = (m, isAI = false) => {
-        const fId = m.fixtureId || m.id; // Mantra: ID is the law
-        if (!fId) return; // DISCARD matches without ID
-
-        const key = String(fId);
-        const existing = pool.get(key);
-        if (existing) {
-            // MERGE: Favor enrichment
-            Object.assign(existing, m);
-            if (isAI) existing.isMagiaEnriched = true;
-        } else {
-            pool.set(key, { ...m });
-        }
-    };
-
-    // Load Betmines matches for today
     (allMatchesHistory || []).forEach(m => {
-        if (m.data === selectedDate) processIntoPool(m, false);
-    });
+        if (m.data === selectedDate && m.magia === 'OK') {
+            const fId = m.fixtureId || m.id;
+            if (fId) {
+                const key = String(fId);
+                const matchCopy = { ...m };
 
-    // Load AI matches (Sandbox)
-    (calculatedMatches || []).forEach(m => {
-        if (m.data === selectedDate) processIntoPool(m, true);
+                // 🔥 ID ONLY RULE: Resolve leagueId from Registry if missing
+                if (!matchCopy.leagueId && window.leaguesRegistry) {
+                    const normLega = normalizeLega(matchCopy.lega).toLowerCase().trim();
+                    const registryEntry = window.leaguesRegistry.get(normLega);
+                    if (registryEntry && registryEntry.leagueId) {
+                        matchCopy.leagueId = registryEntry.leagueId;
+                    }
+                }
+
+                pool.set(key, matchCopy);
+            }
+        }
     });
 
     const unifiedMatches = Array.from(pool.values());
@@ -2085,7 +2160,8 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
         { id: 'italia', name: '🇮🇹 ITALIA', type: 'italia' },
         { id: 'top_eu', name: '🌍 TOP EU', type: 'top_eu' },
         { id: 'cups', name: '🏆 COPPE', type: 'cups' },
-        { id: 'winrate_80', name: '🔥 WINRATE 80%', type: 'winrate_80' }
+        { id: 'winrate_80', name: '🔥 WINRATE 80%', type: 'winrate_80' },
+        { id: '___magia_ai', name: '🔮 SPECIAL AI', type: 'winrate_80' } // Now using rigid winrate filters
     ];
 
     const topEuLeagues = [
@@ -2112,9 +2188,21 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
                 return cupKeywords.some(k => l.includes(k.toLowerCase()));
             });
         } else if (strat.type === 'winrate_80') {
-            const p = presets.winrate_80 || {};
+            // Mapping for presets (firebase id vs strat id)
+            const presetId = strat.id === '___magia_ai' ? 'special_ai' : strat.id;
+            const p = presets[presetId] || {};
+
             filtered = cleanPool.filter(m => {
-                if (p.leagues?.length > 0 && !p.leagues.includes(normalizeLega(m.lega))) return false;
+                const isWinrate = strat.id === 'winrate_80';
+
+                // 🔥 ID ONLY RULE: Compare Numeric IDs (handled as strings for safety if they came from Firebase)
+                if (p.leagues?.length > 0) {
+                    const matchLeagueId = String(m.leagueId || '');
+                    const allowedLeagues = p.leagues.map(id => String(id));
+
+                    if (!allowedLeagues.includes(matchLeagueId)) return false;
+                }
+
                 if (p.tips?.length > 0 && !p.tips.includes(m.tip)) return false;
                 if (p.odds && (parseFloat(m.quota) < p.odds[0] || parseFloat(m.quota) > p.odds[1])) return false;
                 if (p.prob && (parseFloat(m.probabilita) < p.prob[0] || parseFloat(m.probabilita) > p.prob[1])) return false;
@@ -2131,29 +2219,6 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
             lastUpdated: Date.now()
         };
     });
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // 4. SPECIAL AI Strategy (__magia_ai)
-    // ═══════════════════════════════════════════════════════════════════════
-    // Extract matches that have valid AI simulation results
-    const magicMatches = generateMagiaAI(cleanPool, allMatchesHistory);
-    const minScore = presets.special_ai?.score?.[0] || 85;
-    const minProb = presets.special_ai?.prob?.[0] || 80;
-
-    const specialAiMatches = magicMatches.filter(m => {
-        const score = m.score || 0;
-        const prob = m.magicStats?.probMagiaAI || 0;
-        return score >= minScore && prob >= minProb;
-    });
-
-    results['___magia_ai'] = {
-        id: '___magia_ai',
-        name: '🔮 SPECIAL AI',
-        matches: specialAiMatches,
-        totalMatches: specialAiMatches.length,
-        type: 'monte_carlo_elite',
-        lastUpdated: Date.now()
-    };
 
     return results;
 }

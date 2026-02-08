@@ -160,6 +160,126 @@ window.chatWithGemini = async (payload) => {
     }
 };
 
+// ==================== HYBRID INTELLIGENCE: EUGENIO DETAILED ====================
+window.askEugenioDetailed = async function (question, brief) {
+    if (!brief) {
+        window.askEugenio(question); // Fallback to standard chat
+        return;
+    }
+
+    // Open chat UI first
+    const chatContainer = document.getElementById('eugenio-chat-container');
+    if (chatContainer) chatContainer.classList.remove('hidden');
+
+    const userName = (typeof getUserName === 'function') ? getUserName() : "Socio";
+    const prompt = `Ciao euGENIO, analizziamo questo match con i tuoi strumenti avanzati.
+
+**Dati Tecnici per la tua Analisi:**
+${brief}
+
+**Domanda del Socio:**
+${question}
+
+Rispondi come un analista professionista, usando i dati sopra citati per giustificare la tua visione.`;
+
+    // Process chat with specialized prompt
+    if (window.processEugenioChat) {
+        window.processEugenioChat(question, prompt);
+    } else {
+        window.askEugenio(question); // Last resort fallback
+    }
+};
+
+// ==================== HYBRID INTELLIGENCE: REAL-TIME ALERTS ====================
+let notifiedMatches = new Set(); // Session-based cache to avoid duplicate alerts
+
+window.checkTradingHybridAlerts = function (picks) {
+    if (!picks || picks.length === 0) return;
+
+    picks.forEach(p => {
+        if (!p.hasTradingStrategy || !window.shouldSendTradingNotification(p.partita)) return;
+
+        const minute = parseInt((p.liveData?.elapsed || '0').toString().replace("'", "")) || 0;
+        const score = p.liveData?.score || "0-0";
+        const [scH, scA] = score.split('-').map(n => parseInt(n) || 0);
+        const totalGoals = scH + scA;
+
+        // Unique ID for this specific alert window (match + minute phase)
+        const alertId = `${p.partita}_${minute > 45 ? '2T' : '1T'}_${p.strategy}`;
+
+        if (notifiedMatches.has(alertId)) return;
+
+        let triggerAlert = false;
+        let alertMsg = "";
+
+        // Logic based on Strategy Templates
+        if (p.strategy === 'HT_SNIPER' && minute >= 12 && minute <= 22 && totalGoals === 0) {
+            triggerAlert = true;
+            alertMsg = `Socio, siamo nella finestra **HT SNIPER**. Pressione costante, entriamo Over 0.5 HT se la quota è @1.55+.`;
+        } else if (p.strategy === 'SECOND_HALF_SURGE' && minute >= 55 && minute <= 65 && totalGoals <= 1) {
+            triggerAlert = true;
+            alertMsg = `È il momento del **SECOND HALF SURGE**. I motori si scaldano, prepariamoci per l'ingresso Over 0.5 ST.`;
+        } else if (p.strategy === 'LAY_THE_DRAW' && minute >= 65 && minute <= 75 && scH === scA) {
+            triggerAlert = true;
+            alertMsg = `Match bloccato in pareggio. È la finestra perfetta per il **LAY THE DRAW**. Valuta l'ingresso ora.`;
+        }
+
+        if (triggerAlert) {
+            notifiedMatches.add(alertId);
+            window.showEugenioSpeechBubble(p, alertMsg);
+        }
+    });
+};
+
+window.showEugenioSpeechBubble = function (match, message) {
+    const container = document.getElementById('eugenio-alert-container') || createAlertContainer();
+    const alertId = `alert-${Date.now()}`;
+
+    const bubble = document.createElement('div');
+    bubble.id = alertId;
+    bubble.className = "bg-white/95 backdrop-blur shadow-2xl border-l-4 border-indigo-600 rounded-2xl p-4 mb-3 transform translate-x-full transition-all duration-500 flex items-start gap-3 max-w-[320px] relative pointer-events-auto";
+    bubble.innerHTML = `
+        <div class="flex-shrink-0 mt-1">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md">
+                <i class="fa-solid fa-wand-magic-sparkles text-sm animate-pulse"></i>
+            </div>
+        </div>
+        <div class="flex-grow">
+            <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 flex justify-between">
+                euGENIO Alert
+                <span class="text-gray-400 font-normal normal-case">${match.partita}</span>
+            </div>
+            <div class="text-[11px] font-bold text-slate-800 leading-tight">${message}</div>
+            <div class="mt-2 flex gap-2">
+                <button onclick='window.askEugenioDetailed("Analizzami meglio questa finestra di ingresso per ${match.partita}", ${JSON.stringify(match.internalBrief || "")})' class="bg-indigo-600 text-white px-2 py-1 rounded-lg text-[10px] font-black shadow-sm">APPROFONDISCI</button>
+                <button onclick="this.closest('#${alertId}').remove()" class="bg-gray-100 text-gray-500 px-2 py-1 rounded-lg text-[10px] font-black">IGNORA</button>
+            </div>
+        </div>
+        <button onclick="this.parentElement.remove()" class="absolute -top-1 -right-1 w-5 h-5 bg-white border shadow-sm rounded-full text-[10px] text-gray-400">&times;</button>
+    `;
+
+    container.appendChild(bubble);
+
+    // Animate in
+    setTimeout(() => bubble.classList.remove('translate-x-full'), 100);
+
+    // Auto-remove after 30s
+    setTimeout(() => {
+        if (bubble.parentElement) {
+            bubble.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => bubble.remove(), 500);
+        }
+    }, 30000);
+};
+
+function createAlertContainer() {
+    const div = document.createElement('div');
+    div.id = 'eugenio-alert-container';
+    div.className = "fixed bottom-24 right-4 z-[9999] flex flex-col items-end pointer-events-none";
+    document.body.appendChild(div);
+    return div;
+}
+
 // ==================== TRADING 2.0 UTILS ====================
 window.calculateGoalCookingPressure = function (stats, minute) {
     if (!stats || !minute || minute < 1) return 0;
@@ -416,6 +536,8 @@ window.resolveTradingData = function (match) {
             timing: timing,
             stopLoss: 'Dinamico',
             reasoning: match.reasoning || null,
+            expertNarrative: match.expertNarrative || null,
+            internalBrief: match.internalBrief || null,
             confidence: match.confidence || 0,
             icon: template.icon,
             color: template.color,
@@ -471,6 +593,8 @@ window.resolveTradingData = function (match) {
         exit: exitLabel,
         timing: timing,
         stopLoss: stopLoss,
+        expertNarrative: match.expertNarrative || null,
+        internalBrief: match.internalBrief || null,
         fullLabel: `${action} | ${timing} → ${exitLabel}`
     };
 };
@@ -1120,10 +1244,18 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                             <div class="text-xs font-black text-orange-900">${tData.exit}</div>
                         </div>
                         <div class="bg-white/50 backdrop-blur-md rounded-xl p-3 border border-white/60 shadow-sm col-span-2">
-                            <div class="text-[9px] font-bold text-indigo-800/70 uppercase tracking-widest mb-1">Timing</div>
-                            <div class="text-[10px] font-bold text-indigo-950">${tData.timing}</div>
+                            <div class="text-[9px] font-bold text-indigo-800/70 uppercase tracking-widest mb-1">Expert Advice</div>
+                            <div class="text-[11px] font-bold text-slate-800 leading-snug">${tData.expertNarrative || tData.reasoning || 'Segui l\'entry range per valore atteso.'}</div>
                         </div>
                     </div>
+
+                    ${tData.internalBrief ? `
+                    <button onclick='window.askEugenioDetailed("Ciao euGENIO, approfondiamo la partita ${match.partita.replace(/'/g, "\\'")}", ${JSON.stringify(tData.internalBrief)})' class="w-full mt-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-2 rounded-xl text-xs font-black hover:scale-[1.02] transition-all shadow-lg flex items-center justify-center gap-2 group">
+                        <i class="fa-solid fa-wand-magic-sparkles animate-pulse"></i> 
+                        CHIEDI A EUGENIO
+                        <i class="fa-solid fa-chevron-right text-[8px] opacity-50 group-hover:translate-x-1 transition-transform"></i>
+                    </button>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -1906,6 +2038,13 @@ window.loadTradingPicks = function (date) {
                         homeTeam: hubMatch.homeTeam || pick.homeTeam,
                         awayTeam: hubMatch.awayTeam || pick.awayTeam
                     };
+
+                    // 🧬 HYBRID INTELLIGENCE: Merge custom strategy briefing from hub
+                    if (hubMatch.tradingStrategy) {
+                        finalPick.internalBrief = hubMatch.tradingStrategy.internalBrief || finalPick.internalBrief;
+                        finalPick.expertNarrative = hubMatch.tradingStrategy.expertNarrative || finalPick.expertNarrative;
+                        finalPick.strategy = hubMatch.tradingStrategy.type || finalPick.strategy;
+                    }
                 }
                 return finalPick;
             });
@@ -1990,6 +2129,9 @@ window.renderTradingCards = function (picks) {
         document.getElementById('trading-empty').classList.remove('hidden');
         return;
     }
+
+    // 0. CHECK HYBRID ALERTS
+    if (window.checkTradingHybridAlerts) window.checkTradingHybridAlerts(enrichedPicks);
 
     // 1. Filter
     let filtered = enrichedPicks.filter(p => !isMatchStale(p));
@@ -2131,8 +2273,9 @@ window.triggerMatchDebug = function (matchId, element) {
 window.getMantraId = function (match) {
     if (!match) return null;
     // 🛡️ PROTOCOLLO SOCIO ID-PURE 🇨🇭
-    // Il fixtureId è la LEGGE. Niente fallback, niente nomi.
-    return match.fixtureId ? String(match.fixtureId) : null;
+    // Il fixtureId è la LEGGE. Se manca, check su 'id' o 'matchId' (backup legacy sicuri).
+    const rawId = match.fixtureId || match.id || match.matchId;
+    return rawId ? String(rawId).trim() : null;
 };
 
 // Legacy support: reindirizziamo tutto al Mantra
@@ -4882,13 +5025,12 @@ function getUnifiedMatches() {
         if (!isApproved) return;
 
         strat.matches.forEach(m => {
-            // ID-PURE PROTOCOL: Use fixtureId as the only source of truth.
-            if (!m.fixtureId) {
-                console.warn(`[getUnifiedMatches] ⚠️ Missing fixtureId for ${m.partita || 'Unknown'} in strategy ${id}. Skipping.`);
+            // ID-PURE PROTOCOL: Use Mantra ID as the only source of truth.
+            const mId = window.getMantraId(m);
+            if (!mId) {
+                console.warn(`[getUnifiedMatches] ⚠️ Missing Mantra ID for ${m.partita || 'Unknown'} in strategy ${id}. Skipping.`);
                 return;
             }
-
-            const mId = String(m.fixtureId);
 
             if (!masterMap.has(mId)) {
                 const newEntry = { ...m };
@@ -4957,8 +5099,11 @@ function updateEntry(entry, id, m) {
         }
     } else if (isGeneric) {
         entry.dbTip = m.tip;
-        if (!entry.tip) entry.tip = m.tip;
-        if (!entry.quota) entry.quota = m.quota;
+        // SOCIO: Only allow real Tips to overwrite. If current is '-' or empty, take the new one.
+        const currentTip = (entry.tip || '').trim();
+        if (!currentTip || currentTip === '-') entry.tip = m.tip;
+
+        if (!entry.quota || entry.quota === '-') entry.quota = m.quota;
         if (m.confidence && !entry.confidence) entry.confidence = m.confidence;
         if (m.probabilita && !entry.probabilita) entry.probabilita = m.probabilita;
     }

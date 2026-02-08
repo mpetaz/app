@@ -229,7 +229,8 @@ function calculateTimeWeight(matchDateStr) {
 }
 
 function normalizeLega(lega) {
-    return lega.replace(/\s+/g, ' ').trim();
+    if (!lega) return '';
+    return lega.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**
@@ -409,7 +410,7 @@ function analyzeLeaguePerformance(dbCompleto) {
     return leagueStats;
 }
 
-function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
+function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
     if (!dbCompleto || dbCompleto.length === 0) {
         return { color: 'black', stats: '', count: 0, total: 0, percentage: 0, penalty: 0, scoreValue: 0, details: '', season: { avgScored: 1.5, avgConceded: 1.0 }, currForm: { avgScored: 1.5, avgConceded: 1.0, matchCount: 0 } };
     }
@@ -431,9 +432,21 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
         // If 'ALL' tip (for Monte Carlo), take all history, otherwise filter by date if needed
         if (tip !== 'ALL' && matchDate < sixMonthsAgo) return false;
 
-        const team1 = (row.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-        const team2 = (row.partita || '').split(' - ').slice(1).join(' - ')?.toLowerCase().trim() || '';
-        return (team1 === teamNorm || team2 === teamNorm);
+        // 🏁 LOGICA IBRIDA "CERTIFICATA" (Swiss Watch)
+        if (row.homeId || row.awayId) {
+            // Se la riga storica ha ID, usiamo SOLO gli ID (Precisione Totale)
+            if (!teamId) return false;
+            const rowHId = String(row.homeId);
+            const rowAId = String(row.awayId);
+            const targetId = String(teamId);
+            return (rowHId === targetId || rowAId === targetId);
+        } else {
+            // Se la riga storica NON ha ID (Dati vecchi/CSV), usiamo il Nome Esatto
+            // NON usiamo fuzzy o "includes", solo uguaglianza perfetta
+            const t1 = (row.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
+            const t2 = (row.partita || '').split(' - ').slice(1).join(' - ')?.toLowerCase().trim() || '';
+            return (t1 === teamNorm || t2 === teamNorm);
+        }
     };
 
     const allTeamMatches = dbCompleto.filter(matchFilter);
@@ -443,10 +456,18 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
     let weightedScored = 0;
     let weightedConceded = 0;
     let totalWeight = 0;
+    let wins = 0, draws = 0, losses = 0;
 
     allTeamMatches.forEach(m => {
-        const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-        const isTeamHome = team1 === teamNorm;
+        // Determine if target team is home or away in THIS historical match
+        let isTeamHome = false;
+        if (teamId && (m.homeId || m.awayId)) {
+            isTeamHome = String(m.homeId) === String(teamId);
+        } else {
+            const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
+            isTeamHome = team1 === teamNorm;
+        }
+
         const res = m.risultato.match(/(\d+)-(\d+)/);
         if (res) {
             const hg = parseInt(res[1]);
@@ -456,6 +477,13 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
             weightedScored += (isTeamHome ? hg : ag) * weight;
             weightedConceded += (isTeamHome ? ag : hg) * weight;
             totalWeight += weight;
+
+            // Stats 1X2 per Draw Rate reale
+            const teamG = isTeamHome ? hg : ag;
+            const oppG = isTeamHome ? ag : hg;
+            if (teamG > oppG) wins++;
+            else if (teamG === oppG) draws++;
+            else losses++;
         }
     });
 
@@ -463,7 +491,10 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
         avgScored: totalWeight > 0 ? weightedScored / totalWeight : 1.3,
         avgConceded: totalWeight > 0 ? weightedConceded / totalWeight : 1.2,
         matches: allTeamMatches.length,
-        totalWeight: totalWeight
+        totalWeight: totalWeight,
+        wins: wins,
+        draws: draws,
+        losses: losses
     };
 
     if (tip === 'ALL') {
@@ -672,7 +703,7 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto) {
 }
 
 // Analizza tasso pareggi storico per una squadra
-function analyzeDrawRate(teamName, allMatches) {
+function analyzeDrawRate(teamName, allMatches, teamId = null) {
     if (!teamName || !allMatches) return { rate: 0, total: 0, draws: 0 };
 
     const teamLower = teamName.toLowerCase().trim();
@@ -680,8 +711,18 @@ function analyzeDrawRate(teamName, allMatches) {
     // Trova partite storiche della squadra (ultimi 30 match con risultato)
     const matchesSquadra = allMatches.filter(m => {
         if (!m.risultato || m.risultato.trim() === '') return false;
-        const partitaLower = (m.partita || '').toLowerCase();
-        return partitaLower.includes(teamLower);
+
+        // 🏁 LOGICA IBRIDA "CERTIFICATA"
+        if (m.homeId || m.awayId) {
+            if (!teamId) return false;
+            const targetId = String(teamId);
+            return (String(m.homeId) === targetId || String(m.awayId) === targetId);
+        } else {
+            // Fallback su nome ESATTO per storia vecchia (senza ID)
+            const partitaLower = (m.partita || '').toLowerCase();
+            const [t1, t2] = partitaLower.split(' - ').map(t => t.trim());
+            return (t1 === teamLower || t2 === teamLower);
+        }
     }).slice(0, 30); // Max 30 match
 
     if (matchesSquadra.length === 0) return { rate: 0, total: 0, draws: 0 };
@@ -728,8 +769,8 @@ function calculateScore05HT(partita, dbCompleto) {
         const teamHome = teams[0].trim();
         const teamAway = teams[1].trim();
 
-        const homeStats = analyzeTeamStats(teamHome, true, '+1.5', dbCompleto);
-        const awayStats = analyzeTeamStats(teamAway, false, '+1.5', dbCompleto);
+        const homeStats = analyzeTeamStats(teamHome, true, '+1.5', dbCompleto, partita.homeId);
+        const awayStats = analyzeTeamStats(teamAway, false, '+1.5', dbCompleto, partita.awayId);
 
         if (homeStats.total >= 5 && awayStats.total >= 5) {
             const homePerc = (homeStats.count / homeStats.total) * 100;
@@ -863,8 +904,8 @@ function calculateScore(partita, legheSet, tipsSet, leaguePerformance = {}, dbCo
     const teamAway = teams[1].trim();
 
     // Analizza statistiche squadre
-    const homeStats = analyzeTeamStats(teamHome, true, tipNorm, dbCompleto);
-    const awayStats = analyzeTeamStats(teamAway, false, tipNorm, dbCompleto);
+    const homeStats = analyzeTeamStats(teamHome, true, tipNorm, dbCompleto, partita.homeId);
+    const awayStats = analyzeTeamStats(teamAway, false, tipNorm, dbCompleto, partita.awayId);
 
     // ========== OVER/UNDER (+1.5, +2.5, -2.5, etc) ==========
     if (tipNorm.startsWith('+') || tipNorm.startsWith('-')) {
@@ -1180,15 +1221,18 @@ function transformToTradingStrategy(match, allMatches) {
     const magicData = match.magicStats;
     const score = magicData?.score || match.score || 0;
 
-    // Extract Betfair odds from match (passed from admin after API fetch)
-    const betfairOdds = {
-        over25: parseFloat(match.betfairOver25) || null,
-        under25: parseFloat(match.betfairUnder25) || null,
-        draw: parseFloat(match.quotaX) || parseFloat(match.betfairDraw) || null,
+    // Extract Bookmaker odds from match (Bet365 via API-Football)
+    const bookmakerOdds = {
         home: parseFloat(match.quota1) || null,
+        draw: parseFloat(match.quotaX) || null,
         away: parseFloat(match.quota2) || null,
-        gg: parseFloat(match.betfairGG) || null,
-        ng: parseFloat(match.betfairNG) || null
+        dc1X: parseFloat(match.bookmaker1X) || null,
+        dcX2: parseFloat(match.bookmakerX2) || null,
+        dc12: parseFloat(match.bookmaker12) || null,
+        over15: parseFloat(match.bookmakerOver15) || null,
+        under35: parseFloat(match.bookmakerUnder35) || null,
+        gg: parseFloat(match.bookmakerGG) || null,
+        ng: parseFloat(match.bookmakerNG) || null
     };
 
     // ════════════════════════════════════════════════════════════════
@@ -1209,7 +1253,7 @@ function transformToTradingStrategy(match, allMatches) {
         htGoalProb: magicData.htGoalProb,
         drawProb: magicData.drawProb
     }) : 'NULL');
-    console.log(`  💰 Betfair Odds:`, JSON.stringify(betfairOdds));
+    console.log(`  💰 Bookmaker Odds (Bet365):`, JSON.stringify(bookmakerOdds));
 
     // 🔍 ANALISI ELITE (ELO & MOTIVAZIONE)
     const eloDiff = magicData?.eloDiff || 0;
@@ -1225,9 +1269,9 @@ function transformToTradingStrategy(match, allMatches) {
     const over25Prob = magicData?.over25 ? magicData.over25 : (magicData?.over25Prob || 0);
     const cfgOver25 = STRATEGY_CONFIG.TRADING.STRATEGIES.BACK_OVER_25;
 
-    const over25Edge = betfairOdds.over25
-        ? calculateValueEdge(over25Prob, betfairOdds.over25)
-        : { valueEdge: 0, hasProfitableEdge: true };
+    // ⚠️ Over 2.5 rimosso (mercato troppo improbabile)
+    // Manteniamo il calcolo per Trading 3.0 legacy ma con quote bookmaker generiche
+    const over25Edge = { valueEdge: 0, hasProfitableEdge: true };
 
     let over25Confidence = Math.round(over25Prob + (over25Prob >= 50 ? 15 : 10));
 
@@ -1282,11 +1326,11 @@ function transformToTradingStrategy(match, allMatches) {
     // 2. Betfair quota il pareggio ALTO (@3.40+) = c'è margine per il lay
     const teams = match.partita.split(' - ');
     if (teams.length === 2) {
-        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
-        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.teamIdHome);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.teamIdAway);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
         const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
-        const drawOdds = betfairOdds.draw || 3.50;
+        const drawOdds = bookmakerOdds.draw || 3.50;
 
         // NUOVA LOGICA ELITE: LTD è meno affidabile negli scontri diretti "biscotto"
         const isBiscottoRisk = isDirectClash && mcDrawProb > 33;
@@ -1464,6 +1508,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'BACK_OVER_25',
+                strategy: 'BACK_OVER_25',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1475,10 +1520,10 @@ function calculateAllTradingStrategies(match, allMatches) {
 
     // 2. LAY THE DRAW
     if (teams.length === 2) {
-        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches);
-        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches);
+        const homeDrawRate = analyzeDrawRate(teams[0].trim(), allMatches, match.teamIdHome);
+        const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.teamIdAway);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
-        const mcDrawProb = magicData?.drawProb || 30;
+        const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
         const isBiscottoRisk = isDirectClash && mcDrawProb > 33;
 
         if ((mcDrawProb < 35 || avgHistDraw < 35) && !isBiscottoRisk) {
@@ -1489,6 +1534,7 @@ function calculateAllTradingStrategies(match, allMatches) {
             if (s) {
                 qualified.push({
                     type: 'LAY_THE_DRAW',
+                    strategy: 'LAY_THE_DRAW',
                     confidence: Math.min(95, conf),
                     entryRange: s.tradingInstruction?.entry || null,
                     exitTarget: s.tradingInstruction?.exit || null,
@@ -1506,6 +1552,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'SECOND_HALF_SURGE',
+                strategy: 'SECOND_HALF_SURGE',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1523,6 +1570,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'UNDER_35_SCALPING',
+                strategy: 'UNDER_35_SCALPING',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1540,6 +1588,7 @@ function calculateAllTradingStrategies(match, allMatches) {
         if (s) {
             qualified.push({
                 type: 'HT_SNIPER',
+                strategy: 'HT_SNIPER',
                 confidence: conf,
                 entryRange: s.tradingInstruction?.entry || null,
                 exitTarget: s.tradingInstruction?.exit || null,
@@ -1712,7 +1761,7 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
     const results = {
         homeWins: 0, draws: 0, awayWins: 0,
         dc1X: 0, dcX2: 0, dc12: 0,
-        over15: 0, over25: 0, under35: 0,
+        over15: 0, under35: 0,
         ht05: 0, // 🔥 NEW: 1° Tempo (0.5 HT)
         btts: 0, noGol: 0,
         scores: {}, // Exact score frequency
@@ -1759,9 +1808,8 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
         if (ag >= hg) results.dcX2 += weight;
         if (hg !== ag) results.dc12 += weight;
 
-        // Goals
+        // Goals (SOLO Over 1.5 e Under 3.5 - mercati più probabili)
         if (totalGoals > 1.5) results.over15 += weight;
-        if (totalGoals > 2.5) results.over25 += weight;
         if (totalGoals < 3.5) results.under35 += weight;
 
         // 🔥 NEW: 0.5 HT Simulation (approx 45% of lambda)
@@ -1795,7 +1843,7 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
         }));
 
     return {
-        // Probabilities (11 Markets)
+        // Probabilities (10 Markets - rimosso Over 2.5)
         winHome: Math.round((results.homeWins / sumWeights) * 100),
         draw: Math.round((results.draws / sumWeights) * 100),
         winAway: Math.round((results.awayWins / sumWeights) * 100),
@@ -1803,7 +1851,6 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
         dcX2: Math.round((results.dcX2 / sumWeights) * 100),
         dc12: Math.round((results.dc12 / sumWeights) * 100),
         over15: Math.round((results.over15 / sumWeights) * 100),
-        over25: Math.round((results.over25 / sumWeights) * 100),
         under35: Math.round((results.under35 / sumWeights) * 100),
         ht05: Math.round((results.ht05 / sumWeights) * 100), // 🔥 NEW
         btts: Math.round((results.btts / sumWeights) * 100),
@@ -1845,7 +1892,10 @@ function calculateSafetyLevel(simStats) {
 function generateMagiaAI(matches, allMatchesHistory) {
     const magicMatches = [];
 
-    matches.forEach(match => {
+    // 🔥 TUTTE LE PARTITE DELLA SANDBOX (campo magia rimosso - inutile)
+    const sourceMatches = matches;
+
+    sourceMatches.forEach(match => {
         if (!match.lega) return;
         const teams = parseTeams(match.partita);
         if (!teams) return;
@@ -1889,9 +1939,9 @@ function generateMagiaAI(matches, allMatchesHistory) {
             { label: '1X', prob: sim.dc1X, type: 'DC' },
             { label: 'X2', prob: sim.dcX2, type: 'DC' },
             { label: '12', prob: sim.dc12, type: 'DC' },
-            { label: 'Over 1.5', prob: sim.over15, type: 'GOALS' },
-            { label: 'Over 2.5', prob: sim.over25, type: 'GOALS' },
-            { label: 'Under 3.5', prob: sim.under35, type: 'GOALS' },
+            { label: '+1.5', prob: sim.over15, type: 'GOALS' },
+            { label: '+2.5', prob: sim.over25, type: 'GOALS' },
+            { label: '-3.5', prob: sim.under35, type: 'GOALS' },
             { label: 'Gol', prob: sim.btts, type: 'GOALS' },
             { label: 'No Gol', prob: sim.noGol, type: 'GOALS' }
         ];
@@ -1906,220 +1956,179 @@ function generateMagiaAI(matches, allMatchesHistory) {
             return cfg ? cfg.minProb : 75;
         };
 
-        // 1. CALCOLA SMART SCORE E QUOTE
+        // 1. MAPPA CANDIDATI CON QUOTE REALI (Sandbox)
         const scoredCandidates = allSignals.map(signal => {
             let realOdd = null;
-            const bet365Odds = {
-                '1': parseFloat(match.quota1),
-                'X': parseFloat(match.quotaX),
-                '2': parseFloat(match.quota2)
-            };
-            if (signal.label === '1') realOdd = bet365Odds['1'];
-            else if (signal.label === 'X') realOdd = bet365Odds['X'];
-            else if (signal.label === '2') realOdd = bet365Odds['2'];
-            else if (signal.label === '1X') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['X']));
-            else if (signal.label === 'X2') realOdd = 1 / ((1 / bet365Odds['X']) + (1 / bet365Odds['2']));
-            else if (signal.label === '12') realOdd = 1 / ((1 / bet365Odds['1']) + (1 / bet365Odds['2']));
+            if (signal.label === '1') realOdd = match.quota1;
+            else if (signal.label === 'X') realOdd = match.quotaX;
+            else if (signal.label === '2') realOdd = match.quota2;
+            else if (signal.label === '1X') realOdd = match.bookmaker1X || match.q1X; // 🆕 Supporto nuove quote
+            else if (signal.label === 'X2') realOdd = match.bookmakerX2 || match.qX2;
+            else if (signal.label === '12') realOdd = match.bookmaker12 || match.q12;
+            else if (signal.label === '+1.5') realOdd = match.bookmakerOver15 || match.qO15;
+            else if (signal.label === '+2.5') realOdd = match.bookmakerOver25 || match.qO25;
+            else if (signal.label === '-3.5') realOdd = match.bookmakerUnder35 || match.qU35;
+            else if (signal.label === 'Gol') realOdd = match.bookmakerGG || match.qBTTS || match.qGol;
+            else if (signal.label === 'No Gol') realOdd = match.bookmakerNG || match.qNG || match.qNoGol;
 
-            const estimatedOdd = realOdd || (100 / signal.prob);
+            const finalOdd = parseFloat(realOdd) || (100 / (signal.prob || 1));
             return {
                 ...signal,
-                estimatedOdd: typeof estimatedOdd === 'number' ? estimatedOdd.toFixed(2) : estimatedOdd
+                quota: finalOdd.toFixed(2),
+                isReal: !!realOdd
             };
         });
 
-        // ═══════════════════════════════════════════════════════════════════════
-        // 🔥 ALGORITMO DI SELEZIONE v12.0 (LIBERTÀ TOTALE)
-        // ═══════════════════════════════════════════════════════════════════════
+        // 🔥 ALGORITMO DI SELEZIONE ELITE v13.1
+        // Portato soglia minima a 1.01 per marketing (stile Betmines)
+        let candidates = scoredCandidates.filter(s => s.prob >= 75 && parseFloat(s.quota) >= 1.01);
 
-        // v12.0: We use THRESHOLDS to find candidates, but we no longer filter by "Golden Range" 
-        // because we want 100% coverage and adaptive Sniper/Defender logic.
-        const candidates = scoredCandidates.filter(s => s.prob >= getThreshold(s));
+        // Fallback 1: Solo alta probabilità
+        if (candidates.length === 0) candidates = scoredCandidates.filter(s => s.prob >= 75);
 
-        // If no signal passes threshold, pick the top ones as fallback
-        const selectionPool = candidates.length > 0 ? candidates : scoredCandidates.sort((a, b) => b.prob - a.prob).slice(0, 5);
+        // Fallback 2: Il migliore assoluto
+        if (candidates.length === 0) candidates = [scoredCandidates.sort((a, b) => b.prob - a.prob)[0]];
 
-        // 2. Priorità: GOAL > 1X2/DC
-        let bestPick = null;
-        const goalSignals = selectionPool.filter(s => s.type === 'GOALS').sort((a, b) => b.prob - a.prob);
-        const fallbackSignals = selectionPool.filter(s => s.type === '1X2' || s.type === 'DC').sort((a, b) => b.prob - a.prob);
-
-        if (goalSignals.length > 0) {
-            bestPick = goalSignals[0];
-        } else if (fallbackSignals.length > 0) {
-            bestPick = fallbackSignals[0];
-        } else {
-            // Pick most probable overall if still null
-            bestPick = selectionPool.sort((a, b) => b.prob - a.prob)[0];
-        }
-
-        if (!bestPick) return; // Should never happen now
-
-        // 🔥 Segnale Rafforzato: AI tip = DB tip?
-        const isReinforced = bestPick.label === match.tip ||
-            bestPick.label === match.tip?.replace('+', 'Over ').replace('-', 'Under ');
-
-        // 🔥 Top 3 Risultati Esatti per Admin Card
-        const top3Scores = (sim.exactScores || []).slice(0, 3).map(s => ({
-            score: s.score,
-            percent: s.percent
-        }));
-
-        magicMatches.push({
-            ...match,
-            // Override main props for UI display (Strategy View)
-            tip: bestPick.label,        // Magia AI Tip
-            quota: bestPick.estimatedOdd, // Magia AI Odd
-            score: Math.min(100, Math.round(bestPick.prob)),
-
-            // Keep Original Data for comparison in UI (Card)
-            originalDBTip: match.tip,
-            originalDBQuota: match.quota,
-
-            // Magia Metadata
-            strategy: 'magia_ai',
-            magicStats: {
-                ...sim,
-                tipMagiaAI: bestPick.label,
-                probMagiaAI: bestPick.prob,
-                oddMagiaAI: bestPick.estimatedOdd,
-                top3Scores: top3Scores,           // 🔥 Top 3 risultati esatti
-                isReinforced: isReinforced        // 🔥 Badge convergenza
-            },
-            reasoning: `Magia AI: ${bestPick.label} (${bestPick.prob}%)`,
-
-            // 🔥 Campi extra per Admin Card
-            top3Scores: top3Scores,
-            isReinforced: isReinforced
+        // Priorità: DC (Sicure) > 1X2 (Classiche) > Goals (Over/Under)
+        candidates.sort((a, b) => {
+            const weights = { 'DC': 3, '1X2': 2, 'GOALS': 1 };
+            if (weights[b.type] !== weights[a.type]) return weights[b.type] - weights[a.type];
+            return b.prob - a.prob;
         });
+
+        const bestPick = candidates[0];
+
+        const magiaMatch = {
+            ...match,
+            tip: bestPick.label,
+            probabilita: bestPick.prob.toFixed(1),
+            probMagiaAI: bestPick.prob, // 🆕 NORMALIZZATO
+            quota: bestPick.quota,
+            quotaType: bestPick.isReal ? 'REAL' : 'AI_ESTIMATE',
+            mercato: bestPick.type,
+            strategy: 'magia_ai',
+            smartScore: bestPick.prob // 🆕 AGGIUNTO SCORE
+        };
+        magicMatches.push(magiaMatch);
     });
 
     return magicMatches;
 }
 
 /**
- * ORCHESTRATOR: Distributes matches to strategies using pre-calculated stats.
+ * ORCHESTRATOR: Distributes matches to strategies using pre-calculated stats./**
  * This function is the core of Step 2B.
+ * 🔥 UPDATED v14.0: Accepts config (blacklist, presets) for dynamic extraction
  */
-function distributeStrategies(calculatedMatches, allMatchesHistory) {
-    if (!calculatedMatches || calculatedMatches.length === 0) return {};
+/**
+ * orchestrator: Distributes matches to strategies using strict FixtureID (Mantra Protocol)
+ * 🔥 UPDATED v15.0: Matches without fixtureId are DISCARDED. 
+ * Merges AI data and Betmines data using fixtureId as the universal key.
+ */
+function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate, config = {}) {
+    const blacklist = (config.blacklist || []).map(l => (l || "").toLowerCase().trim());
+    const presets = config.presets || {};
+
+    if ((!calculatedMatches || calculatedMatches.length === 0) && (!allMatchesHistory || allMatchesHistory.length === 0)) {
+        return {};
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 1. UNIFIED POOL (ID-PURE PROTOCOL)
+    // ═══════════════════════════════════════════════════════════════════════
+    const pool = new Map();
+    (allMatchesHistory || []).forEach(m => {
+        if (m.data === selectedDate && m.magia === 'OK') {
+            const fId = m.fixtureId || m.id;
+            if (fId) {
+                const key = String(fId);
+                const matchCopy = { ...m };
+
+                // 🔥 ID ONLY RULE: Resolve leagueId from Registry if missing
+                if (!matchCopy.leagueId && window.leaguesRegistry) {
+                    const normLega = normalizeLega(matchCopy.lega).toLowerCase().trim();
+                    const registryEntry = window.leaguesRegistry.get(normLega);
+                    if (registryEntry && registryEntry.leagueId) {
+                        matchCopy.leagueId = registryEntry.leagueId;
+                    }
+                }
+
+                pool.set(key, matchCopy);
+            }
+        }
+    });
+
+    const unifiedMatches = Array.from(pool.values());
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 2. GLOBAL FILTERS (Blacklist)
+    // ═══════════════════════════════════════════════════════════════════════
+    const cleanPool = unifiedMatches.filter(m => {
+        const legaOrig = (m.lega || "").toLowerCase().trim();
+        const legaNorm = normalizeLega(m.lega).toLowerCase().trim();
+        return !blacklist.includes(legaOrig) && !blacklist.includes(legaNorm);
+    });
 
     const results = {};
 
-    // 1. Magia AI (Clean Selection)
-    // Assumes generateMagiaAI returns an array of enriched matches
-    const magicMatches = generateMagiaAI(calculatedMatches, allMatchesHistory);
-    results['magia_ai'] = {
-        id: 'magia_ai',
-        name: '🔮 MAGIA AI',
-        matches: magicMatches || [],
-        totalMatches: (magicMatches || []).length,
-        type: 'monte_carlo',
-        lastUpdated: Date.now()
-    };
-
-    // 2. Standard Strategies Definitions
+    // ═══════════════════════════════════════════════════════════════════════
+    // 3. STRATEGY DISTRIBUTION
+    // ═══════════════════════════════════════════════════════════════════════
     const strategies = [
         { id: 'all', name: '📊 ALL', type: 'all' },
         { id: 'italia', name: '🇮🇹 ITALIA', type: 'italia' },
         { id: 'top_eu', name: '🌍 TOP EU', type: 'top_eu' },
         { id: 'cups', name: '🏆 COPPE', type: 'cups' },
-        { id: 'winrate_80', name: '🔥 WINRATE 80%', type: 'winrate_80' }
+        { id: 'winrate_80', name: '🔥 WINRATE 80%', type: 'winrate_80' },
+        { id: '___magia_ai', name: '🔮 SPECIAL AI', type: 'winrate_80' } // Now using rigid winrate filters
     ];
 
-    // Pre-calculate Blacklist (Simplified: if we don't have blacklist loaded here, we skip it or assume calculatedMatches is clean enough? 
-    // Actually calculatedMatches comes from Step 1 which includes EVERYTHING.
-    // For "ALL" strategy we usually apply blacklist. 
-    // Since we don't have easy access to blacklist array here, we will define "ALL" as truly ALL for now or rely on specific filtering)
-
-    // Helper for Filters - CORRECTED ISO CODES matching database format
     const topEuLeagues = [
-        'EU-ENG Premier League',     // Inghilterra
-        'EU-ESP La Liga',            // Spagna
-        'EU-DEU Bundesliga',         // Germania (DEU non GER!)
-        'EU-FRA Ligue 1',            // Francia
-        'EU-NED Eredivisie',         // Olanda
-        'EU-CHE Super League',       // Svizzera (CHE non SWI!)
-        'EU-PRT Primeira Liga',      // Portogallo (PRT non POR!)
-        'EU-BEL Pro League'          // Belgio
+        'EU-ENG Premier League', 'EU-ESP La Liga', 'EU-DEU Bundesliga',
+        'EU-FRA Ligue 1', 'EU-NED Eredivisie', 'EU-CHE Super League',
+        'EU-PRT Primeira Liga', 'EU-BEL Pro League'
     ];
-    // CUPS: Solo coppe EUROPEE (Champions, Europa League, Conference)
     const cupKeywords = ['champions league', 'europa league', 'conference league'];
-
-    // Pre-calc Winrate 80 stats
-    let winrateLeagues = [];
-    if (allMatchesHistory && allMatchesHistory.length > 0) {
-        const leagueStats = {};
-        allMatchesHistory.forEach(m => {
-            if (!m.risultato) return;
-            const lega = normalizeLega(m.lega);
-            if (!leagueStats[lega]) leagueStats[lega] = { total: 0, wins: 0 };
-            leagueStats[lega].total++;
-            if (m.esito === 'Vinto') leagueStats[lega].wins++;
-        });
-        winrateLeagues = Object.keys(leagueStats).filter(lega => {
-            const stats = leagueStats[lega];
-            const winrate = stats.total > 0 ? (stats.wins / stats.total) * 100 : 0;
-            return winrate >= 80 && stats.total >= 5;
-        });
-    }
 
     strategies.forEach(strat => {
         let filtered = [];
 
         if (strat.type === 'all') {
-            // Include everything (Blacklist filtering should ideally happen, but let's pass all for now or filter empty tips)
-            filtered = calculatedMatches.filter(m => m.tip && m.tip.trim() !== '');
+            // ALL: Keep matches with tips (either Betmines or AI)
+            filtered = cleanPool.filter(m => (m.tip && String(m.tip).trim() !== '') || m.magicStats?.tipMagiaAI);
         } else if (strat.type === 'italia') {
-            // ITALIA: filter ONLY leagues starting with EU-ITA (as requested by Socio)
-            filtered = calculatedMatches.filter(m => (m.lega || '').startsWith('EU-ITA'));
+            filtered = cleanPool.filter(m => normalizeLega(m.lega).startsWith('eu-ita'));
         } else if (strat.type === 'top_eu') {
-            // 🔍 DEBUG TOP EU - DETTAGLIATO
-            console.log('🔍 [DEBUG TOP EU] topEuLeagues array:', topEuLeagues);
-            console.log('🔍 [DEBUG TOP EU] topEuLeagues[2] (Bundesliga):', topEuLeagues[2]);
-            console.log('🔍 [DEBUG TOP EU] Sample leghe from calculatedMatches:', calculatedMatches.slice(0, 5).map(m => m.lega));
-
-            filtered = calculatedMatches.filter(m => {
-                const l = (m.lega || '').toLowerCase().trim();
-
-                // DEBUG: Confronto dettagliato per Bundesliga
-                if (l.includes('bundesliga')) {
-                    topEuLeagues.forEach((k, idx) => {
-                        const kLower = k.toLowerCase().trim();
-                        console.log(`🔍 [TOP EU COMPARE] l="${l}" vs k[${idx}]="${kLower}" -> EQUAL=${l === kLower}`);
-                    });
-                }
-
-                const match = topEuLeagues.some(k => l === k.toLowerCase().trim());
-                if (l.includes('bundesliga') || l.includes('premier') || l.includes('la liga') || l.includes('serie a')) {
-                    console.log(`🔍 [DEBUG TOP EU] Lega "${m.lega}" -> l="${l}" -> match=${match}`);
-                }
-                return match;
-            });
-            console.log(`🔍 [DEBUG TOP EU] Filtered count: ${filtered.length}`);
-
+            const topEuLower = topEuLeagues.map(l => l.toLowerCase());
+            filtered = cleanPool.filter(m => topEuLower.includes(normalizeLega(m.lega)));
         } else if (strat.type === 'cups') {
-            // 🔍 DEBUG CUPS
-            console.log('🔍 [DEBUG CUPS] cupKeywords:', cupKeywords);
-            filtered = calculatedMatches.filter(m => {
-                const l = (m.lega || '').toLowerCase();
-                const match = cupKeywords.some(k => l.includes(k));
-                if (l.includes('coppa') || l.includes('cup') || l.includes('champions') || l.includes('europa')) {
-                    console.log(`🔍 [DEBUG CUPS] Lega "${m.lega}" -> match=${match}`);
-                }
-                return match;
+            filtered = cleanPool.filter(m => {
+                const l = normalizeLega(m.lega);
+                return cupKeywords.some(k => l.includes(k.toLowerCase()));
             });
-            console.log(`🔍 [DEBUG CUPS] Filtered count: ${filtered.length}`);
         } else if (strat.type === 'winrate_80') {
-            filtered = calculatedMatches.filter(m => {
-                return winrateLeagues.includes(normalizeLega(m.lega));
+            // Mapping for presets (firebase id vs strat id)
+            const presetId = strat.id === '___magia_ai' ? 'special_ai' : strat.id;
+            const p = presets[presetId] || {};
+
+            filtered = cleanPool.filter(m => {
+                const isWinrate = strat.id === 'winrate_80';
+
+                // 🔥 ID ONLY RULE: Compare Numeric IDs (handled as strings for safety if they came from Firebase)
+                if (p.leagues?.length > 0) {
+                    const matchLeagueId = String(m.leagueId || '');
+                    const allowedLeagues = p.leagues.map(id => String(id));
+
+                    if (!allowedLeagues.includes(matchLeagueId)) return false;
+                }
+
+                if (p.tips?.length > 0 && !p.tips.includes(m.tip)) return false;
+                if (p.odds && (parseFloat(m.quota) < p.odds[0] || parseFloat(m.quota) > p.odds[1])) return false;
+                if (p.prob && (parseFloat(m.probabilita) < p.prob[0] || parseFloat(m.probabilita) > p.prob[1])) return false;
+                return true;
             });
         }
 
-        // 🔍 DEBUG: Log ogni strategia
-        console.log(`🔍 [DEBUG distributeStrategies] ${strat.id}: filtered.length = ${filtered.length}`);
-
-        // SEMPRE salvare tutte le strategie, anche con 0 partite
         results[strat.id] = {
             id: strat.id,
             name: strat.name,
@@ -2129,25 +2138,6 @@ function distributeStrategies(calculatedMatches, allMatchesHistory) {
             lastUpdated: Date.now()
         };
     });
-
-
-
-    // 3. Special AI Logic (Subset of Magia AI with high score)
-    const specialAiMatches = magicMatches.filter(m => {
-        const score = m.score || 0;
-        const prob = m.magicStats ? m.magicStats.probMagiaAI : 0;
-        // Requires high score + high win probability
-        return score >= 85 && prob >= 80;
-    });
-
-    results['special_ai'] = {
-        id: 'special_ai',
-        name: '🤖 SPECIAL AI',
-        matches: specialAiMatches || [],
-        totalMatches: (specialAiMatches || []).length,
-        type: 'monte_carlo_elite',
-        lastUpdated: Date.now()
-    };
 
     return results;
 }
@@ -2162,8 +2152,8 @@ function getMagiaStats(match, allMatchesHistory) {
     const teams = parseTeams(match.partita);
     if (!teams) return null;
 
-    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory);
-    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory);
+    const homeStats = analyzeTeamStats(teams.home, true, 'ALL', allMatchesHistory, match.teamIdHome);
+    const awayStats = analyzeTeamStats(teams.away, false, 'ALL', allMatchesHistory, match.teamIdAway);
 
     // Relaxed form check: prioritize current form but fallback to season stats instead of returning null
     // if (homeStats.currForm.matchCount < 3 || awayStats.currForm.matchCount < 3) return null;
@@ -2206,8 +2196,7 @@ function getMagiaStats(match, allMatchesHistory) {
     // 🔗 Use Registry loaded at startup (clean solution - no LEAGUE_MAPPING)
     if (!leagueId && window.leaguesRegistry) {
         // leaguesRegistry is a Map loaded once at admin startup
-        const registryEntry = window.leaguesRegistry.get(match.lega) ||
-            window.leaguesRegistry.get(match.lega?.toLowerCase());
+        const registryEntry = window.leaguesRegistry.get(normalizeLega(match.lega));
         if (registryEntry && registryEntry.leagueId) {
             leagueId = registryEntry.leagueId;
         }
@@ -2354,11 +2343,15 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.eloRatingA = Math.round(eloRatingA);
     sim.eloDiff = Math.round(eloDiff);
 
-    // Hybrid refinement (Draw Penalty)
-    const histHomeDraw = (homeStats.season.draws / homeStats.season.matches) * 100 || 25;
-    const histAwayDraw = (awayStats.season.draws / awayStats.season.matches) * 100 || 25;
+    // Hybrid refinement (Draw Penalty) v4.5 "Real Draw"
+    const weightSim = (window.STRATEGY_CONFIG && window.STRATEGY_CONFIG.ENGINE) ? window.STRATEGY_CONFIG.ENGINE.HYBRID_DRAW_WEIGHT_SIM : 0.7;
+    const weightHist = (window.STRATEGY_CONFIG && window.STRATEGY_CONFIG.ENGINE) ? window.STRATEGY_CONFIG.ENGINE.HYBRID_DRAW_WEIGHT_HIST : 0.3;
+
+    const histHomeDraw = homeStats.season.matches > 0 ? (homeStats.season.draws / homeStats.season.matches) * 100 : 25;
+    const histAwayDraw = awayStats.season.matches > 0 ? (awayStats.season.draws / awayStats.season.matches) * 100 : 25;
     const avgHistDraw = (histHomeDraw + histAwayDraw) / 2;
-    let hybridDraw = (sim.draw * 0.7) + (avgHistDraw * 0.3);
+
+    let hybridDraw = (sim.draw * weightSim) + (avgHistDraw * weightHist);
 
     const dbTip = (match.tip || '').trim();
     if (dbTip === '1' || dbTip === '2') {
@@ -2395,47 +2388,70 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.isCupMatch = isCupMatch;
 
     // 🔥 NEW v12.0: ADAPTIVE LOGIC based on League Trust Score (Master Trust v12.0)
-    const normalizedLega = (match.lega || "").trim();
+    const normalizedLega = normalizeLega(match.lega);
     const trustData = (window.LEAGUE_TRUST && window.LEAGUE_TRUST[normalizedLega]) ? window.LEAGUE_TRUST[normalizedLega] : { trust: 5, mode: 'STANDARD' };
 
-    // Default Signals
-    let allSignals = [
+    // 🔥 NEW v4.5: MAGIA FIRBA (Marketing-First Selection Logic)
+    // Goal: Win Rate over Value. Priority to "safe" low odds.
+
+    // Preparation: Map odds to signals
+    const allSignals = [
         { label: '1', prob: sim.winHome, type: '1X2' },
         { label: 'X', prob: sim.draw, type: '1X2' },
         { label: '2', prob: sim.winAway, type: '1X2' },
-        { label: 'Over 1.5', prob: sim.over15, type: 'GOALS' },
-        { label: 'Over 2.5', prob: sim.over25, type: 'GOALS' },
-        { label: 'Under 3.5', prob: sim.under35, type: 'GOALS' },
-        { label: '0.5 HT', prob: sim.ht05, type: 'GOALS' }
-    ].sort((a, b) => b.prob - a.prob);
+        { label: '1X', prob: sim.dc1X, type: 'DC' },
+        { label: 'X2', prob: sim.dcX2, type: 'DC' },
+        { label: '12', prob: sim.dc12, type: 'DC' },
+        { label: '+1.5', prob: sim.over15, type: 'GOALS' },
+        { label: '-3.5', prob: sim.under35, type: 'GOALS' },
+        { label: '+0.5 HT', prob: sim.ht05, type: 'GOALS' }
+    ];
 
-    let bestPick = allSignals[0];
+    allSignals.forEach(s => {
+        const tip = s.label;
+        if (tip === '1') s.odd = match.quota1 || 1.25;
+        else if (tip === 'X') s.odd = match.quotaX || 1.25;
+        else if (tip === '2') s.odd = match.quota2 || 1.25;
+        else if (tip === '1X') s.odd = match.bookmaker1X || match.q1X || 1.25;
+        else if (tip === 'X2') s.odd = match.bookmakerX2 || match.qX2 || 1.25;
+        else if (tip === '12') s.odd = match.bookmaker12 || match.q12 || 1.25;
+        else if (tip === '+1.5') s.odd = match.bookmakerOver15 || 1.25;
+        else if (tip === '+2.5') s.odd = match.bookmakerOver25 || 1.25;
+        else if (tip === '-3.5') s.odd = match.bookmakerUnder35 || 1.25;
+        else if (tip === '+0.5 HT') s.odd = match.bookmakerOver05HT || 1.25;
+        else s.odd = 1.25;
+    });
 
-    // Assetto DEFENDER: Se la lega è inaffidabile, preferiamo mercati conservativi (Under 3.5 / 0.5 HT)
-    if (trustData.mode === 'DEFENDER') {
-        const defenderPicks = allSignals.filter(s =>
-            (s.label === 'Under 3.5' && s.prob >= 75) ||
-            (s.label === '0.5 HT' && s.prob >= 82) ||
-            (s.label === 'Over 1.5' && s.prob >= 85) // Solo se strasicuro
-        ).sort((a, b) => b.prob - a.prob);
+    // Strategy Rules:
+    // 1. Hard Cap @ 1.40
+    // 2. 1.30-1.40 ONLY if Prob >= 80%
+    // 3. Serie B/C Over 1.5 ONLY if Odd > 1.20
+    const hardCap = 1.40;
+    const isHardLeague = normalizedLega.includes('Serie B') || normalizedLega.includes('Serie C');
 
-        if (defenderPicks.length > 0) {
-            bestPick = defenderPicks[0];
-            console.log(`[Engine] 🛡️ Defender Mode active for ${normalizedLega}. Selected: ${bestPick.label}`);
-        }
-    }
-    // Assetto SNIPER: Se la lega è solida, l'AI è "figa" e cerca valore anche a @1.25
-    else if (trustData.mode === 'SNIPER') {
-        // In modalità Sniper, diamo la precedenza agli Over se la prob è buona
-        const sniperPicks = allSignals.filter(s =>
-            (s.label === 'Over 1.5' && s.prob >= 74) ||
-            (s.label === '1' && s.prob >= 65) ||
-            (s.label === '2' && s.prob >= 65)
-        );
-        if (sniperPicks.length > 0) {
-            bestPick = sniperPicks[0];
-            console.log(`[Engine] 🎯 Sniper Mode active for ${normalizedLega}. Selected: ${bestPick.label}`);
-        }
+    let candidates = allSignals.filter(s => {
+        // Rule 1: Hard Cap
+        if (s.odd > hardCap) return false;
+
+        // Rule 2: Range 1.30-1.40 requires 80% Prob
+        if (s.odd >= 1.30 && s.prob < 80) return false;
+
+        // Rule 3: Hard League Over 1.5 Risk Filter
+        if (isHardLeague && s.label === '+1.5' && s.odd <= 1.20) return false;
+
+        return true;
+    });
+
+    // Order by PROBABILITY (Marketing-First: Win more, don't care about value)
+    candidates.sort((a, b) => b.prob - a.prob);
+
+    if (candidates.length > 0) {
+        bestPick = candidates[0];
+        console.log(`[Engine] 🔮 Magia Firba Selected: ${bestPick.label} (Prob: ${bestPick.prob}%, Odd: ${bestPick.odd})`);
+    } else {
+        // Absolute Fallback: lowest odd available among standard signals
+        bestPick = [...allSignals].sort((a, b) => a.odd - b.odd)[0];
+        console.log(`[Engine] ⚠️ Fallback to Lowest Odd: ${bestPick.label}`);
     }
 
     // 🔥 Add Trust & Mode Info to output (Already in return object)
@@ -2464,11 +2480,35 @@ function getMagiaStats(match, allMatchesHistory) {
         btts: sim.btts,
         noGol: sim.noGol,
 
-        // Meta & AI
+        // Meta & AI - Calcola quota reale dal tip selezionato
         tipMagiaAI: bestPick.label,
-        oddMagiaAI: 1.25, // User requested @1.25 as target for Sniper
+        oddMagiaAI: (() => {
+            const tip = bestPick.label;
+            // 1X2
+            if (tip === '1') return match.quota1 || 1.25;
+            if (tip === 'X') return match.quotaX || 1.25;
+            if (tip === '2') return match.quota2 || 1.25;
+            // Double Chance
+            if (tip === '1X') return match.bookmaker1X || match.q1X || 1.25;
+            if (tip === 'X2') return match.bookmakerX2 || match.qX2 || 1.25;
+            if (tip === '12') return match.bookmaker12 || match.q12 || 1.25;
+            // Goals
+            if (tip === '+1.5') return match.bookmakerOver15 || 1.25;
+            if (tip === '+2.5') return match.bookmakerOver25 || 1.25;
+            if (tip === '-3.5') return match.bookmakerUnder35 || 1.25;
+            if (tip === '+0.5 HT') return match.bookmakerOver05HT || 1.25;
+            // BTTS
+            if (tip === 'GG') return match.bookmakerGG || 1.25;
+            if (tip === 'NG') return match.bookmakerNG || 1.25;
+            return 1.25; // Fallback
+        })(),
         confidence: bestPick.prob,
+        probMagiaAI: bestPick.prob, // 🆕 NORMALIZZATO
         score: bestPick.prob,
+        smartScore: bestPick.prob,   // 🆕 NORMALIZZATO
+
+        // Formato descrittivo per PWA
+        pickDescription: `Magia AI rileva alta probabilità per mercato ${bestPick.type}: ${bestPick.label}`,
 
         // New Advanced metrics
         eloRatingH: sim.eloRatingH,
@@ -2499,6 +2539,7 @@ window.engine = {
     createSecondHalfSurgeStrategy,
     createUnder35TradingStrategy,
     extractHTProb,
+    calculateAllTradingStrategies,
     analyzeDrawRate,
     // NEW: Value Edge calculation
     calculateValueEdge,
