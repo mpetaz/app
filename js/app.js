@@ -4774,43 +4774,34 @@ async function loadLiveHubMatches() {
 
     // Use existing tradingPicks to merge trading instructions
 
+    const allMatches = window.strategiesData?.['all']?.matches || [];
+
     sorted.forEach(match => {
-        // Try to find matching trading pick by fixtureId or matchName
-        let tradingPick = null;
-        const matchNameNorm = (match.matchName || '').toLowerCase().replace(/\s+/g, '');
+        const fixtureId = String(match.fixtureId || '');
 
-        if (match.fixtureId) {
-            tradingPick = tradingPicks.find(p => String(p.fixtureId) === String(match.fixtureId));
+        // 🔬 RECUPERO IDENTITÀ (Betting da ALL + Strategia da Trading)
+        const originalMatch = allMatches.find(m => String(m.fixtureId) === fixtureId);
+        const tradingMatch = tradingPicks.find(p => String(p.fixtureId) === fixtureId);
 
-        }
-        // REMOVED: Name-based fuzzy matching (caused false positives)
+        // Se non è in 'all', non lo mostriamo (Protocollo Socio)
+        if (!originalMatch) return;
 
-        // Prepare match for unified card renderer - merge trading data if found
         const preparedMatch = {
-            ...match, // Includes events from liveScoresHub
-            home: match.homeTeam || match.matchName?.split(/\s*[-vs]+\s*/)?.[0] || '',
-            away: match.awayTeam || match.matchName?.split(/\s*[-vs]+\s*/)?.[1] || '',
-            // Handle multiple score formats including tradingPick.risultato
-            homeScore: match.homeScore ??
-                (match.score ? parseInt(match.score.split('-')[0]) : null) ??
-                (tradingPick?.risultato ? parseInt(tradingPick.risultato.split('-')[0]) : null) ??
-                tradingPick?.homeScore ?? 0,
-            awayScore: match.awayScore ??
-                (match.score ? parseInt(match.score.split('-')[1]) : null) ??
-                (tradingPick?.risultato ? parseInt(tradingPick.risultato.split('-')[1]) : null) ??
-                tradingPick?.awayScore ?? 0,
-            // Merge trading data
-            hasTradingStrategy: !!tradingPick || !!(match.tip && (match.tip.toLowerCase().includes('back') || match.tip.toLowerCase().includes('lay'))),
-            tradingInstruction: tradingPick?.tradingInstruction || match.tip || '',
-            strategy: tradingPick?.strategy || match.strategy || 'TRADING',
-            reasoning: tradingPick?.reasoning || match.reasoning || '',
-            liveStats: match.liveStats || {},
-            events: match.events || [], // EXPLICIT PROPAGATION
-            elapsed: match.elapsed || 0,
-            // 🛡️ LEGA FIX: Propagate league name from trading pick or match
-            lega: tradingPick?.lega || match.lega || match.league?.name || '',
-            id: window.getMantraId(match),
-            fixtureId: match.fixtureId || tradingPick?.fixtureId
+            ...originalMatch,  // Base: Tip di betting (12), Banner Oro, Magia AI
+            ...tradingMatch,   // Plus: Strategia Trading (LAY_THE_DRAW -> Box Arancione)
+            ...match,          // Telemetria: Score, Status, Minuto live
+
+            // 🛡️ RE-LOCK IDENTITY: Forza la tip di betting originale di ALL
+            // Altrimenti il radar potrebbe sovrascriverla con il nome della strategia
+            tip: originalMatch.tip,
+            quota: originalMatch.quota,
+            probabilita: originalMatch.probabilita,
+
+            // 🛡️ RE-LOCK STRATEGY: Forza la strategia del Trading Pick (per il colore arancione)
+            strategy: tradingMatch?.strategy || originalMatch.strategy || match.strategy,
+
+            isTrading: true,
+            hasTradingStrategy: true
         };
         html += window.renderLiveHubCard(preparedMatch);
     });
