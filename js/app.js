@@ -177,10 +177,10 @@ window.askEugenioDetailed = async function (question, brief) {
 **Dati Tecnici per la tua Analisi:**
 ${brief}
 
-**Domanda del Socio:**
+**Domanda di ${userName}:**
 ${question}
 
-Rispondi come un analista professionista, usando i dati sopra citati per giustificare la tua visione.`;
+Rispondi come un analista d'elite, usando i dati per giustificare la tua visione. Sii brevissimo e diretto.`;
 
     // Process chat with specialized prompt
     if (window.processEugenioChat) {
@@ -464,29 +464,26 @@ window.getLiveTradingAnalysis = async function (matchId) {
     const visibleQuestion = `euGENIO 🧞‍♂️, fammi un'analisi live di questo match: **${finalMatchName}**`;
     const userName = (typeof getUserName === 'function') ? getUserName() : "Socio";
 
-    const hiddenDetailedPrompt = `Sei euGENIO, Socio e Analista Pro.
+    const hiddenDetailedPrompt = `Sei euGENIO, Analista d'Elite e Consulente Personale di ${userName}.
 MATCH: ${finalMatchName}
-TEMPO: ${elapsed}' (Se è 0' o NS -> PRE-MATCH. Ignora dati live a zero.)
+TEMPO: ${elapsed}' (Se 0' o NS -> PRE-MATCH)
 RISULTATO: ${score}
-TIPO CARD: ${cardType}
-DATI CARD:
-- LIVELLO AUTORITÀ: ${authStatus} (SE È "ELITE GOLD" O "MAGIA", CITATO SUBITO COME FATTORE CHIAVE!)
-- Consiglio Betting (DA CARD): ${match?.tip || match?.magiaTip || match?.dbTip || match?.prediction || 'N/A'}${match?.confidence ? ` (${match.confidence}%)` : ''}
-- Consiglio Trading (DA CARD): ${match?.strategy || 'N/A'}${tradingDetails}
+TIPO: ${cardType}
+PARAMETRI:
+- STATUS: ${authStatus}
+- Betting: ${match?.tip || 'N/A'}
+- Trading: ${match?.strategy || 'N/A'}${tradingDetails}
 
-DATI LIVE (Solo se match iniziato):
-- xG: ${xg} | Press: ${stats.pressureValue}% | SOG: ${sog}
-- ELO Diff: ${Math.abs((match?.elo_home || 0) - (match?.elo_away || 0))}
+DATI LIVE:
+- Pressione: ${stats.pressureValue}% | xG: ${xg} | SOG: ${sog}
+- Autorevolezza Tecnica (Gap): ${Math.abs((match?.elo_home || 0) - (match?.elo_away || 0))}
 
-**REGOLE FERREE:**
+**REGOLE DI INGAGGIO:**
 1. Inizia con: "Ok ${userName}:"
-2. **ANALISI CONTESTUALE**:
-   - Se PRE-MATCH (0' o NS): Ignora xG/SOG. Analizza SOLO valore ELO, Badges e perché la card è **${authStatus}** (cita se è GOLD/MAGIA).
-   - Se LIVE: Analizza la pressione e i dati reali.
-3. **CITA BETTING E TRADING**: Dimmi cosa fare sia per la bet semplice (${match?.tip || 'N/A'}) che per il trading.
-4. **NO DIDATTICA**: Non spiegare le strategie.
-5. **VERDICT SECCO**: Entra / Attendi / Esci.
-6. **STILE**: Professionale, diretto, max 3 paragrafi brevi.`;
+2. **ANALISI CHIRURGICA**: Analizza SOLO i fattori chiave (Badges, Pressione o Gap Tecnico).
+3. **VERDICT**: Entra / Attendi / Esci.
+4. **NO DIDATTICA**: Non spiegare mai come funzionano le strategie o cos'è l'ELO.
+5. **STILE**: Telegrafico, max 2 paragrafi. Niente chiacchiere.`;
 
 
 
@@ -642,11 +639,8 @@ window.isTradingPick = function (match) {
         if (foundByFixture) return true;
     }
 
-    // 2. FALLBACK: Exact partita match (only if fixtureId not available)
-    if (match.partita) {
-        const foundByName = picks.some(p => p.partita === match.partita);
-        if (foundByName) return true;
-    }
+    // 2. FALLBACK: REMOVED (ID-PURE PROTOCOL 🇨🇭)
+    // No more name-based matching. Precision is absolute.
 
     // 3. Check explicit trading flags or strategies
     const tradingStrats = ['LAY_THE_DRAW', 'LAY_DRAW', 'BACK_OVER_25', 'HT_SNIPER', 'SECOND_HALF_SURGE', 'UNDER_35_SCALPING', 'TRADING'];
@@ -667,16 +661,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     // DEBUG: Initial State Check for Bhayangkara (REMOVED)
     // DEEP NORMALIZATION (Same as Backend)
     // ID-PURE NORMALIZATION (Swiss consistency)
-    const normalizeDeep = (str) => {
-        if (!str) return "";
-        return str.toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-            .replace(/[^a-z0-9]/g, "")
-            .replace(/(.)\1+/g, "$1");
-    };
-
-    const mKey = normalizeDeep(mName);
-    const tKey = normalizeDeep(mTip);
+    // ID-PURE PREPARATION: We no longer need deep normalization for matching.
+    // fixtureId is the Law. 🛡️
 
     // ID-PURE PROTOCOL: Use fixtureId-based Hub key exclusively. 🇨🇭
     if (!match.fixtureId) {
@@ -1127,7 +1113,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <!-- Home Team -->
             <div class="w-[38%] text-right pr-2 flex flex-col justify-center">
                 <span class="text-[13px] font-bold text-slate-800 leading-tight line-clamp-2 uppercase tracking-tight">
-                    ${(match.partita || ' - ').split('-')[0].trim()}
+                    ${match.home || (match.partita || ' - ').split('-')[0].trim()}
                 </span>
                 ${(rankH && !isCupMatch) ? `<span class="text-[10px] text-indigo-500 font-black mt-0.5">Pos. ${rankH}°</span>` : ''}
             </div>
@@ -1149,7 +1135,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
             <!-- Away Team -->
             <div class="w-[38%] text-left pl-2 flex flex-col justify-center">
                 <span class="text-[13px] font-bold text-slate-800 leading-tight line-clamp-2 uppercase tracking-tight">
-                    ${(match.partita || ' - ').split('-')[1]?.trim() || ''}
+                    ${match.away || (match.partita || ' - ').split('-')[1]?.trim() || ''}
                 </span>
                 ${(rankA && !isCupMatch) ? `<span class="text-[10px] text-indigo-500 font-black mt-0.5">Pos. ${rankA}°</span>` : ''}
             </div>
@@ -1446,8 +1432,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
         console.log(`[CardDebug] Timeline for ${match.partita}: Events=${events.length}`);
 
-        // 🏆 Robust Side Detection (Home vs Away)
-        const homeTeamPartita = (match.partita || '').split('-')[0]?.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        // 🏆 Robust Side Detection (Home vs Away) - ID-Pure preference
+        const homeTeamPartita = (match.home || (match.partita || '').split('-')[0])?.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
         let timelineHTML = '';
         if (events && events.length > 0) {
@@ -3670,14 +3656,7 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
             if (fId && window.liveScoresHub) {
                 liveData = window.liveScoresHub[fId] || Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === fId);
             }
-            // 2. Try Name Match (Fallback)
-            if (!liveData && window.liveScoresHub && m.partita) {
-                const cleanName = m.partita.toLowerCase().replace(/[^a-z]/g, '');
-                liveData = Object.values(window.liveScoresHub).find(h => {
-                    const hubName = (h.matchName || '').toLowerCase().replace(/[^a-z]/g, '');
-                    return hubName.includes(cleanName) || cleanName.includes(hubName);
-                });
-            }
+            // 2. Try Name Match (REMOVED - ID-PURE PROTOCOL 🇨🇭)
 
             // Normalizzazione base
             const teamParts = (m.partita || '').split(' - ');
@@ -3892,10 +3871,7 @@ window.showMyMatches = function (sortMode = 'score') {
                 // Try Exact ID Match (using universal ID logic)
                 let found = sourceStrat.matches.find(m => window.generateUniversalMatchId(m) === smId);
 
-                // Fallback: Fuzzy Name Match
-                if (!found) {
-                    found = sourceStrat.matches.find(m => m.partita === sm.partita && m.data === sm.data);
-                }
+                // Fallback: Fuzzy Name Match (REMOVED - ID-PURE PROTOCOL 🇨🇭)
 
                 if (found) {
                     latestMatch = found;
@@ -4857,19 +4833,23 @@ window.toggleLiveFavorite = async function (matchName, tip) {
     // 🏆 Mantra Redirect: Cerchiamo il match nel Live Hub o nelle strategie
     let matchToToggle = null;
 
-    // Try Live Hub first
+    // Try Live Hub first (ID-PURE ONLY 🇨🇭)
     if (window.liveScoresHub) {
-        matchToToggle = Object.values(window.liveScoresHub).find(m =>
-            (m.matchName === matchName || m.partita === matchName)
-        );
+        // If matchName contains the ID in brackets [ID], we use it
+        const fixtureIdMatch = matchName.match(/\[(\d+)\]/);
+        const targetId = fixtureIdMatch ? fixtureIdMatch[1] : null;
+
+        if (targetId) {
+            matchToToggle = window.liveScoresHub[targetId] ||
+                Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === targetId);
+        }
     }
 
-    // Fallback: search by name in strategies
+    // Fallback: search by ID in strategies (ID-PURE ONLY 🇨🇭)
     if (!matchToToggle && window.strategiesData) {
-        for (const stratId in window.strategiesData) {
-            const found = window.strategiesData[stratId].matches?.find(m => m.partita === matchName);
-            if (found) { matchToToggle = found; break; }
-        }
+        // Since we only have matchName, we can only find it if we have a way to get the ID.
+        // But for consistency with Socio's request, we REMOVE name-based search here.
+        console.warn(`[Favorite] Cannot toggle "${matchName}" without explicit ID.`);
     }
 
     if (matchToToggle) {

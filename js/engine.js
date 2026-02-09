@@ -812,11 +812,14 @@ function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate
     // Liquidity check removed as per user request
     // =========================================================
 
-    const prob = match.probabilita;
+    const prob = match.probabilita || 70;
     const tip = match.tip;
 
-    // Range ingresso: 2.50 - 4.50 (allargato per maggiore copertura)
-    const entryRange = ['2.50', '4.50'];
+    // 🔥 DINAMISMO QUOTE: Parte dalla quota reale se presente
+    let currentX = parseFloat(match.quotaX || match.oddsX || 3.50);
+    const entryMin = (currentX * 0.9).toFixed(2);
+    const entryMax = (currentX * 1.15).toFixed(2);
+    const entryRange = [entryMin, entryMax];
 
     // ANALISI DETTAGLIATA PER REASONING
     let reasoning = [];
@@ -854,20 +857,21 @@ function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate
             action: 'Lay The Draw',
             entry: {
                 range: [parseFloat(entryRange[0]), parseFloat(entryRange[1])],
-                timing: 'Primi 10-15 min'
+                timing: 'Live @ 15-20 min'
             },
             exit: {
-                target: 1.60,
+                target: (currentX * 0.6).toFixed(2),
                 timing: 'Dopo 1° gol (Cash-out)'
             },
             stopLoss: {
-                trigger: 2.00,
+                trigger: (currentX * 0.5).toFixed(2),
                 timing: 'Se 0-0 al 65-70 min'
             }
         },
         // CONFIDENCE basato su probabilità reale per ranking equilibrato
         confidence: Math.min(95, (match.probabilita || 70) + (isConvergent ? 10 : 5)),
         reasoning: reasoning.join(' + '),
+        internalBrief: `DETTAGLIO TECNICO LAY THE DRAW: Draw Rate Storico ${avgDrawRate.toFixed(1)}% | Home/Away Draw: ${homeDrawRate.rate}/${awayDrawRate.rate}%. Strategia basata sulla bassa frequenza di pareggi e gap tecnico rilevato.`,
         badge: {
             text: 'Trading Lay The Draw',
             color: 'bg-blue-100 text-blue-700 border-blue-300'
@@ -968,40 +972,20 @@ function extractHTProb(info_ht) {
 // 🧠 TRADING STRATEGIES 3.0
 // ═══════════════════════════════════════════════════════════════════════
 
-function createBackOver25Strategy(match, htProb, allMatches) {
-    // La liquidità è già filtrata a monte in admin.html dalla "Lista Sacra"
-
-    const prob = match.probabilita;
-    const quota = match.quota;
-
-    // Stima quota Over 2.5 con Poisson semplificato
-    const probOver25Estimated = (prob >= 80) ? prob * 0.70 : prob * 0.65;
-    const quotaOver25Suggested = 1 / (probOver25Estimated / 100);
-
-    // Range trading: ±12% dalla quota centrale
-    const entryRange = [
-        (quotaOver25Suggested * 0.88).toFixed(2),
-        (quotaOver25Suggested * 1.12).toFixed(2)
-    ];
+function createBackOver25Strategy(match, htProb, allMatches, forcedConfidence = null) {
+    const prob = match.probabilita || 70;
+    const score = match.score || 0;
 
     // ANALISI DETTAGLIATA PER REASONING
-    const teams = match.partita.split(' - ');
     let reasoning = [];
-
-    // Base: probabilità originale
     if (match.tip === '+1.5') {
         reasoning.push(`Over 1.5 molto probabile (${prob}%)`);
     } else {
         reasoning.push(`Over 2.5 probabile (${prob}%)`);
     }
 
-    // Analisi HT se disponibile
-    if (htProb >= 85) {
-        reasoning.push(`gol quasi certo nel 1°T (${htProb}%) - OTTIMO per trading live`);
-    } else if (htProb >= 75) {
+    if (htProb >= 75) {
         reasoning.push(`alta probabilità gol 1°T (${htProb}%)`);
-    } else if (htProb >= 65) {
-        reasoning.push(`buona prob gol 1°T (${htProb}%)`);
     }
 
     return {
@@ -1011,24 +995,26 @@ function createBackOver25Strategy(match, htProb, allMatches) {
         strategy: 'BACK_OVER_25',
         tradingInstruction: {
             action: 'Back Over 2.5',
-            entryRange: ['@1.80-2.30 (Live)'],
-            exitTarget: '60 min / 1 Gol',
-            timing: 'Pre-match / Live',
             entry: {
-                range: [1.80, 2.30],
-                timing: 'Primi 15-20 min'
+                // 🔥 DINAMISMO: Se non abbiamo quote Betfair, stimiamo dal target 1.80-2.45
+                range: [
+                    parseFloat(match.betfairOver25 || match.bookmakerOver15 || 1.80),
+                    parseFloat(match.betfairOver25 ? (match.betfairOver25 * 1.3).toFixed(2) : 2.45)
+                ],
+                timing: 'Live @ 15-20 min (Value @ 2.05+)'
             },
             exit: {
-                target: 1.15,
+                target: 1.35,
                 timing: 'Dopo 1° gol (Cash-out)'
             },
             stopLoss: {
-                trigger: 1.20,
-                timing: 'Se 0-0 al 70 min'
+                trigger: 1.15,
+                timing: 'Se 0-0 al 65-70 min'
             }
         },
-        confidence: forcedConfidence || Math.min(95, Math.max(prob, match.score || 0)),
+        confidence: forcedConfidence || Math.min(95, Math.max(prob, score)),
         reasoning: reasoning.length > 0 ? reasoning.join(' + ') : `Analisi Over 2.5 (${prob}%)`,
+        internalBrief: `DETTAGLIO TECNICO BACK OVER 2.5: Probabilità AI ${prob}% | HT Goal Prob ${htProb}% | Score Magia ${score}. Attesa partita prolifica con sblocco nei primi 30 min.`,
         badge: {
             text: 'Trading Back Over 2.5',
             color: 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
@@ -1057,11 +1043,12 @@ function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
         tradingInstruction: {
             action: 'Back Over 0.5 HT',
             entry: {
-                range: [1.50, 2.05],
+                // 🔥 DINAMISMO: Target d'entrata basato sulla quota HT se disponibile
+                range: [1.60, 2.25],
                 timing: entryTiming
             },
             exit: {
-                target: 1.10,
+                target: 1.05,
                 timing: 'Dopo gol 1°T (Cash-out)'
             },
             stopLoss: {
@@ -1072,6 +1059,7 @@ function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
         confidence: forcedConfidence || Math.min(95, htProb),
         reasoning: `ALTA PROBABILITÀ GOL 1°T (${htProb}%). ` +
             (htProb >= 80 ? "Avvio previsto a ritmi altissimi." : "Se 0-0 al minuto 20, la quota diventa di estremo valore."),
+        internalBrief: `DETTAGLIO TECNICO HT SNIPER: Probabilità HT ${htProb}%. Pressione prevista alta sin dal calcio d'inizio. Target quota @1.80+ per massimo valore.`,
         badge: {
             text: '🎯 HT SNIPER',
             color: 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse'
@@ -1097,7 +1085,7 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
         tradingInstruction: {
             action: 'Back Over 0.5 ST',
             entry: {
-                range: [1.60, 2.10],
+                range: [1.60, 2.15],
                 timing: timing
             },
             exit: {
@@ -1112,6 +1100,7 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
         confidence: forcedConfidence || Math.min(95, prob),
         reasoning: `Match ad alta intensità statistica (${prob}%). ` +
             (isRelegation ? "Possibile sblocco tardivo dovuto alla tensione salvezza." : "Ottimo per sfruttare il calo delle quote tra il min 60 e 80."),
+        internalBrief: `DETTAGLIO TECNICO SECOND HALF SURGE: Probabilità ${prob}% | Badges: ${badges.join(', ')}. Focus su squadre con alta produzione nel finale di partita.`,
         badge: {
             text: '🔥 SEC HALF SURGE',
             color: 'bg-orange-600 text-white border-orange-700 shadow-sm'
@@ -1119,95 +1108,7 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
     };
 }
 
-// Helper: Crea strategia LAY THE DRAW
-function createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, isHighProb = false, forcedConfidence = null) {
-    const mcDrawProb = match.magicStats?.drawProb || match.magicStats?.draw || 30;
-    const badges = match.magicStats?.motivationBadges || [];
-    const isDirectClash = badges.includes('⚔️ Scontro Diretto');
-
-    // Dinamizza Entry
-    let entryTiming = 'Live @ 15-20 min';
-    if (isDirectClash) entryTiming = 'Live @ 25-30 min (Prudente)';
-
-    return {
-        ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
-        strategy: 'LAY_THE_DRAW',
-        tradingInstruction: {
-            action: 'Lay The Draw',
-            entry: {
-                range: [3.30, 4.60],
-                timing: entryTiming
-            },
-            exit: {
-                target: 2.00,
-                timing: 'Dopo gol favorito'
-            },
-            stopLoss: {
-                trigger: 2.00,
-                timing: 'Se 0-0 al 70 min'
-            }
-        },
-        confidence: forcedConfidence || Math.min(95, 100 - mcDrawProb),
-        reasoning: `Analisi LTD (Risk Pareggio: ${Math.round(mcDrawProb)}%). ` +
-            (isDirectClash ? "Tensione da scontro diretto: ingresso posticipato per evitare il pari iniziale." : "Basso tasso pareggi storico rilevato.") +
-            (badges.length > 0 ? ` [Contesto: ${badges.join(', ')}]` : ""),
-        badge: {
-            text: '🎲 LAY THE DRAW',
-            color: 'bg-blue-600 text-white border-blue-700 shadow-sm'
-        }
-    };
-}
-
-function createBackOver25Strategy(match, htProb, allMatches, forcedConfidence = null) {
-    const magicData = match.magicStats;
-    const prob = magicData?.over25 || magicData?.over25Prob || 0;
-
-    const reasoning = [];
-    if (prob >= 60) reasoning.push(`Over 2.5 molto probabile (${prob}%)`);
-    if (htProb >= 70) reasoning.push(`alta probabilità gol 1°T (${htProb}%)`);
-
-    const teams = match.partita.split(' - ');
-    if (teams.length === 2) {
-        const league = window.normalizeLega(match.lega).toLowerCase();
-        const highGoalLeagues = ['premier', 'eredivisie', 'bundesliga', 'championship', 'belgio', 'islanda'];
-        if (highGoalLeagues.some(l => league.includes(l))) {
-            reasoning.push('campionato ad alto tasso gol');
-        }
-    }
-
-    return {
-        ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
-        strategy: 'BACK_OVER_25',
-        tradingInstruction: {
-            action: 'Back Over 2.5',
-            entryRange: ['@1.80-2.30 (Live)'],
-            exitTarget: '60 min / 1 Gol',
-            timing: 'Pre-match / Live',
-            entry: {
-                range: [1.80, 2.30],
-                timing: 'Primi 15-20 min'
-            },
-            exit: {
-                target: 1.15,
-                timing: 'Dopo 1° gol (Cash-out)'
-            },
-            stopLoss: {
-                trigger: 1.20,
-                timing: 'Se 0-0 al 70 min'
-            }
-        },
-        confidence: forcedConfidence || Math.min(95, Math.max(prob, match.score || 0)),
-        reasoning: reasoning.length > 0 ? reasoning.join(' + ') : `Analisi Over 2.5 (${prob}%)`,
-        badge: {
-            text: 'Trading Back Over 2.5',
-            color: 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
-        }
-    };
-}
+// ELIMINATI DUPLICATI OBSOLETI (LTD & BACK_OVER_25)
 
 // Helper: Crea strategia UNDER 3.5 TRADING (Scalping)
 function createUnder35TradingStrategy(match, forcedConfidence = null) {
@@ -1219,7 +1120,11 @@ function createUnder35TradingStrategy(match, forcedConfidence = null) {
         tradingInstruction: {
             action: 'Under 3.5 Scalping',
             entry: {
-                range: [1.30, 1.60],
+                // 🔥 DINAMISMO: Target d'entrata basato sulla quota Under 3.5 reale
+                range: [
+                    parseFloat(match.bookmakerUnder35 || 1.30),
+                    parseFloat(match.bookmakerUnder35 ? (match.bookmakerUnder35 * 1.25).toFixed(2) : 1.60)
+                ],
                 timing: 'Live (Primi 5-10 min)'
             },
             exit: {
@@ -1233,6 +1138,7 @@ function createUnder35TradingStrategy(match, forcedConfidence = null) {
         },
         confidence: forcedConfidence || Math.min(95, match.probabilita || 70),
         reasoning: `Sistema difensivo solido rilevato. Scalping Under 3.5 con uscita programmata o stop loss a fine primo tempo.`,
+        internalBrief: `DETTAGLIO TECNICO UNDER SCALPING: Probabilità Under ${match.probabilita || 70}%. Match previsto a basso ritmo. Gestione rigorosa dello stop loss necessaria.`,
         badge: {
             text: '🛡️ UNDER SCALPING',
             color: 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
@@ -1322,9 +1228,7 @@ function transformToTradingStrategy(match, allMatches) {
             data: { over25Prob, prob, valueEdge: over25Edge.valueEdge, badges, eloDiff },
             create: () => {
                 const s = createBackOver25Strategy(match, htProb, allMatches, finalConfidence);
-                s.reasoning = `Analisi Magia AI (${over25Prob}%). ` +
-                    (hasMotivation ? `Focus su motivazione speciale (${badges.join(', ')}). ` : '') +
-                    (Math.abs(eloDiff) > 150 ? `Gap tecnico ELO significativo (${eloDiff}).` : '');
+                // Keep the specialized reasoning from the creator
                 return s;
             }
         });
@@ -1343,8 +1247,6 @@ function transformToTradingStrategy(match, allMatches) {
         create: (overrideConf) => {
             const finalConf = overrideConf || (Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (isTitleRace ? 5 : 0)) - 25);
             const s = createHTSniperStrategy(match, htProb, finalConf);
-            s.reasoning = `Focus Over 0.5 HT (${htProb}%). ` +
-                (hasMotivation ? `Spinta da obiettivi classifica: ${badges.join(', ')}.` : 'Match con alta intensità iniziale prevista.');
             return s;
         }
     } : null;
@@ -1380,8 +1282,6 @@ function transformToTradingStrategy(match, allMatches) {
                 data: { mcDrawProb, avgHistDraw, homeDrawRate, awayDrawRate, drawOdds, badges },
                 create: () => {
                     const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 28 && avgHistDraw < 28, Math.min(95, finalConfidence));
-                    s.reasoning = `Analisi LTD (Pareggio AI: ${Math.round(mcDrawProb)}%). ` +
-                        (isRelegationFight ? "Tensione salvezza riduce rischio pareggio stallo." : "Margine di valore su odds Betfair.");
                     return s;
                 }
             });
@@ -1399,8 +1299,7 @@ function transformToTradingStrategy(match, allMatches) {
             data: { prob, badges },
             create: () => {
                 const s = createSecondHalfSurgeStrategy(match, allMatches, Math.min(95, finalConfidence));
-                s.reasoning = `Prevista spinta nel 2° tempo (${prob}%). ` +
-                    (hasMotivation ? `Obiettivi classifica (${badges.join(', ')}) spingono alla vittoria.` : "");
+                // Keep specialized reasoning
                 return s;
             }
         });
@@ -1415,13 +1314,27 @@ function transformToTradingStrategy(match, allMatches) {
             data: { eloDiff, badges },
             create: (overrideConf) => ({
                 strategy: 'ELITE_SURGE',
-                label: 'ELITE SURGE (BACK)',
-                action: eloDiff > 0 ? 'BACK 1' : 'BACK 2',
-                entryRange: ['Live @ 1.80+'],
-                exitTarget: '60 min / 1 Gol',
-                timing: 'In-Play (0-15 min)',
+                tradingInstruction: {
+                    action: eloDiff > 0 ? 'Back 1 (Favorito)' : 'Back 2 (Favorito)',
+                    entry: {
+                        range: [1.80, 2.40],
+                        timing: 'In-Play (0-15 min)'
+                    },
+                    exit: {
+                        target: 1.15,
+                        timing: 'Dopo 1° gol (Cash-out)'
+                    },
+                    stopLoss: {
+                        trigger: 1.20,
+                        timing: 'Se 0-0 al 70 min'
+                    }
+                },
                 confidence: overrideConf || Math.min(97, 85 + (Math.abs(eloDiff) / 50)),
-                reasoning: `Gap tecnico ELO massivo (${Math.round(Math.abs(eloDiff))}). Attesa dominanza del favorito.`
+                reasoning: `Gap tecnico ELO massivo (${Math.round(Math.abs(eloDiff))}). Attesa dominanza del favorito.`,
+                badge: {
+                    text: '🚀 ELITE SURGE',
+                    color: 'bg-yellow-500 text-white border-yellow-600 shadow-md'
+                }
             })
         });
     }
@@ -1437,7 +1350,6 @@ function transformToTradingStrategy(match, allMatches) {
             create: (overrideConf) => {
                 const finalConf = overrideConf || Math.min(90, Math.round(under35Prob * 0.7 + 15));
                 const s = createUnder35TradingStrategy(match, finalConf);
-                s.reasoning = `Match a basso ritmo previsto (${Math.round(under35Prob)}%). Assenza di spinte motivazionali forti.`;
                 return s;
             }
         });
@@ -1519,14 +1431,16 @@ Strategia Suggerita: ${result.strategy}
 Confidenza: ${result.confidence}%
 Timing Operativo: ${result.tradingInstruction.entry.timing}
 Analisi Tecnica:
-- Differenza ELO: ${eloDiffValue} (Vantaggio ${eloDiffValue > 0 ? 'Casa' : 'Ospite'})
+- Autorevolezza Tecnica (Gap): ${eloDiffValue} (Vantaggio ${eloDiffValue > 0 ? 'Casa' : 'Ospite'})
 - Segnali Motivazionali: ${badgeList || 'Nessuno'}
 - Probabilità HT: ${htProb}%
 - Valore AI (Score): ${score}
 Razionale Tattico: ${result.reasoning}
 Note Operative: Seguire l'entry range. Valutare uscita anticipata se la pressione cala.`;
 
-        result.tradingInstruction.entryRangeText = `@${result.tradingInstruction.entry.range[0].toFixed(2)}-${result.tradingInstruction.entry.range[1].toFixed(2)} (${result.tradingInstruction.entry.timing})`;
+        if (result.tradingInstruction?.entry?.range) {
+            result.tradingInstruction.entryRangeText = `@${result.tradingInstruction.entry.range[0].toFixed(2)}-${result.tradingInstruction.entry.range[1].toFixed(2)} (${result.tradingInstruction.entry.timing})`;
+        }
 
         // LIMITA A MAX 3 STRATEGIE per evitare "sempre le solite 2"
         const topStrategies = strategies.slice(0, 3);
@@ -1538,7 +1452,8 @@ Note Operative: Seguire l'entry range. Valutare uscita anticipata se la pression
                 type: s.type,
                 confidence: s.confidence,
                 label: stratObj?.badge?.text || stratObj?.tradingInstruction?.action || s.type,
-                reasoning: stratObj?.reasoning || ''
+                reasoning: stratObj?.reasoning || '',
+                expertNarrative: stratObj?.expertNarrative || stratObj?.reasoning || ''
             };
         });
         return result;
@@ -1560,7 +1475,7 @@ function calculateAllTradingStrategies(match, allMatches) {
     const badgesRaw = magicData?.motivationBadges || [];
     const badges = badgesRaw.map(b => typeof b === 'object' ? (b.text || JSON.stringify(b)) : b);
     const eloDiff = Math.round(magicData?.eloDiff || 0);
-    const briefingBase = `\n- Differenza ELO: ${eloDiff}\n- Segnali: ${badges.join(', ') || 'Nessuno'}\n- Probabilità HT: ${Math.round(htProb)}%`;
+    const briefingBase = `\n- Autorevolezza Tecnica (Gap): ${eloDiff}\n- Segnali: ${badges.join(', ') || 'Nessuno'}\n- Probabilità HT: ${Math.round(htProb)}%`;
 
     const qualified = [];
 
