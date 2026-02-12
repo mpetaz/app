@@ -17,12 +17,14 @@ const LocalDB = {
     storeLeagues: 'leagues_registry',
     storeCatalog: 'leagues_catalog', // NEW: Full API-Football catalog
     storeMagiaAI: 'magia_ai_predictions', // 🔥 NEW v13.0: Sandbox for AI World Predictions
+    storeParlays: 'parlays_history', // 🎰 NEW: Local storage for Generated Parlays (Privacy Mode)
+    storeTrading: 'trading_history', // 📈 NEW v14.0: Local storage for Trading 3.0 History
     db: null,
 
     async init() {
         if (this.db) return;
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 6); // Upgrade to v6 for magia_ai_predictions
+            const request = indexedDB.open(this.dbName, 8); // Upgrade to v8 for trading_history
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
@@ -42,6 +44,12 @@ const LocalDB = {
                 }
                 if (!db.objectStoreNames.contains(this.storeMagiaAI)) {
                     db.createObjectStore(this.storeMagiaAI, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(this.storeParlays)) {
+                    db.createObjectStore(this.storeParlays, { keyPath: 'date' });
+                }
+                if (!db.objectStoreNames.contains(this.storeTrading)) {
+                    db.createObjectStore(this.storeTrading, { keyPath: 'date' });
                 }
             };
 
@@ -206,6 +214,9 @@ const LocalDB = {
         transaction.objectStore(this.storeStrategies).clear();
         transaction.objectStore(this.storeLeagues).clear();
         transaction.objectStore(this.storeMagiaAI).clear();
+        if (this.db.objectStoreNames.contains(this.storeParlays)) {
+            transaction.objectStore(this.storeParlays).clear();
+        }
         console.log("[LocalDB] Cleared all stores");
     },
 
@@ -248,6 +259,28 @@ const LocalDB = {
         });
     },
 
+    async getAllStrategyDates() {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readonly");
+            const store = transaction.objectStore(this.storeStrategies);
+            const request = store.getAllKeys();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async getAllParlayDates() {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeParlays], "readonly");
+            const store = transaction.objectStore(this.storeParlays);
+            const request = store.getAllKeys();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
     async loadStrategyHistory(date) {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
@@ -262,6 +295,96 @@ const LocalDB = {
             request.onerror = (event) => {
                 reject(event);
             };
+        });
+    },
+
+    // ==================== PARLAYS HISTORY (LOCAL ONLY) ====================
+
+    async saveParlayHistory(date, parlayData) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeParlays], "readwrite");
+            const store = transaction.objectStore(this.storeParlays);
+
+            const record = {
+                date: date,
+                lastUpdated: Date.now(),
+                data: parlayData // Full parlayDoc structure
+            };
+
+            const request = store.put(record);
+            request.onsuccess = () => resolve(true);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async loadParlayHistory(date) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeParlays], "readonly");
+            const store = transaction.objectStore(this.storeParlays);
+            const request = store.get(date);
+            request.onsuccess = () => {
+                const result = request.result;
+                resolve(result ? result.data : null);
+            };
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    // ==================== TRADING HISTORY (LOCAL ONLY) ====================
+
+    async saveTradingHistory(date, tradingData) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeTrading], "readwrite");
+            const store = transaction.objectStore(this.storeTrading);
+
+            const record = {
+                date: date,
+                lastUpdated: Date.now(),
+                data: tradingData // Full tradingDoc structure
+            };
+
+            const request = store.put(record);
+            request.onsuccess = () => resolve(true);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async loadTradingHistory(date) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeTrading], "readonly");
+            const store = transaction.objectStore(this.storeTrading);
+            const request = store.get(date);
+            request.onsuccess = () => {
+                const result = request.result;
+                resolve(result ? result.data : null);
+            };
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async getAllTradingDates() {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeTrading], "readonly");
+            const store = transaction.objectStore(this.storeTrading);
+            const request = store.getAllKeys();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async deleteStrategiesHistory(date) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeStrategies], "readwrite");
+            const store = transaction.objectStore(this.storeStrategies);
+            const request = store.delete(date);
+            request.onsuccess = () => resolve(true);
+            request.onerror = (event) => reject(event);
         });
     },
 
@@ -686,67 +809,20 @@ async function safeBatchCommit(db, operations, onProgress = null) {
  * Handle massive upload of matches (Tips or Results)
  * Replaces the monolithic handleUploadConfirmed in admin.html
  */
+/**
+ * 🛡️ PRIVACY UPDATE: Cloud sync for 'matches' collection is DISABLED
+ * The "Database Oro" now stays exclusively in the local IndexedDB.
+ */
 async function uploadMatchesToFirebase(type, dataToUpload, existingMatches = [], db) {
     if (!dataToUpload || dataToUpload.length === 0) return 0;
 
-    const matchesCollection = window.collection(db, "matches");
-    let operations = [];
+    console.log(`[Upload] ID-Pure System: Data saved only in local IndexedDB. Suppression active for ${dataToUpload.length} records.`);
 
-    // Pre-process items to determine if update or new create
-    // We use a Map for existing matches for O(1) lookup
-    const existingMap = new Map();
-    existingMatches.forEach(m => {
-        // Create unique key: date_teams (approx)
-        if (m.data && m.partita) existingMap.set(`${m.data}_${m.partita}`, m.id);
-    });
+    // Simulo completamento per non rompere la UI
+    const btn = document.getElementById(`confirm-${type}-upload-btn`);
+    if (btn) btn.innerHTML = `<i class="fa-solid fa-check mr-2"></i>Salvato in Locale`;
 
-    // Helper per rimuovere undefined (che fa crashare Firebase)
-    const cleanForFirebase = (obj) => JSON.parse(JSON.stringify(obj));
-
-    for (const matchRaw of dataToUpload) {
-        const match = cleanForFirebase(matchRaw);
-
-        // Try to find existing ID
-        let existingId = match.id;
-        if (!existingId) {
-            const key = `${match.data}_${match.partita}`;
-            if (existingMap.has(key)) {
-                existingId = existingMap.get(key);
-            }
-        }
-
-        if (existingId) {
-            // MERGE UPDATE
-            const docRef = window.doc(matchesCollection, String(existingId));
-            operations.push({
-                type: 'set',
-                ref: docRef,
-                data: match,
-                options: { merge: true }
-            });
-        } else {
-            // NEW CREATE
-            const docRef = window.doc(matchesCollection); // Auto-ID
-            // Add ID to match object for consistency
-            match.id = docRef.id;
-            operations.push({
-                type: 'set',
-                ref: docRef,
-                data: match
-            });
-        }
-    }
-
-    console.log(`[Upload] Prepared ${operations.length} operations. Starting safe commit...`);
-
-    // Execute safe batch
-    await safeBatchCommit(db, operations, (processed, total) => {
-        // Provide UI feedback via DOM if element exists
-        const btn = document.getElementById(`confirm-${type}-upload-btn`);
-        if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i>Salvataggio ${processed}/${total}...`;
-    });
-
-    return operations.length;
+    return dataToUpload.length;
 }
 
 /**
@@ -810,6 +886,7 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                     if (m.teamIdHome !== undefined) matchData.teamIdHome = m.teamIdHome;
                     if (m.teamIdAway !== undefined) matchData.teamIdAway = m.teamIdAway;
                     if (m.expertStats !== undefined) matchData.expertStats = m.expertStats;
+                    if (m.info_ht !== undefined) matchData.info_ht = m.info_ht; // 🔥 HT DATA FOR PWA
 
                     // 🔥 Intelligence Fields (Normalization for PWA)
                     if (m.probMagiaAI !== undefined) matchData.probMagiaAI = m.probMagiaAI;
@@ -825,6 +902,7 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
                         if (m.magicStats.smartScore !== undefined) matchData.magicStats.smartScore = m.magicStats.smartScore;
                         if (m.magicStats.top3Scores !== undefined) matchData.magicStats.top3Scores = m.magicStats.top3Scores;
                         if (m.magicStats.pickDescription !== undefined) matchData.magicStats.pickDescription = m.magicStats.pickDescription;
+                        if (m.magicStats.ht05 !== undefined) matchData.magicStats.ht05 = m.magicStats.ht05; // 🔥 AI HT PROB
 
                         // 🔥 Intelligence in magicStats too
                         if (m.magicStats.motivationBadges !== undefined) matchData.magicStats.motivationBadges = m.magicStats.motivationBadges;
@@ -896,7 +974,7 @@ async function loadLeagueTrust(db) {
         const snapshot = await window.getDocs(trustCol);
         const trustMap = {};
         snapshot.forEach(docSnap => {
-            const key = docSnap.id.toLowerCase().trim();
+            const key = docSnap.id; // Now it will be the leagueId (string)
             trustMap[key] = docSnap.data();
         });
         window.LEAGUE_TRUST = trustMap;
@@ -930,36 +1008,29 @@ async function updateLeagueTrustHistory(db, matches) {
     const leaguesToUpdate = {}; // canonicalName -> { won, lost, tips }
 
     matches.forEach(m => {
-        if (!m.lega || !m.risultato || !m.tip) return;
-        const normalizedLega = normalizeLega(m.lega); // current name
-
-        // Risoluzione Nome Canonico (ID-Centric)
-        let canonicalName = normalizedLega;
-        const leagueId = m.leagueId || nameToId[normalizedLega];
-        if (leagueId && idToName[leagueId]) {
-            canonicalName = idToName[leagueId];
-        }
+        if (!m.leagueId || !m.risultato || !m.tip) return;
+        const leagueId = String(m.leagueId);
 
         // Normalizzazione Tip per compatibilità con evaluateTipLocally
         const result = window.evaluateTipLocally(m.tip, m.risultato);
         if (!result) return;
 
-        if (!leaguesToUpdate[canonicalName]) {
-            leaguesToUpdate[canonicalName] = { won: 0, total: 0 };
+        if (!leaguesToUpdate[leagueId]) {
+            leaguesToUpdate[leagueId] = { won: 0, total: 0 };
         }
 
-        leaguesToUpdate[canonicalName].total++;
-        if (result === 'Vinto') leaguesToUpdate[canonicalName].won++;
+        leaguesToUpdate[leagueId].total++;
+        if (result === 'Vinto') leaguesToUpdate[leagueId].won++;
     });
 
     const operations = [];
     const trustCol = window.collection(db, "league_trust");
 
-    for (const [leagueName, stats] of Object.entries(leaguesToUpdate)) {
-        const docRef = window.doc(trustCol, leagueName);
+    for (const [leagueId, stats] of Object.entries(leaguesToUpdate)) {
+        const docRef = window.doc(trustCol, leagueId);
 
         // Rolling update logic: weight the new results into the existing score
-        const currentTrust = (window.LEAGUE_TRUST && window.LEAGUE_TRUST[leagueName]) ? window.LEAGUE_TRUST[leagueName] : { trust: 5, samples: 0, o15_wr: 75 };
+        const currentTrust = (window.LEAGUE_TRUST && window.LEAGUE_TRUST[leagueId]) ? window.LEAGUE_TRUST[leagueId] : { trust: 5, samples: 0, o15_wr: 75 };
 
         const newWR = (stats.won / stats.total) * 100;
         const weight = Math.min(0.2, stats.total / ((currentTrust.samples || 0) + stats.total));
@@ -987,17 +1058,10 @@ async function updateLeagueTrustHistory(db, matches) {
         // 🔥 NEW v12.0: UPDATE LOCAL DB REGISTRY TOO
         (async () => {
             try {
-                const existing = await window.LocalDB.getLeagueMapping(leagueName);
-                if (existing) {
-                    await window.LocalDB.saveLeagueMapping(leagueName, existing.leagueId, {
-                        trustScore: parseFloat(newTrust.toFixed(1)),
-                        mode: currentMode,
-                        samples: (currentTrust.samples || 0) + stats.total,
-                        o15_wr: parseFloat(updatedWR.toFixed(1))
-                    });
-                }
+                // Notifica aggiornamento trust (solo log, la persistenza avviene su Firebase)
+                console.log(`[TrustUpdate] ${leagueId}: Trust ${newTrust} Mode: ${currentMode}`);
             } catch (err) {
-                console.warn(`[LocalTrust] Sync error for ${leagueName}:`, err);
+                console.warn(`[LocalTrust] Sync error for ${leagueId}:`, err);
             }
         })();
     }

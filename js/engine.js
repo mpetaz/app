@@ -432,21 +432,13 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
         // If 'ALL' tip (for Monte Carlo), take all history, otherwise filter by date if needed
         if (tip !== 'ALL' && matchDate < sixMonthsAgo) return false;
 
-        // 🏁 LOGICA IBRIDA "CERTIFICATA" (Swiss Watch)
-        if (row.homeId || row.awayId) {
-            // Se la riga storica ha ID, usiamo SOLO gli ID (Precisione Totale)
-            if (!teamId) return false;
-            const rowHId = String(row.homeId);
-            const rowAId = String(row.awayId);
-            const targetId = String(teamId);
-            return (rowHId === targetId || rowAId === targetId);
-        } else {
-            // Se la riga storica NON ha ID (Dati vecchi/CSV), usiamo il Nome Esatto
-            // NON usiamo fuzzy o "includes", solo uguaglianza perfetta
-            const t1 = (row.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-            const t2 = (row.partita || '').split(' - ').slice(1).join(' - ')?.toLowerCase().trim() || '';
-            return (t1 === teamNorm || t2 === teamNorm);
-        }
+        // 🏁 LOGICA ID-PURE 🇨🇭 (Swiss Precision)
+        if (!teamId || (!row.homeId && !row.awayId)) return false;
+
+        const rowHId = String(row.homeId);
+        const rowAId = String(row.awayId);
+        const targetId = String(teamId);
+        return (rowHId === targetId || rowAId === targetId);
     };
 
     const allTeamMatches = dbCompleto.filter(matchFilter);
@@ -712,17 +704,10 @@ function analyzeDrawRate(teamName, allMatches, teamId = null) {
     const matchesSquadra = allMatches.filter(m => {
         if (!m.risultato || m.risultato.trim() === '') return false;
 
-        // 🏁 LOGICA IBRIDA "CERTIFICATA"
-        if (m.homeId || m.awayId) {
-            if (!teamId) return false;
-            const targetId = String(teamId);
-            return (String(m.homeId) === targetId || String(m.awayId) === targetId);
-        } else {
-            // Fallback su nome ESATTO per storia vecchia (senza ID)
-            const partitaLower = (m.partita || '').toLowerCase();
-            const [t1, t2] = partitaLower.split(' - ').map(t => t.trim());
-            return (t1 === teamLower || t2 === teamLower);
-        }
+        // 🏁 LOGICA ID-PURE 🇨🇭
+        if (!teamId || (!m.homeId && !m.awayId)) return false;
+        const targetId = String(teamId);
+        return (String(m.homeId) === targetId || String(m.awayId) === targetId);
     }).slice(0, 30); // Max 30 match
 
     if (matchesSquadra.length === 0) return { rate: 0, total: 0, draws: 0 };
@@ -843,8 +828,10 @@ function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate
     }
 
     // Info lega se rilevante
-    const legaNorm = normalizeLega(match.lega).toLowerCase();
-    if (legaNorm.includes('premier') || legaNorm.includes('bundesliga') || legaNorm.includes('serie a')) {
+    // ID-PURE: Use leagueId directly. No name fallback.
+    const lId = match.leagueId ? String(match.leagueId) : null;
+    const isTopLeague = lId && ['135', '39', '78'].includes(lId);
+    if (isTopLeague) {
         reasoning.push('top campionato con pochi pareggi tattici');
     }
 
@@ -2037,20 +2024,10 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
     const pool = new Map();
     (allMatchesHistory || []).forEach(m => {
         if (m.data === selectedDate && m.magia === 'OK') {
-            const fId = m.fixtureId || m.id;
+            const fId = m.fixtureId;
             if (fId) {
                 const key = String(fId);
                 const matchCopy = { ...m };
-
-                // 🔥 ID ONLY RULE: Resolve leagueId from Registry if missing
-                if (!matchCopy.leagueId && window.leaguesRegistry) {
-                    const normLega = normalizeLega(matchCopy.lega).toLowerCase().trim();
-                    const registryEntry = window.leaguesRegistry.get(normLega);
-                    if (registryEntry && registryEntry.leagueId) {
-                        matchCopy.leagueId = registryEntry.leagueId;
-                    }
-                }
-
                 pool.set(key, matchCopy);
             }
         }
@@ -2062,9 +2039,8 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
     // 2. GLOBAL FILTERS (Blacklist)
     // ═══════════════════════════════════════════════════════════════════════
     const cleanPool = unifiedMatches.filter(m => {
-        const legaOrig = (m.lega || "").toLowerCase().trim();
-        const legaNorm = normalizeLega(m.lega).toLowerCase().trim();
-        return !blacklist.includes(legaOrig) && !blacklist.includes(legaNorm);
+        const lId = String(m.leagueId || "");
+        return lId && !blacklist.includes(lId);
     });
 
     const results = {};
@@ -2081,12 +2057,8 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
         { id: '___magia_ai', name: '🔮 SPECIAL AI', type: 'winrate_80' } // Now using rigid winrate filters
     ];
 
-    const topEuLeagues = [
-        'EU-ENG Premier League', 'EU-ESP La Liga', 'EU-DEU Bundesliga',
-        'EU-FRA Ligue 1', 'EU-NED Eredivisie', 'EU-CHE Super League',
-        'EU-PRT Primeira Liga', 'EU-BEL Pro League'
-    ];
-    const cupKeywords = ['champions league', 'europa league', 'conference league'];
+    const topEuIds = ['39', '140', '78', '61', '88', '94', '38']; // Prem, LaLiga, Bunde, Ligue1, Erediv, Portu, Belg
+    const cupIds = ['2', '3', '848']; // CL, EL, ECL
 
     strategies.forEach(strat => {
         let filtered = [];
@@ -2095,15 +2067,13 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
             // ALL: Keep matches with tips (either Betmines or AI)
             filtered = cleanPool.filter(m => (m.tip && String(m.tip).trim() !== '') || m.magicStats?.tipMagiaAI);
         } else if (strat.type === 'italia') {
-            filtered = cleanPool.filter(m => normalizeLega(m.lega).startsWith('eu-ita'));
+            // ITA IDs: 135(A), 136(B), 137(Coppa), 138(C-A), 942(C-B), 943(C-C)
+            const itaIds = ['135', '136', '137', '138', '942', '943'];
+            filtered = cleanPool.filter(m => itaIds.includes(String(m.leagueId)));
         } else if (strat.type === 'top_eu') {
-            const topEuLower = topEuLeagues.map(l => l.toLowerCase());
-            filtered = cleanPool.filter(m => topEuLower.includes(normalizeLega(m.lega)));
+            filtered = cleanPool.filter(m => topEuIds.includes(String(m.leagueId)));
         } else if (strat.type === 'cups') {
-            filtered = cleanPool.filter(m => {
-                const l = normalizeLega(m.lega);
-                return cupKeywords.some(k => l.includes(k.toLowerCase()));
-            });
+            filtered = cleanPool.filter(m => cupIds.includes(String(m.leagueId)));
         } else if (strat.type === 'winrate_80') {
             // Mapping for presets (firebase id vs strat id)
             const presetId = strat.id === '___magia_ai' ? 'special_ai' : strat.id;
@@ -2191,13 +2161,9 @@ function getMagiaStats(match, allMatchesHistory) {
     // Check if standings are available for this league
     let leagueId = match.leagueId || null;
 
-    // 🔗 Use Registry loaded at startup (clean solution - no LEAGUE_MAPPING)
-    if (!leagueId && window.leaguesRegistry) {
-        // leaguesRegistry is a Map loaded once at admin startup
-        const registryEntry = window.leaguesRegistry.get(normalizeLega(match.lega));
-        if (registryEntry && registryEntry.leagueId) {
-            leagueId = registryEntry.leagueId;
-        }
+    // ID-PURE STRICT: Use leagueId provided by match object (Source of Truth)
+    if (!match.leagueId) {
+        console.warn(`[getMagiaStats] Missing leagueId for match ${match.partita}. Evaluation might be inaccurate.`);
     }
 
     const cache = window.standingsCache;
@@ -2312,6 +2278,8 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.motivationBadges = motivationBadges;
     sim.rankH = rankH;
     sim.rankA = rankA;
+    sim.eloRatingH = eloRatingH;
+    sim.eloRatingA = eloRatingA;
     sim.leagueId = leagueId;
 
     // 🔥 EXPERT STATS (Form & Goals)
@@ -2386,8 +2354,9 @@ function getMagiaStats(match, allMatchesHistory) {
     sim.isCupMatch = isCupMatch;
 
     // 🔥 NEW v12.0: ADAPTIVE LOGIC based on League Trust Score (Master Trust v12.0)
-    const normalizedLega = normalizeLega(match.lega);
-    const trustData = (window.LEAGUE_TRUST && window.LEAGUE_TRUST[normalizedLega]) ? window.LEAGUE_TRUST[normalizedLega] : { trust: 5, mode: 'STANDARD' };
+    // 🔥 NEW v12.0: ADAPTIVE LOGIC based on League Trust Score (Master Trust v12.0)
+    const lId = match.leagueId ? String(match.leagueId) : null;
+    const trustData = (lId && window.LEAGUE_TRUST && window.LEAGUE_TRUST[lId]) ? window.LEAGUE_TRUST[lId] : { trust: 5, mode: 'STANDARD' };
 
     // 🔥 NEW v4.5: MAGIA FIRBA (Marketing-First Selection Logic)
     // Goal: Win Rate over Value. Priority to "safe" low odds.
@@ -2423,9 +2392,10 @@ function getMagiaStats(match, allMatchesHistory) {
     // Strategy Rules:
     // 1. Hard Cap @ 1.40
     // 2. 1.30-1.40 ONLY if Prob >= 80%
-    // 3. Serie B/C Over 1.5 ONLY if Odd > 1.20
+    // 3. Serie B/C Over 1.5 ONLY if Odd > 1.20 (ID-PURE 🇨🇭)
     const hardCap = 1.40;
-    const isHardLeague = normalizedLega.includes('Serie B') || normalizedLega.includes('Serie C');
+    const lIdInt = match.leagueId ? parseInt(match.leagueId) : 0;
+    const isHardLeague = [136, 137, 138, 942, 943].includes(lIdInt);
 
     let candidates = allSignals.filter(s => {
         // Rule 1: Hard Cap

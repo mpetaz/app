@@ -6,23 +6,59 @@
  */
 
 /**
- * Evaluate a betting tip locally based on final score
+ * Evaluate a betting tip locally based on final score and status
  * Used as fallback for matches not tracked by API
  * 
- * @param {string} tip - The betting tip (e.g., "Over 2.5", "1X", "Lay The Draw")
- * @param {string} risultato - The final score (e.g., "2-1")
- * @returns {string|null} - 'Vinto', 'Perso', or null if can't evaluate
+ * @param {string} tip - The betting tip
+ * @param {string} risultato - The score (e.g., "1-0" or "2-1 (1-0)")
+ * @param {boolean} isFinished - True if match is FT
+ * @param {string} status - Match status (1H, HT, 2H, FT, etc.)
+ * @returns {string|null} - 'Vinto', 'Perso', or null
  */
-export function evaluateTipLocally(tip, risultato, isFinished = true) {
+export function evaluateTipLocally(tip, risultato, isFinished = true, status = 'FT') {
     if (!tip || !risultato) return null;
 
-    const parts = risultato.split('-').map(s => parseInt(s.trim()));
-    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+    // Support "2-1 (1-0)" or "2-1"
+    let gH, gA, htH = 0, htA = 0;
+    const scoreMatch = risultato.match(/(\d+)\s*[-:]\s*(\d+)(?:\s*\((\d+)\s*[-:]\s*(\d+)\))?/);
+    if (!scoreMatch) return null;
 
-    const gH = parts[0];  // Home goals
-    const gA = parts[1];  // Away goals
+    gH = parseInt(scoreMatch[1]);
+    gA = parseInt(scoreMatch[2]);
     const total = gH + gA;
+
+    if (scoreMatch[3] !== undefined && scoreMatch[4] !== undefined) {
+        htH = parseInt(scoreMatch[3]);
+        htA = parseInt(scoreMatch[4]);
+    }
+    const htTotal = htH + htA;
+    const stTotal = total - htTotal;
+
     const t = String(tip).toLowerCase().trim();
+    const stat = (status || 'FT').toUpperCase();
+
+    // --- LOGICA HT / ST SPECIFICA ---
+    if (t.includes("05 ht") || t.includes("0.5 ht") || t.includes("over 0.5 ht") || t.includes("+0.5 ht")) {
+        // 1. Se abbiamo il parziale HT esplicito
+        if (scoreMatch[3] !== undefined) return htTotal >= 1 ? 'Vinto' : (isFinished ? 'Perso' : null);
+        // 2. Fallback Live: se c'è un gol e siamo ancora nel 1T o all'intervallo, è VINTO
+        if (total >= 1 && (stat === '1H' || stat === 'HT')) return 'Vinto';
+        // 3. Se la partita è finita e non abbiamo il parziale, non possiamo essere sicuri al 100% 
+        // ma se è 0-0 è sicuramente PERSO.
+        if (isFinished && total === 0) return 'Perso';
+        return isFinished ? null : null;
+    }
+
+    if (t.includes("0.5 st") || t.includes("0.5 second half") || t.includes("+0.5 st")) {
+        // 1. Se abbiamo il parziale HT esplicito
+        if (scoreMatch[3] !== undefined) return stTotal >= 1 ? 'Vinto' : (isFinished ? 'Perso' : null);
+        // 2. Fallback Live: se siamo nel 2T e sono stati fatti gol rispetto a un eventuale stato HT precedente...
+        // Difficile senza stato storico, ma se la partita finisce 0-0 è sicuramente PERSO.
+        if (isFinished && total === 0) return 'Perso';
+        return null;
+    }
+
+    // --- TRADING SPECIFICO... (rest of logic remains same) ---
 
     // --- TRADING SPECIFICO: Pattern esatti valutati PRIMA dei generici ---
 
@@ -60,24 +96,25 @@ export function evaluateTipLocally(tip, risultato, isFinished = true) {
     }
 
     // Over/Under logic (standard)
-    if (t.includes("+0.5") || t.includes("over 0.5") || t.match(/\bo\s?0\.5/)) return total >= 1 ? 'Vinto' : 'Perso';
-    if (t.includes("+1.5") || t.includes("over 1.5") || t.match(/\bo\s?1\.5/)) return total >= 2 ? 'Vinto' : 'Perso';
-    if (t.includes("+2.5") || t.includes("over 2.5") || t.match(/\bo\s?2\.5/)) return total >= 3 ? 'Vinto' : 'Perso';
-    if (t.includes("+3.5") || t.includes("over 3.5") || t.match(/\bo\s?3\.5/)) return total >= 4 ? 'Vinto' : 'Perso';
+    const normalizedTip = t.replace(/\s+/g, '');
+    if (normalizedTip.includes("+0.5") || normalizedTip.includes("over0.5") || normalizedTip.match(/\bo\s?0\.5/)) return total >= 1 ? 'Vinto' : 'Perso';
+    if (normalizedTip.includes("+1.5") || normalizedTip.includes("over1.5") || normalizedTip.match(/\bo\s?1\.5/)) return total >= 2 ? 'Vinto' : 'Perso';
+    if (normalizedTip.includes("+2.5") || normalizedTip.includes("over2.5") || normalizedTip.match(/\bo\s?2\.5/)) return total >= 3 ? 'Vinto' : 'Perso';
+    if (normalizedTip.includes("+3.5") || normalizedTip.includes("over3.5") || normalizedTip.match(/\bo\s?3\.5/)) return total >= 4 ? 'Vinto' : 'Perso';
 
-    if (t.includes("-0.5") || t.includes("under 0.5") || t.match(/\bu\s?0\.5/)) {
+    if (normalizedTip.includes("-0.5") || normalizedTip.includes("under0.5") || normalizedTip.match(/\bu\s?0\.5/)) {
         if (total >= 1) return 'Perso';
         return isFinished ? 'Vinto' : 'Live (Green)';
     }
-    if (t.includes("-1.5") || t.includes("under 1.5") || t.match(/\bu\s?1\.5/)) {
+    if (normalizedTip.includes("-1.5") || normalizedTip.includes("under1.5") || normalizedTip.match(/\bu\s?1\.5/)) {
         if (total >= 2) return 'Perso';
         return isFinished ? 'Vinto' : 'Live (Green)';
     }
-    if (t.includes("-2.5") || t.includes("under 2.5") || t.match(/\bu\s?2\.5/)) {
+    if (normalizedTip.includes("-2.5") || normalizedTip.includes("under2.5") || normalizedTip.match(/\bu\s?2\.5/)) {
         if (total >= 3) return 'Perso';
         return isFinished ? 'Vinto' : 'Live (Green)';
     }
-    if (t.includes("-3.5") || t.includes("under 3.5") || t.match(/\bu\s?3\.5/)) {
+    if (normalizedTip.includes("-3.5") || normalizedTip.includes("under3.5") || normalizedTip.match(/\bu\s?3\.5/)) {
         if (total >= 4) return 'Perso';
         return isFinished ? 'Vinto' : 'Live (Green)';
     }

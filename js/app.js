@@ -395,9 +395,9 @@ window.getLiveTradingAnalysis = async function (matchId) {
         }
     }
 
-    // 4. Search in Live Hub (NEW)
-    if (!match && window.liveScoresHub) {
-        match = Object.values(window.liveScoresHub).find(m => m.matchName === matchId || m.fixtureId === matchId);
+    // 4. Search in Live Hub (ID-PURE STRICT)
+    if (!match && window.liveScoresHub && matchId) {
+        match = window.liveScoresHub[String(matchId)];
     }
 
     if (!match) {
@@ -668,16 +668,13 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     if (!match.fixtureId) {
         console.warn(`[LiveHub] ⚠️ Missing fixtureId for ${mName}. Sync disabled.`);
     }
-    // 🛡️ PROTOCOLLO SOCIO ID-PURE 🇨🇭: Cerchiamo i dati live tramite ID tecnico
+
+    // 🛡️ PROTOCOLLO SOCIO ID-PURE 🇨🇭: Cerchiamo i dati live tramite ID tecnico diretto
+    // Il Live Hub ora è match-centrico (1 doc per ID)
     let liveHubData = match._liveHubRef;
     if (!liveHubData && match.fixtureId) {
         const targetId = String(match.fixtureId);
-
-        // 1. Cerchiamo nel Hub globale (Chiave diretta o scansione valori)
-        // Questo garantisce che se il server sta monitorando il match, l'app lo trovi SEMPRE.
-        liveHubData = window.liveScoresHub[targetId] ||
-            Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === targetId);
-
+        liveHubData = window.liveScoresHub[targetId];
         if (liveHubData) {
             console.log(`[LiveSync] 🎯 Match "${mName}" agganciato tramite ID: ${targetId}`);
         }
@@ -698,15 +695,12 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
 
     if (liveHubData) {
-        // 🏛️ RICALCOLO ESITO (Se la Tip nel Hub differisce dalla Tip della Card)
-        // Se il server monitora "Over 2.5" ma la card è "Under 3.5", usiamo lo score live 
-        // ma ricalcoliamo il VINTO/PERSO localmente per non dare info sbagliate.
-        let finalEvaluation = liveHubData.evaluation;
-        const cardTip = mTip.toUpperCase().replace(/\s/g, '');
-        const hubTip = (liveHubData.tip || "").toUpperCase().replace(/\s/g, '');
-
-        if (hubTip !== cardTip && liveHubData.score) {
-            const localEval = window.evaluateTipLocally ? window.evaluateTipLocally(mTip, liveHubData.score) : null;
+        // 🏛️ RICALCOLO ESITO (ID-PURE Protocol)
+        // Il Live Hub è match-centrico. L'App valuta la tip della card localmente 
+        // basandosi sullo score in tempo reale ricevuto dal Hub.
+        let finalEvaluation = 'LIVE';
+        if (liveHubData.score) {
+            const localEval = window.evaluateTipLocally ? window.evaluateTipLocally(mTip, liveHubData.score, (liveHubData.status === 'FT'), liveHubData.status) : null;
             if (localEval) finalEvaluation = localEval;
         }
 
@@ -750,7 +744,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         // FALLBACK: Match has a result in local data but NOT in Hub AND NOT in permanent esito
         // FIX: For Magia AI, use the AI tip if available, otherwise standard tip
         const evalTip = match.magicStats?.tipMagiaAI || mTip;
-        const localEsito = evaluateTipLocally(evalTip, match.risultato);
+        const localEsito = evaluateTipLocally(evalTip, match.risultato, (match.status === 'FT'), match.status);
 
         // DEBUG: Trace local evaluation
         if (mName.toLowerCase().includes('bhayangkara')) {
@@ -777,11 +771,11 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         // Altrimenti: partita futura o in corso, rimane monitorata (sarà "IN ATTESA" o mostrerà dati live)
     }
 
-    // Detect Precise AI Type
-    const isMagiaAI = match.isMagiaAI || stratId === 'magia_ai';
-    const isSpecialAI = match.isSpecialAI || stratId === '___magia_ai';
+    // Detect AI Presence (Enrichment, not a card type)
+    const isMagiaAI = match.isMagiaAI;
+    const isSpecialAI = match.isSpecialAI;
     const isAIPick = isMagiaAI || isSpecialAI;
-    const isMagia = stratId === 'magia_ai';
+    const isMagia = false; // Obsolete 🛡️
 
     // 🏆 REGOLA D'ORO (Socio's Protocol): L'identità della card è blindata.
     // Se è stata classificata come Trading alla mattina, resta Trading SEMPRE. 
@@ -947,30 +941,9 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     let headerHTML = '';
     const elapsed = match.liveData?.elapsed || match.liveData?.minute || 0;
     const isLive = elapsed > 0;
-    const isRealTimeMatch = isTrading || isMagia || (match.lega && HIGH_LIQUIDITY_LEAGUES.includes(match.lega));
+    const isRealTimeMatch = isTrading || (match.lega && HIGH_LIQUIDITY_LEAGUES.includes(match.lega));
 
-    if (isMagia) {
-        headerHTML = `
-            <div class="p-3 flex justify-between items-center text-slate-800 relative border-b border-slate-200 bg-white">
-                <div class="flex items-center gap-2">
-                    <div class="w-6 h-6 rounded bg-indigo-50 flex items-center justify-center border border-indigo-100">
-                        <i class="fa-solid fa-microchip text-indigo-500 text-xs"></i>
-                    </div>
-                    <span class="font-black text-xs tracking-widest uppercase text-slate-500">MAGIA AI SCANNER</span>
-                    ${!isCupMatch ? `<span class="bg-indigo-500 text-white px-1.5 py-0.5 rounded text-xs font-black shadow-sm">${rankingValue}</span>` : ''}
-                </div>
-                <div class="flex items-center gap-2">
-                    <button onclick="event.stopPropagation(); window.getLiveTradingAnalysis('${matchId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs font-bold transition flex items-center gap-1.5 shadow-md border border-indigo-700" title="Chiedi a euGENIO">
-                        <span class="text-xs">🧞‍♂️</span>
-                        <span class="text-[9px] uppercase font-black tracking-wider">euGENIO Live</span>
-                    </button>
-                    ${match.ora ? `<div class="text-slate-400 text-xs font-bold flex items-center gap-1"><i class="fa-regular fa-clock"></i> ${match.ora}</div>` : ''}
-                    ${flagBtnHTML}
-                </div>
-            </div>
-        `;
-    } else {
-        headerHTML = `
+    headerHTML = `
             <div class="${headerClass} p-3 flex justify-between items-center text-white relative">
                 <div class="flex items-center gap-2">
                     ${headerIcon}
@@ -991,7 +964,6 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 </div>` : ''}
             </div>
         `;
-    }
 
     // --- Teams & Score (Modern V2 Layout with Defined Borders) ---
     const currentScore = match.liveData?.score || (match.liveData ? `${match.liveData.homeScore || 0} - ${match.liveData.awayScore || 0}` : (match.risultato || "0-0"));
@@ -1158,93 +1130,40 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     let primarySignalHTML = '';
     const ms = match.magicStats || {};
 
-    if (isMagia) {
-        primarySignalHTML = `
-            <div class="px-4 pb-4">
-                <!-- Magia AI Main Tip (Blue Pill) -->
-                <div class="bg-gradient-to-r from-indigo-500 to-blue-600 rounded-xl p-3 text-center shadow-lg shadow-indigo-200/50 mb-3 relative overflow-hidden group">
-                     <div class="absolute top-0 right-0 bg-purple-600 text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-bl shadow-lg text-white ring-1 ring-white/20">MAGIA AI</div>
-                     <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                     <span class="text-[11px] font-bold text-indigo-100 uppercase tracking-widest mb-0.5 block">PREVISIONE IA</span>
-                     <div class="flex justify-center items-center gap-2">
-                      <span class="text-xl font-black text-white">${match.tip || '-'}</span>
-                      ${match.quota ? `<span class="bg-white/20 px-1.5 rounded text-xs font-bold text-white backdrop-blur-sm">@ ${match.quota}</span>` : ''}
-                     </div>
-                </div>
-
-                <!-- SMART COMPARE -->
-                ${(ms.tipMagiaAI && match.tip && ms.tipMagiaAI !== match.tip) ? `
-                <div class="mt-[-8px] mb-3 text-center">
-                    <div class="inline-block bg-purple-100 border border-purple-200 rounded-full px-3 py-0.5 text-[10px] font-black text-purple-600">
-                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> AI suggerisce <span class="underline">${ms.tipMagiaAI}</span> invece di ${match.tip}
-                    </div>
-                </div>
-                ` : ''}
-
-                <!-- Prob Bar -->
-                <!-- Prob Bar -->
-                <div class="mb-4">
-                    <div class="prob-bar-container h-2 bg-slate-100 rounded-full overflow-hidden flex">
-                        <div class="h-full bg-indigo-500" style="width: ${ms.winHomeProb || 33}%"></div>
-                        <div class="h-full bg-slate-300" style="width: ${ms.drawProb || 33}%"></div>
-                        <div class="h-full bg-purple-500" style="width: ${ms.winAwayProb || 33}%"></div>
-                    </div>
-                    <div class="flex justify-between text-[11px] font-bold text-slate-400 mt-1 px-1">
-                        <span>1 (${Math.round(ms.winHomeProb || 0)}%)</span>
-                        <span>X (${Math.round(ms.drawProb || 0)}%)</span>
-                        <span>2 (${Math.round(ms.winAwayProb || 0)}%)</span>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-3 gap-2">
-                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                         <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">AFFIDABILITÀ</div>
-                         <div class="text-sm font-black text-indigo-600">${ms.confidence || 0}%</div>
-                    </div>
-                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                         <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">PROB. NO GOL</div>
-                         <div class="text-sm font-black text-slate-700">${ms.noGolProb || 0}%</div>
-                    </div>
-                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                         <div class="text-[10px] text-slate-400 font-black uppercase mb-0.5">SEGNALE EXTRA</div>
-                         <div class="text-xs font-black text-purple-600 whitespace-nowrap overflow-hidden text-ellipsis">${(ms.topSignals && ms.topSignals[1]) ? ms.topSignals[1].label : '-'}</div>
-                    </div>
-                </div>
-
-                </div>
-            </div>
-        `;
-    } else if (isTrading) {
-        // --- 🧬 HYBRID TRADING CARD: Mostra Trading + Betting ---
+    if (isTrading) {
         // --- 🧬 HYBRID TRADING CARD: Mostra Trading + Betting ---
         const tData = window.resolveTradingData(match);
-        // --- 🏛️ AUTHORITY PROTOCOL (Hybrid Context) ---
-        const mAuth = window.resolveMatchAuthority(match);
+        // --- AUTHORITY DATA (Hybrid Context) ---
+        // mAuth is already declared at line 872
         let betTip = mAuth.tip;
         let betQuota = mAuth.quota;
         let betProb = mAuth.prob;
         let isGoldBadge = mAuth.isElite || mAuth.isMagia;
         let aiLabel = mAuth.badgeLabel;
 
-        // Visual styling based on Authority Status
-        const bettingBoxBg = mAuth.boxBg;
-        const bettingBoxBorder = mAuth.boxBorder;
-        const bettingTipText = mAuth.tipColor;
-        const bettingTitleText = mAuth.titleColor;
+        // Visual styling from Authority
         const aiBadgeStyle = mAuth.badgeClass;
 
         primarySignalHTML = `
             <div class="px-4 pb-4">
                 <!-- 1. Betting Signal (Integrated & GOLD Ready) -->
-                <div class="${bettingBoxBg} ${bettingBoxBorder} border-2 rounded-2xl p-4 text-center mb-4 relative overflow-hidden group shadow-sm transition-all duration-500">
+                <div class="${mAuth.boxBg} ${mAuth.boxBorder} border-2 rounded-2xl p-4 text-center mb-4 relative overflow-hidden group shadow-sm transition-all duration-500">
                      ${isGoldBadge ? `<div class="absolute top-0 right-0 ${aiBadgeStyle} text-[9px] font-black px-2 py-1 rounded-bl shadow-sm z-10">${aiLabel}</div>` : ''}
-                     <span class="text-[10px] font-black ${bettingTitleText} uppercase tracking-widest mb-1.5 block">CONSIGLIO BETTING</span>
+                     <span class="text-[10px] font-black ${mAuth.titleColor} uppercase tracking-widest mb-1.5 block">CONSIGLIO BETTING</span>
                      <div class="flex justify-center items-center gap-3">
-                        <span class="text-xl font-black ${bettingTipText}">${betTip}</span>
+                        <span class="text-xl font-black ${mAuth.tipColor}">${betTip}</span>
                         ${betQuota ? `<span class="${mAuth.isElite ? 'bg-amber-600' : (mAuth.isMagia ? 'bg-white text-indigo-700' : 'bg-blue-600')} text-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm">@ ${betQuota}</span>` : ''}
                         <span class="${mAuth.isElite ? 'bg-white/50 text-amber-900 border-amber-300' : (mAuth.isMagia ? 'bg-indigo-800/40 text-white border-indigo-300' : 'bg-blue-100 text-blue-700 border-blue-200')} border px-2 py-0.5 rounded-lg text-xs font-black shadow-xs">${Math.round(betProb)}%</span>
                      </div>
                 </div>
+                
+                <!-- 🧪 SOCIO: Secondary/HT Tip (Hybrid/Trading) -->
+                ${match.ht05Info ? `
+                <div class="w-[85%] mx-auto ${mAuth.ht05BoxBg} ${mAuth.ht05BoxBorder} ${mAuth.ht05BoxText} border rounded-full py-1.5 px-3 text-center flex justify-between items-center shadow-sm mb-4">
+                     <span class="text-[10px] font-black uppercase ${mAuth.ht05TitleColor}">0.5 HT Signal</span>
+                     <span class="text-xs font-bold ${mAuth.ht05ProbColor}">Prob. ${Math.round(match.ht05Info.prob)}%</span>
+                     <span class="${mAuth.ht05QuotaBg} ${mAuth.ht05QuotaText} px-2 rounded-lg text-xs font-black">@ ${match.ht05Info.quota}</span>
+                </div>` : ''}
 
                 <!-- 2. Trading Instructions -->
                 <div class="bg-gradient-to-br from-emerald-500/10 to-teal-600/20 border border-emerald-500/30 rounded-2xl p-4 shadow-inner relative overflow-hidden group">
@@ -1285,38 +1204,34 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
     } else {
         // --- 🧪 GOLDEN PROTOCOL VISUALS (Standard Betting Card) ---
 
-        // --- 🏛️ AUTHORITY PROTOCOL (Standard Context) ---
-        const mAuth = window.resolveMatchAuthority(match);
+        // AUTHORITY DATA (Standard Context)
+        // mAuth is already declared at line 872
         let betTip = mAuth.tip;
         let betQuota = mAuth.quota;
         let betProb = mAuth.prob;
-        let isGoldBadge = mAuth.isElite || mAuth.isMagia;
         let aiLabel = mAuth.badgeLabel;
-
-        // Visual Styles from Authority
+        const aiBadgeStyle = mAuth.badgeClass;
         const isGoldCard = mAuth.isElite;
-        const badgeStyle = mAuth.badgeClass;
-
-        // ⚖️ SOBRIETY UPDATE: Elite Gold gradient moved from full card to just the Tip Block
-        const mainPillBg = isGoldCard ? 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-lg ring-1 ring-amber-300' : 'bg-blue-600';
-        const mainTipText = isGoldCard ? 'text-amber-950' : 'text-white';
 
         primarySignalHTML = `
-            <div class="px-4 pb-4 flex flex-col items-center gap-3">
-                <!-- Standard Main Tip (Blue Pill or GOLD PILL) -->
-                <div class="w-full ${mainPillBg} rounded-xl py-2 px-3 text-center shadow-md relative overflow-hidden group">
-                     ${isGoldBadge ? `<div class="absolute top-0 right-0 ${badgeStyle} text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-bl shadow-lg z-10">${aiLabel}</div>` : ''}
-                     <span class="text-[10px] uppercase font-bold ${isGoldCard ? 'text-amber-800' : 'text-blue-200'} block mb-0.5">CONSIGLIO</span>
-                     <span class="text-lg font-black tracking-wide ${mainTipText}">${betTip}</span>
-                     ${betQuota ? `<span class="ml-2 ${isGoldCard ? 'bg-amber-600 text-white' : (mAuth.isMagia ? 'bg-white text-indigo-700' : 'bg-blue-500/50 text-white')} px-1.5 rounded text-sm font-bold">@ ${betQuota}</span>` : ''}
+            <div class="px-4 pb-4">
+                <div class="${mAuth.boxBg} ${mAuth.boxBorder} border-2 rounded-2xl p-4 text-center relative overflow-hidden group shadow-sm transition-all duration-500 flex flex-col items-center">
+                     ${(mAuth.isElite || mAuth.isMagia) ? `<div class="absolute top-0 right-0 ${aiBadgeStyle} text-[9px] font-black px-2 py-1 rounded-bl shadow-sm z-10">${aiLabel}</div>` : ''}
+                     <span class="text-[10px] font-black ${mAuth.titleColor} uppercase tracking-widest mb-1.5 block">CONSIGLIO BETTING</span>
+                     <div class="flex justify-center items-center gap-3 mb-3">
+                        <span class="text-xl font-black ${mAuth.tipColor}">${betTip}</span>
+                        ${betQuota ? `<span class="${mAuth.isElite ? 'bg-amber-600' : (mAuth.isMagia ? 'bg-white text-indigo-700' : 'bg-blue-600')} text-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm">@ ${betQuota}</span>` : ''}
+                        <span class="${mAuth.isElite ? 'bg-white/50 text-amber-900 border-amber-300' : (mAuth.isMagia ? 'bg-indigo-800/40 text-white border-indigo-300' : 'bg-blue-100 text-blue-700 border-blue-200')} border px-2 py-0.5 rounded-lg text-xs font-black shadow-xs">${Math.round(betProb)}%</span>
+                     </div>
                 </div>
 
-                <!-- Secondary/HT Tip (Purple Pill) -->
-                <div class="w-[80%] ${isGoldCard ? 'bg-white/40 border-amber-300 text-amber-900' : (mAuth.isMagia ? 'bg-indigo-600/20 border-indigo-400 text-indigo-100' : 'bg-purple-50 border-purple-100 text-purple-800')} border rounded-full py-1 px-3 text-center flex justify-between items-center shadow-sm">
-                     <span class="text-xs font-black uppercase ${isGoldCard ? 'text-amber-700' : (mAuth.isMagia ? 'text-indigo-200' : 'text-purple-400')}">0.5 HT</span>
-                     <span class="text-xs font-bold ${isGoldCard ? 'text-amber-900' : (mAuth.isMagia ? 'text-white' : 'text-purple-700')}">Prob. ${Math.round(betProb)}%</span>
-                     <span class="${isGoldCard ? 'bg-amber-500 text-white' : (mAuth.isMagia ? 'bg-indigo-400 text-white' : 'bg-purple-100 text-purple-600')} px-1.5 rounded text-xs font-bold">@ 1.50+</span>
-                </div>
+                <!-- 🧪 SOCIO: Secondary/HT Tip (Standard) -->
+                ${match.ht05Info ? `
+                <div class="w-[85%] mx-auto mt-3 ${mAuth.ht05BoxBg} ${mAuth.ht05BoxBorder} ${mAuth.ht05BoxText} border rounded-full py-1.5 px-3 text-center flex justify-between items-center shadow-sm">
+                     <span class="text-[10px] font-black uppercase ${mAuth.ht05TitleColor}">0.5 HT Signal</span>
+                     <span class="text-xs font-bold ${mAuth.ht05ProbColor}">Prob. ${Math.round(match.ht05Info.prob)}%</span>
+                     <span class="${mAuth.ht05QuotaBg} ${mAuth.ht05QuotaText} px-2 rounded-lg text-xs font-black">@ ${match.ht05Info.quota}</span>
+                </div>` : ''}
             </div>
         `;
 
@@ -1615,8 +1530,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
         insightsHTML += timelineHTML;
     }
 
-    // 1X2 Prob Bar (Consistent AI Insight) - ONLY SHOW FOR NON-MAGIA MATCHES (Avoid duplicate)
-    if (!isMagia && (ms.winHomeProb || ms.drawProb || ms.winAwayProb)) {
+    // 1X2 Prob Bar (Consistent AI Insight)
+    if (ms.winHomeProb || ms.drawProb || ms.winAwayProb) {
         insightsHTML += `
             <div class="px-4 mb-4">
                     <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -1656,7 +1571,7 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
 
     // Warnings (Standard Only)
     // isFinished is already defined at top of function
-    if (!isMagia && !isTrading && warningStats && STANDARD_STRATEGIES.includes(stratId)) {
+    if (!isTrading && warningStats) {
         const volatile = warningStats.volatileLeagues?.find(l => l.lega === match.lega);
         if (volatile && !isFinished) {
             insightsHTML += `
@@ -1818,12 +1733,36 @@ window.loadTipsPage = async function () {
             if (!parlay.picks || parlay.picks.length === 0) return;
 
             const card = document.createElement('div');
-            card.className = 'glass-parlay-card fade-in';
+            card.className = 'glass-parlay-card fade-in relative transition-all duration-500';
+
+            // 🧠 AUTO-ESITO GLOBALE: Analizza tutti i pick per decidere il colore della card
+            const pickOutcomes = parlay.picks.map(m => {
+                let liveMatch = (window.liveScoresHub && m.fixtureId) ? window.liveScoresHub[String(m.fixtureId)] : null;
+                const currentScore = liveMatch ? (liveMatch.score || liveMatch.risultato) : (m.risultato || null);
+                let outcomeStatus = (m.esito || '').toUpperCase();
+
+                if (!outcomeStatus && currentScore && m.tip) {
+                    const isFTForOverall = (liveMatch && liveMatch.status === 'FT') || m.status === 'FT' || (m.risultato && m.risultato.length > 2);
+                    const localEval = window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, currentScore, isFTForOverall, liveMatch?.status) : null;
+                    if (localEval) outcomeStatus = localEval.toUpperCase();
+                }
+                return outcomeStatus;
+            });
+
+            const isVinta = pickOutcomes.every(o => o === 'WIN' || o === 'VINTO');
+            const isPersa = pickOutcomes.some(o => o === 'LOSE' || o === 'PERSO');
+
+            if (isVinta) {
+                card.classList.add('ring-2', 'ring-emerald-500/50', 'bg-emerald-500/10', 'shadow-[0_0_20px_rgba(16,185,129,0.1)]');
+            } else if (isPersa) {
+                card.classList.add('opacity-80', 'grayscale-[0.4]', 'border-rose-500/20');
+            }
 
             const headerHtml = `
                 <div class="flex justify-between items-start mb-6">
                     <div>
                         <div class="flex items-center gap-2 mb-2">
+                            ${isVinta ? '<span class="bg-emerald-600 text-white text-[10px] font-black px-3 py-1 rounded-lg shadow-lg animate-pulse">VINCENTE ✅</span>' : ''}
                             <span class="bg-${parlay.color}-600 text-white text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg">${parlay.label}</span>
                             <span class="roi-badge">+${parlay.roi}% ROI</span>
                         </div>
@@ -1831,7 +1770,7 @@ window.loadTipsPage = async function () {
                     </div>
                     <div class="text-right">
                         <div class="text-[11px] font-black text-white/70 uppercase tracking-[0.3em] mb-1">Quota Totale</div>
-                        <div class="text-3xl font-black text-white leading-none">@${parlay.totalOdds.toFixed(2)}</div>
+                        <div class="text-3xl font-black text-white leading-none">@${Number(parlay.totalOdds).toFixed(2)}</div>
                     </div>
                 </div>
                 `;
@@ -1852,17 +1791,10 @@ window.loadTipsPage = async function () {
                     (window.selectedMatches || []).some(sm => window.getMantraId(sm) === matchId);
                 const starClass = isFlagged ? 'fa-solid text-yellow-300' : 'fa-regular text-white/70';
 
-                // Live Score Integration
+                // Live Score Integration (ID-PURE 🇨🇭)
                 let liveMatch = null;
-                if (window.liveScoresHub) {
-                    liveMatch = Object.values(window.liveScoresHub).find(x => (x.fixtureId && m.fixtureId && x.fixtureId == m.fixtureId));
-                    if (!liveMatch) {
-                        const norm = s => (s || '').toLowerCase().replace(/[^a-z]/g, '');
-                        liveMatch = Object.values(window.liveScoresHub).find(x => {
-                            const n = norm(x.matchName || '');
-                            return n.includes(norm(home)) && n.includes(norm(away));
-                        });
-                    }
+                if (window.liveScoresHub && m.fixtureId) {
+                    liveMatch = window.liveScoresHub[String(m.fixtureId)];
                 }
 
                 const currentScore = liveMatch ? (liveMatch.score || liveMatch.risultato) : (m.risultato || null);
@@ -1882,7 +1814,7 @@ window.loadTipsPage = async function () {
 
                 // 🧠 AUTO-ESITO: Se non c'è esito ma c'è il risultato, calcolalo localmente
                 if (!outcomeStatus && currentScore && m.tip) {
-                    const localEval = window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, currentScore) : null;
+                    const localEval = window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, currentScore, isFT, liveMatch?.status) : null;
                     if (localEval) outcomeStatus = localEval.toUpperCase();
                 }
 
@@ -1921,7 +1853,7 @@ window.loadTipsPage = async function () {
                                  ${scAway ? `<span class="text-amber-300 font-black text-sm drop-shadow-sm">${scAway}</span>` : ''}
                             </div>
                             <div class="flex items-center gap-2 mt-2">
-                                <span class="tip-label-badge ${outcomeStatus === 'WIN' ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/50' : ''}">${m.tip}</span>
+                                <span class="tip-label-badge ${outcomeStatus === 'WIN' || outcomeStatus === 'VINTO' ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/50' : ''}">${m.tip}</span>
                                 <span class="confidence-label">AI ${m.score || 85}%</span>
                             </div>
                         </div>
@@ -2315,18 +2247,19 @@ window.generateUniversalMatchId = function (match) {
  */
 window.resolveMatchAuthority = function (match) {
     const matchId = window.getMantraId(match);
-    let baseMatch = match;
 
-    // 🔬 Se mancano dati base (comune nei Trading Picks), cerchiamo in 'all'
-    if ((!match.tip || match.tip === '-') && window.strategiesData?.['all']) {
-        const found = window.strategiesData['all'].matches?.find(m => window.getMantraId(m) === matchId);
-        if (found) baseMatch = found;
-    }
+    // 🏛️ MASTER SOURCE: ALL Strategy is the only source for Tips
+    const allMatch = window.strategiesData?.['all']?.matches?.find(m => window.getMantraId(m) === matchId);
 
+    // 🔬 AI REFERENCES: PRO (magia_ai_raw) and Special (___magia_ai)
+    const magiaPro = window.strategiesData?.['magia_ai_raw']?.matches?.find(m => window.getMantraId(m) === matchId);
+    const magiaSpecial = window.strategiesData?.['___magia_ai']?.matches?.find(m => window.getMantraId(m) === matchId);
+
+    // Default result: Start from allMatch (Master) or fallback to current match (Trading)
     let result = {
-        tip: baseMatch.tip || '-',
-        quota: baseMatch.quota || null,
-        prob: baseMatch.probabilita || 0,
+        tip: allMatch?.tip || match.tip || '-',
+        quota: allMatch?.quota || match.quota || null,
+        prob: allMatch?.probabilita || match.probabilita || 0,
         badgeLabel: '',
         badgeClass: 'bg-purple-600 text-white',
         isElite: false,
@@ -2334,77 +2267,74 @@ window.resolveMatchAuthority = function (match) {
         boxBg: 'bg-blue-600/10 border-blue-500/30',
         boxBorder: 'border-blue-500/40',
         titleColor: 'text-blue-600',
-        tipColor: 'text-slate-800'
+        tipColor: 'text-slate-800',
+        // HT 0.5 Specific Styles
+        ht05BoxBg: 'bg-purple-50',
+        ht05BoxBorder: 'border-purple-100',
+        ht05BoxText: 'text-purple-800',
+        ht05TitleColor: 'text-purple-400',
+        ht05ProbColor: 'text-purple-700',
+        ht05QuotaBg: 'bg-purple-100',
+        ht05QuotaText: 'text-purple-600'
     };
 
     if (!window.strategiesData) return result;
 
-    // 🔬 FIND REFERENCES FOR CROSS-CHECKING
-    const allMatch = window.strategiesData?.['all']?.matches?.find(m => window.getMantraId(m) === matchId);
-
-    // Support multiple Magia AI variations (Pro and Special)
-    const magiaPro = window.strategiesData?.['magia_ai_raw']?.matches?.find(m => window.getMantraId(m) === matchId);
-    const magiaSpecial = window.strategiesData?.['___magia_ai']?.matches?.find(m => window.getMantraId(m) === matchId);
-
+    // 🪄 CONSENSUS PROTOCOL: Check if AI agrees with Master Tip
     const magiaMatch = magiaPro || magiaSpecial;
-
-    // 1. ELITE CHECK (winrate_80 Strategy) 🥇
-    const eliteStrat = window.strategiesData?.['winrate_80'] || Object.values(window.strategiesData || {}).find(s => s?.id === 'winrate80');
-    const eliteMatchRef = eliteStrat?.matches?.find(m => window.getMantraId(m) === matchId);
-
-    if (eliteMatchRef) {
-        result.isElite = true;
-
-        // ⚖️ SOCIO FALLBACK: If not in 'all', prioritize Magia AI data over the treating dash '-'
-        if (!allMatch && magiaMatch && magiaMatch.magicStats) {
-            result.tip = (magiaMatch.magicStats.tipMagiaAI || magiaMatch.tip || '-').toUpperCase();
-            result.quota = magiaMatch.magicStats.oddMagiaAI || magiaMatch.quota;
-            result.prob = magiaMatch.magicStats.probMagiaAI || magiaMatch.probabilita || 0;
-        } else if (allMatch) {
-            result.tip = allMatch.tip;
-            result.quota = allMatch.quota;
-            result.prob = allMatch.probabilita;
-        }
-
-        result.badgeLabel = 'ELITE GOLD';
-
-        // 🪄 CONSENSUS CHECK: If Magia AI agrees with same tip
-        if (magiaMatch) {
-            const mTip = (magiaMatch.tip || magiaMatch.magicStats?.tipMagiaAI || '').toUpperCase().trim();
-            const eTip = (result.tip || '').toUpperCase().trim();
-
-            if (mTip && eTip && mTip === eTip && mTip !== '-') {
-                result.isMagia = true;
-                result.badgeLabel = 'ELITE 🥇 MAGIA 🪄';
-            }
-        }
-
-        result.badgeClass = 'bg-black text-amber-400 border border-amber-400/50 shadow-xl font-black italic';
-        result.boxBg = 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-lg ring-2 ring-amber-300';
-        result.boxBorder = 'border-amber-400';
-        result.titleColor = 'text-amber-900';
-        result.tipColor = 'text-amber-950';
-        return result;
-    }
-
-    // 2. STANDARD MAGIA AI CHECK 🪄 (For non-elite matches)
     if (magiaMatch) {
-        // Consensus with 'all' or original match
-        const magiaTip = (magiaMatch.tip || magiaMatch.magicStats?.tipMagiaAI || '').toUpperCase().trim();
-        const currentTip = (result.tip || '').toUpperCase().trim();
+        const mTip = (magiaMatch.magicStats?.tipMagiaAI || magiaMatch.tip || '').toUpperCase().trim();
+        const masterTip = (result.tip || '').toUpperCase().trim();
 
-        if (magiaTip && currentTip && magiaTip === currentTip && magiaTip !== '-') {
+        if (mTip && masterTip && mTip === masterTip && mTip !== '-') {
             result.isMagia = true;
             result.badgeLabel = 'SCELTA MAGICA';
+
+            // 🔥 SOCIO UPDATE: Use AI Odds/Prob as they are more updated/live
+            const aiSource = (magiaPro && magiaPro.magicStats) ? magiaPro : (magiaSpecial || magiaPro);
+            if (aiSource.magicStats?.oddMagiaAI) result.quota = aiSource.magicStats.oddMagiaAI;
+            if (aiSource.magicStats?.probMagiaAI) result.prob = aiSource.magicStats.probMagiaAI;
+
+            // UI Styles for Magia Consensus
             result.badgeClass = 'bg-white text-indigo-700 border border-indigo-200 shadow-md font-black';
             result.boxBg = 'bg-indigo-600 border-indigo-400 shadow-[0_0_15px_rgba(79,70,229,0.3)]';
             result.boxBorder = 'border-indigo-400';
             result.titleColor = 'text-indigo-100';
             result.tipColor = 'text-white';
 
-            if (magiaMatch.magicStats?.oddMagiaAI) result.quota = magiaMatch.magicStats.oddMagiaAI;
-            else if (magiaMatch.quota) result.quota = magiaMatch.quota;
+            // HT 0.5 styles for Magia Consensus
+            result.ht05BoxBg = 'bg-indigo-600/20';
+            result.ht05BoxBorder = 'border-indigo-400';
+            result.ht05BoxText = 'text-indigo-100';
+            result.ht05TitleColor = 'text-indigo-200';
+            result.ht05ProbColor = 'text-white';
+            result.ht05QuotaBg = 'bg-indigo-400';
+            result.ht05QuotaText = 'text-white';
         }
+    }
+
+    // 🥇 ELITE GOLD PROTOCOL: Check winrate_80
+    const eliteStrat = window.strategiesData?.['winrate_80'] || Object.values(window.strategiesData || {}).find(s => s?.id === 'winrate80');
+    const eliteMatchRef = eliteStrat?.matches?.find(m => window.getMantraId(m) === matchId);
+
+    if (eliteMatchRef) {
+        result.isElite = true;
+        result.badgeLabel = result.isMagia ? 'ELITE 🥇 MAGIA 🪄' : 'ELITE GOLD';
+
+        result.badgeClass = 'bg-black text-amber-400 border border-amber-400/50 shadow-xl font-black italic';
+        result.boxBg = 'bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-500 shadow-lg ring-2 ring-amber-300';
+        result.boxBorder = 'border-amber-400';
+        result.titleColor = 'text-amber-900';
+        result.tipColor = 'text-amber-950';
+
+        // HT 0.5 styles for Elite Gold
+        result.ht05BoxBg = 'bg-white/40';
+        result.ht05BoxBorder = 'border-amber-300';
+        result.ht05BoxText = 'text-amber-900';
+        result.ht05TitleColor = 'text-amber-700';
+        result.ht05ProbColor = 'text-amber-900';
+        result.ht05QuotaBg = 'bg-amber-500';
+        result.ht05QuotaText = 'text-white';
     }
 
     return result;
@@ -2655,7 +2585,7 @@ window.renderTradingFavoritesInStarTab = function () {
         let liveData = null;
         const fId = pick.fixtureId ? String(pick.fixtureId) : null;
         if (fId && window.liveScoresHub) {
-            liveData = window.liveScoresHub[fId] || Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === fId);
+            liveData = window.liveScoresHub[fId];
         }
 
         const preparedMatch = {
@@ -2938,7 +2868,32 @@ async function loadUserProfile(uid) {
 }
 
 async function loadData(dateToLoad = null) {
-    const targetDate = dateToLoad || new Date().toISOString().split('T')[0];
+    let targetDate = dateToLoad || new Date().toISOString().split('T')[0];
+
+    // 🔥 NEW: Smart Midnight Transition (Socio's Request)
+    // Se è tra mezzanotte e mezzogiorno e non ci sono dati per oggi, carica ieri
+    if (!dateToLoad) {
+        const now = new Date();
+        const hour = now.getHours();
+        if (hour < 12) {
+            try {
+                // Check if today matches subcollection is empty
+                const parentDocToday = doc(db, "daily_strategies", targetDate);
+                const strategiesSubColToday = collection(parentDocToday, "strategies");
+                const snapToday = await getDocs(strategiesSubColToday);
+
+                if (snapToday.empty) {
+                    const yesterday = new Date(now);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    targetDate = yesterday.toISOString().split('T')[0];
+                    console.log(`[SmartDate] 🌙 Midnight power rescue: Falling back to ${targetDate}`);
+                }
+            } catch (e) {
+                console.warn("[SmartDate] Check failed", e);
+            }
+        }
+    }
+
     window.currentAppDate = targetDate; // Set global date for filtering
 
     if (strategiesUnsubscribe) {
@@ -2954,8 +2909,6 @@ async function loadData(dateToLoad = null) {
 
         // Use onSnapshot on the subcollection for real-time updates
         strategiesUnsubscribe = onSnapshot(strategiesSubCol, async (snapshot) => {
-            const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'magia_ai', 'over_2_5_ai', 'top_del_giorno'];
-
             window.strategiesData = {};
 
             // SANITIZATION: Fix corrupt data (status missing) from backend
@@ -2975,23 +2928,20 @@ async function loadData(dateToLoad = null) {
 
                     if (id === 'top_del_giorno') return;
 
-                    const isApproved = approved.includes(id) || isMagiaStrat || (strat && strat.method === 'poisson');
+                    if (strat && strat.matches && Array.isArray(strat.matches)) {
+                        if (!strat.name) strat.name = id.replace(/_/g, ' ').toUpperCase();
 
-                    if (strat && (strat.name || isMagiaStrat) && isApproved) {
-                        if (!strat.name) strat.name = "Magia AI";
-                        if (strat.matches && Array.isArray(strat.matches)) {
-                            // ⏱️ SOCIO PROTOCOL: Filter matches starting before 12:00
-                            strat.matches = strat.matches.filter(m => {
-                                if (!m.ora || !m.ora.includes(':')) return true;
-                                const hour = parseInt(m.ora.split(':')[0]);
-                                return hour >= 12;
-                            });
+                        // ⏱️ SOCIO PROTOCOL: Monitoraggio parte alle 12:00 (Filtro Ferreo)
+                        strat.matches = strat.matches.filter(m => {
+                            if (!m.ora || !m.ora.includes(':')) return true;
+                            const hour = parseInt(m.ora.split(':')[0]);
+                            return hour >= 12;
+                        });
 
-                            strat.matches.forEach(m => {
-                                sanitizeMatch(m);
-                                m.stratId = id;
-                            });
-                        }
+                        strat.matches.forEach(m => {
+                            sanitizeMatch(m);
+                            m.stratId = id;
+                        });
                         window.strategiesData[id] = strat;
                     }
                 });
@@ -3652,9 +3602,9 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
             const fId = m.fixtureId ? String(m.fixtureId) : null;
             let liveData = null;
 
-            // 1. Try ID Match
+            // 1. Try ID Match (ID-PURE STRICT)
             if (fId && window.liveScoresHub) {
-                liveData = window.liveScoresHub[fId] || Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === fId);
+                liveData = window.liveScoresHub[fId];
             }
             // 2. Try Name Match (REMOVED - ID-PURE PROTOCOL 🇨🇭)
 
@@ -4009,7 +3959,7 @@ window.removeMatch = async function (matchId) {
 
 
 
-const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
+// Obsolete STANDARD_STRATEGIES list removed for dynamic loading.
 
 
 // ==================== euGENIO CHATBOT LOGIC ====================
@@ -4057,7 +4007,7 @@ const STANDARD_STRATEGIES = ['all', 'italia', 'top_eu', 'cups', 'best_05_ht'];
         const stats = window.globalStats || { total: 0, wins: 0, losses: 0, winrate: 0 };
 
         const strategyDefinitions = {
-            'magia_ai': 'Analisi LLM in tempo reale su pattern complessi e asimmetrie.',
+            'magia_ai_raw': 'Analisi LLM in tempo reale su pattern complessi e asimmetrie.',
             'special_ai': 'Algoritmi proprietari ad alta affidabilità.',
             'winrate_80': 'Storico vittorie superiore all\'80%.',
             'i_consigli': 'Socio Engine v5.0: Parlay (x2, x3, x4) con filtri tematici (Safe, Motivation, Over, Quota 5).',
@@ -4338,7 +4288,7 @@ window.loadHistory = async function () {
                         // Fallback: calculate esito locally if missing but risultato exists
                         let esito = m.esito;
                         if (!esito && m.risultato && m.tip) {
-                            esito = evaluateTipLocally(m.tip, m.risultato);
+                            esito = evaluateTipLocally(m.tip, m.risultato, true, 'FT');
                             // Save computed esito back to object for display logic
                             m.esito = esito;
                         }
@@ -4601,7 +4551,7 @@ window.loadTipsHistory = async function () {
                 const results = p.picks.map(m => {
                     let esito = (m.esito || '').toLowerCase();
                     if (!esito && m.risultato && m.tip) {
-                        esito = (window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, m.risultato) : '').toLowerCase();
+                        esito = (window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, m.risultato, true, 'FT') : '').toLowerCase();
                     }
                     return esito;
                 });
@@ -4831,8 +4781,7 @@ window.toggleLiveFavorite = async function (matchName, tip) {
         const targetId = fixtureIdMatch ? fixtureIdMatch[1] : null;
 
         if (targetId) {
-            matchToToggle = window.liveScoresHub[targetId] ||
-                Object.values(window.liveScoresHub).find(h => String(h.fixtureId) === targetId);
+            matchToToggle = window.liveScoresHub[targetId];
         }
     }
 
@@ -5010,52 +4959,80 @@ function applyInternalFiltering(matches, filter) {
     }
 
     if (filter === 'ai') {
-        // AI Choices (Special AI + Magia AI + Winrate 80)
-        return matches.filter(m => m.isSpecialAI || m.isMagiaAI || m.isWinrate80);
+        // 🔥 SOCIO PROTOCOL: Filter matches with "Magia" Banner (Consensus)
+        return matches.filter(m => window.resolveMatchAuthority(m).isMagia);
     }
 
     return matches;
 }
 
 // HELPER: GET UNIFIED MATCHES (Merge all strategies to preserve AI metadata)
+// 🔥 SOCIO PROTOCOL: 'all' is the Master Seed.
 function getUnifiedMatches() {
     if (!window.strategiesData) return [];
 
     const masterMap = new Map();
-    const approved = ['all', 'winrate_80', 'italia', 'top_eu', 'cups', 'best_05_ht', '___magia_ai', 'magia_ai_raw', 'over_2_5_ai', 'top_del_giorno'];
+
+    // 1. SEED from 'all' strategy (The King)
+    const allStrat = window.strategiesData['all'];
+    if (allStrat && allStrat.matches) {
+        allStrat.matches.forEach(m => {
+            const mId = window.getMantraId(m);
+            if (mId) masterMap.set(mId, { ...m, stratId: 'all' });
+        });
+    }
+
+    // 2. SEED from 'top_del_giorno' (Trading) - This adds hybrid matches
+    const tradingStrat = window.strategiesData['top_del_giorno'];
+    if (tradingStrat && tradingStrat.matches) {
+        tradingStrat.matches.forEach(m => {
+            const mId = window.getMantraId(m);
+            if (mId) {
+                if (!masterMap.has(mId)) {
+                    masterMap.set(mId, { ...m, stratId: 'top_del_giorno', isTrading: true });
+                } else {
+                    // Update entry with trading metadata
+                    const entry = masterMap.get(mId);
+                    entry.hasTradingStrategy = true;
+                    entry.isTrading = true;
+                    if (m.tradingInstruction) entry.tradingInstruction = m.tradingInstruction;
+                    if (m.strategy) entry.strategy = m.strategy;
+                }
+            }
+        });
+    }
+
+    // 3. ENRICH with everything else (AI, Elite, HT stats, etc.)
+    const nameMap = new Map();
+    masterMap.forEach(entry => {
+        const teamId = (entry.partita || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (teamId) nameMap.set(teamId, entry);
+    });
 
     Object.entries(window.strategiesData).forEach(([id, strat]) => {
-        if (!strat || !strat.matches) return;
-
-        const isMagia = id === '___magia_ai' || id === 'magia_ai_raw';
-        const isApproved = approved.includes(id) || isMagia;
-        if (!isApproved) return;
+        if (!strat || !strat.matches || id === 'all' || id === 'top_del_giorno') return;
 
         strat.matches.forEach(m => {
-            // ID-PURE PROTOCOL: Use Mantra ID as the only source of truth.
             const mId = window.getMantraId(m);
-            if (!mId) {
-                console.warn(`[getUnifiedMatches] ⚠️ Missing Mantra ID for ${m.partita || 'Unknown'} in strategy ${id}. Skipping.`);
-                return;
-            }
+            const teamId = (m.partita || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-            if (!masterMap.has(mId)) {
-                const newEntry = { ...m };
-                updateEntry(newEntry, id, m);
-                masterMap.set(mId, newEntry);
-            } else {
-                updateEntry(masterMap.get(mId), id, m);
+            // 🛡️ ENRICHMENT ONLY: Master source comes strictly from 'all' or 'top_del_giorno'
+            let entry = mId ? masterMap.get(mId) : null;
+            if (!entry && teamId) entry = nameMap.get(teamId);
+
+            if (entry) {
+                updateEntry(entry, id, m);
             }
         });
     });
 
     const finalMatches = Array.from(masterMap.values());
-    // 🔥 POPOLA CACHE PER DEBUG REPORT
     window.unifiedMatchesCache = finalMatches;
     return finalMatches;
 }
 
 function updateEntry(entry, id, m) {
+    const isHT05Strat = id === 'best_05_ht';
     // 🛡️ RICH DATA PROTECTION PROTOCOL 🛡️
     // Don't overwrite rich stats with null/undefined from other sources
     if (m.expertStats && !entry.expertStats) entry.expertStats = m.expertStats;
@@ -5070,6 +5047,34 @@ function updateEntry(entry, id, m) {
     if (id === 'winrate_80') entry.isWinrate80 = true;
     if (id === '___magia_ai') entry.isSpecialAI = true;
     if (id === 'magia_ai_raw') entry.isMagiaAI = true;
+
+    if (isHT05Strat || m.info_ht) {
+        // If we already have ht05Info and this is a generic match, don't overwrite a specific 'best_05_ht'
+        if (entry.ht05Info && id !== 'best_05_ht') return;
+
+        // Try to capture structured data first
+        const structuredProb = m.probabilita || m.confidence || m.prob || m.magicStats?.probMagiaAI || 0;
+        const structuredQuota = m.quota || m.odd || m.magicStats?.oddMagiaAI || ' - ';
+
+        if (structuredProb > 0) {
+            entry.ht05Info = {
+                tip: m.tip || '0.5 HT',
+                quota: structuredQuota,
+                prob: structuredProb
+            };
+        }
+        // 🔥 FALLBACK SOCIO: Parse from info_ht string if available
+        else if (m.info_ht && m.info_ht.trim() !== '') {
+            const probMatch = m.info_ht.match(/(\d+)%/);
+            const quotaMatch = m.info_ht.match(/@([\d.,]+)/);
+
+            entry.ht05Info = {
+                tip: '0.5 HT',
+                prob: probMatch ? parseInt(probMatch[1]) : 0,
+                quota: quotaMatch ? quotaMatch[1].replace(',', '.') : ' - '
+            };
+        }
+    }
 
     // Logical insights
     const why = m.why || m.spiegazione || m.insight || "";
