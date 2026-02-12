@@ -4547,65 +4547,85 @@ window.loadTipsHistory = async function () {
             }
 
             let parlaysHtml = Object.values(d.parlays).map(p => {
-                // Determine parlay outcome based on picks
-                const results = p.picks.map(m => {
-                    let esito = (m.esito || '').toLowerCase();
-                    if (!esito && m.risultato && m.tip) {
-                        esito = (window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, m.risultato, true, 'FT') : '').toLowerCase();
+                // Determine parlay outcome based on picks + LIVE HUB
+                const processedPicks = p.picks.map(m => {
+                    const fixtureId = m.id || m.fixtureId;
+                    const liveData = fixtureId ? window.liveScoresHub[fixtureId] : null;
+
+                    let currentScore = m.risultato || '-';
+                    let currentStatus = m.status || 'FT';
+                    let currentEsito = m.esito || '';
+
+                    if (liveData) {
+                        currentScore = liveData.score || currentScore;
+                        currentStatus = liveData.status || currentStatus;
+                        // Forziamo valutazione locale se live
+                        currentEsito = (window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, currentScore, (currentStatus === 'FT'), currentStatus) : '');
+                        console.log(`[Consigli-Live] 📡 Sync ID: ${fixtureId} | Match: ${m.partita} | Live: ${currentScore} (${currentStatus}) | Esito: ${currentEsito}`);
                     }
-                    return esito;
+
+                    return { ...m, currentScore, currentStatus, currentEsito };
                 });
 
+                const results = processedPicks.map(m => (m.currentEsito || '').toLowerCase());
                 const isVinto = results.length > 0 && results.every(r => r === 'vinto' || r === 'win');
                 const isPerso = results.some(r => r === 'perso' || r === 'lose');
                 const pStatus = isVinto ? 'VINTO ✅' : (isPerso ? 'PERSO ❌' : 'IN CORSO ⏳');
                 const pColor = isVinto ? 'text-emerald-400' : (isPerso ? 'text-rose-400' : 'text-blue-400');
-                const pBorder = isVinto ? 'border-emerald-500/30 bg-emerald-500/5' : (isPerso ? 'border-rose-500/20 opacity-70' : 'border-white/10 bg-white/5');
+                const pBorder = isVinto ? 'border-emerald-500/40 bg-emerald-500/10' : (isPerso ? 'border-rose-500/30 opacity-80' : 'border-white/20 bg-white/5');
 
                 return `
-                    <div class="p-3 rounded-xl border ${pBorder} mb-2 shadow-sm transition-all">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="text-[9px] font-black uppercase text-white/40 tracking-widest">${p.label}</span>
-                            <span class="text-[10px] font-black ${pColor} italic">${pStatus}</span>
+                    <div class="p-4 rounded-2xl border ${pBorder} mb-4 shadow-md transition-all">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-[11px] font-black uppercase text-white/50 tracking-tighter bg-white/5 px-2 py-0.5 rounded-full">${p.label}</span>
+                            <span class="text-[12px] font-black ${pColor} italic animate-pulse-slow">${pStatus}</span>
                         </div>
-                        <div class="space-y-1.5">
-                            ${p.picks.map(m => `
-                                <div class="flex justify-between items-center text-[11px]">
-                                    <div class="max-w-[70%]">
-                                        <div class="text-white/80 font-bold truncate">${m.partita}</div>
-                                        <div class="text-[9px] text-white/40 uppercase">${m.lega || ''}</div>
+                        <div class="space-y-3">
+                            ${processedPicks.map(m => {
+                    const esitoClass = (m.currentEsito || '').toLowerCase().includes('vinto') ? 'text-emerald-400' : ((m.currentEsito || '').toLowerCase().includes('perso') ? 'text-rose-400' : 'text-gray-400');
+                    const esitoIcon = (m.currentEsito || '').toLowerCase().includes('vinto') ? '✅' : ((m.currentEsito || '').toLowerCase().includes('perso') ? '❌' : '⏳');
+
+                    return `
+                                <div class="flex justify-between items-center text-[13px] bg-white/5 p-2 rounded-lg border border-white/5">
+                                    <div class="max-w-[65%]">
+                                        <div class="text-white font-black leading-tight">${m.partita}</div>
+                                        <div class="text-[10px] text-white/40 uppercase font-bold mt-0.5">${m.lega || ''}</div>
                                     </div>
                                     <div class="text-right">
-                                        <div class="text-amber-300 font-black">${m.tip} (@${m.quota})</div>
-                                        <div class="text-[9px] text-white/60 font-bold">${m.risultato || '-'}</div>
+                                        <div class="text-amber-300 font-black text-[14px]">${m.tip} <span class="text-[11px] text-white/40">@${m.quota}</span></div>
+                                        <div class="flex items-center justify-end gap-1.5 mt-0.5">
+                                            <span class="text-[11px] text-white font-black bg-black/30 px-2 py-0.5 rounded">${m.currentScore}</span>
+                                            <span class="text-[11px] font-black ${esitoClass}">${esitoIcon}</span>
+                                        </div>
                                     </div>
                                 </div>
-                            `).join('')}
+                                `;
+                }).join('')}
                         </div>
-                        <div class="mt-3 flex justify-between items-center border-t border-white/5 pt-2">
-                             <div class="text-[9px] text-white/30 truncate">AI Conf: ${p.avgConfidence}%</div>
-                             <div class="text-[10px] font-black text-white/70">QUOTA: @${p.totalOdds.toFixed(2)}</div>
+                        <div class="mt-4 flex justify-between items-center border-t border-white/10 pt-3">
+                             <div class="text-[10px] text-white/40 font-bold">AI Conf: <span class="text-white/70">${p.avgConfidence}%</span></div>
+                             <div class="text-[12px] font-black text-white px-3 py-1 bg-white/10 rounded-lg">TOTAL: @${p.totalOdds.toFixed(2)}</div>
                         </div>
                     </div>
                 `;
             }).join('');
 
             return `
-                <div class="bg-gradient-to-br from-indigo-900/40 via-purple-900/40 to-orange-900/40 border border-white/10 rounded-2xl p-4 mb-3 cursor-pointer shadow-lg hover:ring-1 hover:ring-orange-500/30 transition-all" 
+                <div class="bg-gradient-to-br from-indigo-950/80 via-purple-950/80 to-slate-900/90 border border-white/10 rounded-3xl p-5 mb-4 shadow-2xl transition-all" 
                      onclick="this.querySelector('.details').classList.toggle('hidden')">
                     <div class="flex justify-between items-center">
-                        <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center">
-                                <i class="fa-solid fa-wand-magic-sparkles text-orange-400 text-sm"></i>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500/30 to-amber-500/30 flex items-center justify-center border border-orange-500/20 shadow-inner">
+                                <i class="fa-solid fa-wand-magic-sparkles text-orange-400 text-lg"></i>
                             </div>
                             <div>
-                                <div class="font-black text-white text-sm tracking-tight">${formatDateLong(d.date)}</div>
-                                <div class="text-[9px] text-white/50 font-bold uppercase tracking-widest">${Object.keys(d.parlays).length} Pacchetti Suggeriti</div>
+                                <div class="font-black text-white text-base tracking-tight">${formatDateLong(d.date)}</div>
+                                <div class="text-[10px] text-white/40 font-black uppercase tracking-widest mt-0.5">${Object.keys(d.parlays).length} Combo Suggerite</div>
                             </div>
                         </div>
-                        <i class="fa-solid fa-chevron-down text-white/20 text-xs shadow-icon"></i>
+                        <i class="fa-solid fa-chevron-down text-white/30 text-sm"></i>
                     </div>
-                    <div class="details hidden mt-4 space-y-2 animate-slide-down">
+                    <div class="details hidden mt-6 space-y-4 animate-slide-down">
                         ${parlaysHtml}
                     </div>
                 </div>`;
