@@ -315,8 +315,11 @@ function calculateELORatings(allMatchesHistory) {
         const hg = parseInt(res[1]);
         const ag = parseInt(res[2]);
 
-        const rH = ratings.get(home) || 1500;
-        const rA = ratings.get(away) || 1500;
+        const hId = match.homeId ? String(match.homeId) : normalizeTeamName(home);
+        const aId = match.awayId ? String(match.awayId) : normalizeTeamName(away);
+
+        const rH = ratings.get(hId) || 1500;
+        const rA = ratings.get(aId) || 1500;
 
         // Expected outcome
         const expectedH = 1 / (1 + Math.pow(10, (rA - rH) / 400));
@@ -329,8 +332,8 @@ function calculateELORatings(allMatchesHistory) {
         const scoreA = 1 - scoreH;
 
         // Update ratings
-        ratings.set(home, rH + K * (scoreH - expectedH));
-        ratings.set(away, rA + K * (scoreA - expectedA));
+        ratings.set(hId, rH + K * (scoreH - expectedH));
+        ratings.set(aId, rA + K * (scoreA - expectedA));
     });
 
     console.log(`[ELO Engine] Ratings calculated for ${ratings.size} teams.`);
@@ -412,7 +415,11 @@ function analyzeLeaguePerformance(dbCompleto) {
 
 function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
     if (!dbCompleto || dbCompleto.length === 0) {
-        return { color: 'black', stats: '', count: 0, total: 0, percentage: 0, penalty: 0, scoreValue: 0, details: '', season: { avgScored: 1.5, avgConceded: 1.0 }, currForm: { avgScored: 1.5, avgConceded: 1.0, matchCount: 0 } };
+        return {
+            color: 'black', stats: '', count: 0, total: 0, percentage: 0, penalty: 0, scoreValue: 0, details: '',
+            season: { avgScored: 1.5, avgConceded: 1.0, avgScoredHT: 0.7, avgConcededHT: 0.5 },
+            currForm: { avgScored: 1.5, avgConceded: 1.0, avgScoredHT: 0.7, avgConcededHT: 0.5, matchCount: 0 }
+        };
     }
 
     const teamNorm = teamName.toLowerCase().trim();
@@ -432,13 +439,24 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
         // If 'ALL' tip (for Monte Carlo), take all history, otherwise filter by date if needed
         if (tip !== 'ALL' && matchDate < sixMonthsAgo) return false;
 
-        // 🏁 LOGICA ID-PURE 🇨🇭 (Swiss Precision)
-        if (!teamId || (!row.homeId && !row.awayId)) return false;
+        // 🏁 LOGICA ID-FIRST 🇨🇭 (ID Level 1, Name Fallback Level 2)
+        const rowHId = row.homeId ? String(row.homeId) : null;
+        const rowAId = row.awayId ? String(row.awayId) : null;
+        const targetId = teamId ? String(teamId) : null;
 
-        const rowHId = String(row.homeId);
-        const rowAId = String(row.awayId);
-        const targetId = String(teamId);
-        return (rowHId === targetId || rowAId === targetId);
+        if (targetId && (rowHId || rowAId)) {
+            // PRIORITÀ 1: ID UGUALE (Chirurgia Svizzera)
+            return (rowHId === targetId || rowAId === targetId);
+        } else {
+            // PRIORITÀ 2: MATCHING PER NOMI (Età della Pietra / Fallback)
+            const p = (row.partita || '').split(' - ');
+            if (p.length !== 2) return false;
+            const hNorm = normalizeTeamName(p[0]);
+            const aNorm = normalizeTeamName(p[1]);
+            const targetNorm = normalizeTeamName(teamName);
+            return (hNorm.includes(targetNorm) || targetNorm.includes(hNorm) ||
+                aNorm.includes(targetNorm) || targetNorm.includes(aNorm));
+        }
     };
 
     const allTeamMatches = dbCompleto.filter(matchFilter);
@@ -447,17 +465,24 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
     // Calc Goals Stats (Season Average with Time Decay)
     let weightedScored = 0;
     let weightedConceded = 0;
+    let weightedScoredHT = 0;
+    let weightedConcededHT = 0;
     let totalWeight = 0;
     let wins = 0, draws = 0, losses = 0;
 
     allTeamMatches.forEach(m => {
         // Determine if target team is home or away in THIS historical match
         let isTeamHome = false;
-        if (teamId && (m.homeId || m.awayId)) {
-            isTeamHome = String(m.homeId) === String(teamId);
+
+        const rowHId = m.homeId ? String(m.homeId) : null;
+        const rowAId = m.awayId ? String(m.awayId) : null;
+        const targetId = teamId ? String(teamId) : null;
+
+        if (targetId && (rowHId || rowAId)) {
+            isTeamHome = rowHId === targetId;
         } else {
-            const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-            isTeamHome = team1 === teamNorm;
+            const team1 = (m.partita || '').split(' - ')[0] || '';
+            isTeamHome = normalizeTeamName(team1) === normalizeTeamName(teamName);
         }
 
         const res = m.risultato.match(/(\d+)-(\d+)/);
@@ -468,6 +493,20 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
 
             weightedScored += (isTeamHome ? hg : ag) * weight;
             weightedConceded += (isTeamHome ? ag : hg) * weight;
+
+            // 🔥 HT Goal Extraction
+            const resHt = (m.risultato_ht || "").match(/(\d+)-(\d+)/);
+            if (resHt) {
+                const hgHt = parseInt(resHt[1]);
+                const agHt = parseInt(resHt[2]);
+                weightedScoredHT += (isTeamHome ? hgHt : agHt) * weight;
+                weightedConcededHT += (isTeamHome ? agHt : hgHt) * weight;
+            } else {
+                // Fallback 45% if HT score missing
+                weightedScoredHT += (isTeamHome ? hg : ag) * 0.45 * weight;
+                weightedConcededHT += (isTeamHome ? ag : hg) * 0.45 * weight;
+            }
+
             totalWeight += weight;
 
             // Stats 1X2 per Draw Rate reale
@@ -482,6 +521,8 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
     const seasonStats = {
         avgScored: totalWeight > 0 ? weightedScored / totalWeight : 1.3,
         avgConceded: totalWeight > 0 ? weightedConceded / totalWeight : 1.2,
+        avgScoredHT: totalWeight > 0 ? weightedScoredHT / totalWeight : 0.6,
+        avgConcededHT: totalWeight > 0 ? weightedConcededHT / totalWeight : 0.5,
         matches: allTeamMatches.length,
         totalWeight: totalWeight,
         wins: wins,
@@ -494,12 +535,22 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
         // 🔥 FIX v4.4: Current Form (Last 5) NOW with Time Decay
         const recent = allTeamMatches.slice(0, 5);
         let weightedRecScored = 0, weightedRecConceded = 0;
+        let weightedRecScoredHT = 0, weightedRecConcededHT = 0;
         let totalFormWeight = 0;
         let outcomes = [];
 
         recent.forEach(m => {
-            const team1 = (m.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-            const isTeamHome = team1 === teamNorm;
+            const hId = m.homeId ? String(m.homeId) : null;
+            const aId = m.awayId ? String(m.awayId) : null;
+            const targetId = teamId ? String(teamId) : null;
+
+            let isTeamHome = false;
+            if (targetId && (hId || aId)) {
+                isTeamHome = hId === targetId;
+            } else {
+                const team1 = (m.partita || '').split(' - ')[0] || '';
+                isTeamHome = normalizeTeamName(team1) === normalizeTeamName(teamName);
+            }
             const res = m.risultato.match(/(\d+)-(\d+)/);
             if (res) {
                 const hg = parseInt(res[1]);
@@ -511,6 +562,19 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
                 const formWeight = calculateTimeWeight(m.data);
                 weightedRecScored += teamG * formWeight;
                 weightedRecConceded += oppG * formWeight;
+
+                // HT Form
+                const resHt = (m.risultato_ht || "").match(/(\d+)-(\d+)/);
+                if (resHt) {
+                    const hgHt = parseInt(resHt[1]);
+                    const agHt = parseInt(resHt[2]);
+                    weightedRecScoredHT += (isTeamHome ? hgHt : agHt) * formWeight;
+                    weightedRecConcededHT += (isTeamHome ? agHt : hgHt) * formWeight;
+                } else {
+                    weightedRecScoredHT += teamG * 0.45 * formWeight;
+                    weightedRecConcededHT += oppG * 0.45 * formWeight;
+                }
+
                 totalFormWeight += formWeight;
 
                 // Capture outcome
@@ -523,6 +587,8 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
         const currForm = {
             avgScored: totalFormWeight > 0 ? weightedRecScored / totalFormWeight : seasonStats.avgScored,
             avgConceded: totalFormWeight > 0 ? weightedRecConceded / totalFormWeight : seasonStats.avgConceded,
+            avgScoredHT: totalFormWeight > 0 ? weightedRecScoredHT / totalFormWeight : seasonStats.avgScoredHT,
+            avgConcededHT: totalFormWeight > 0 ? weightedRecConcededHT / totalFormWeight : seasonStats.avgConcededHT,
             matchCount: recent.length,
             outcomes: outcomes // 🔥 ["W", "D", "L", "W", "W"]
         };
@@ -537,10 +603,20 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
     } else {
         // 1X2/DC: Match casa o trasferta (ultimi 5)
         let locationMatches = allTeamMatches.filter(row => {
-            const team1 = (row.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-            const team2 = (row.partita || '').split(' - ').slice(1).join(' - ')?.toLowerCase().trim() || '';
-            if (isHome) return team1 === teamNorm;
-            else return team2 === teamNorm;
+            const hId = row.homeId ? String(row.homeId) : null;
+            const aId = row.awayId ? String(row.awayId) : null;
+            const targetId = teamId ? String(teamId) : null;
+
+            if (targetId && (hId || aId)) {
+                return isHome ? (hId === targetId) : (aId === targetId);
+            } else {
+                const p = (row.partita || '').split(' - ');
+                if (p.length !== 2) return false;
+                const t1Norm = normalizeTeamName(p[0]);
+                const t2Norm = normalizeTeamName(p[1]);
+                const targetNorm = normalizeTeamName(teamName);
+                return isHome ? (t1Norm === targetNorm) : (t2Norm === targetNorm);
+            }
         });
         relevantMatches = locationMatches.slice(0, 5); // Solo ultimi 5 per 1X2/DC
     }
@@ -574,8 +650,17 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
         const golTrasferta = parseInt(golMatch[2]);
         const golTotali = golCasa + golTrasferta;
 
-        const team1 = (match.partita || '').split(' - ')[0]?.toLowerCase().trim() || '';
-        const isTeamHome = team1 === teamNorm;
+        const hId = match.homeId ? String(match.homeId) : null;
+        const aId = match.awayId ? String(match.awayId) : null;
+        const targetId = teamId ? String(teamId) : null;
+
+        let isTeamHome = false;
+        if (targetId && (hId || aId)) {
+            isTeamHome = hId === targetId;
+        } else {
+            const team1 = (match.partita || '').split(' - ')[0] || '';
+            isTeamHome = normalizeTeamName(team1) === normalizeTeamName(teamName);
+        }
 
         let success = false;
 
@@ -704,10 +789,22 @@ function analyzeDrawRate(teamName, allMatches, teamId = null) {
     const matchesSquadra = allMatches.filter(m => {
         if (!m.risultato || m.risultato.trim() === '') return false;
 
-        // 🏁 LOGICA ID-PURE 🇨🇭
-        if (!teamId || (!m.homeId && !m.awayId)) return false;
-        const targetId = String(teamId);
-        return (String(m.homeId) === targetId || String(m.awayId) === targetId);
+        // 🏁 LOGICA ID-FIRST 🇨🇭
+        const hId = m.homeId ? String(m.homeId) : null;
+        const aId = m.awayId ? String(m.awayId) : null;
+        const targetId = teamId ? String(teamId) : null;
+
+        if (targetId && (hId || aId)) {
+            return (String(hId) === targetId || String(aId) === targetId);
+        } else {
+            const p = (m.partita || '').split(' - ');
+            if (p.length !== 2) return false;
+            const hNorm = normalizeTeamName(p[0]);
+            const aNorm = normalizeTeamName(p[1]);
+            const targetNorm = normalizeTeamName(teamName);
+            return (hNorm.includes(targetNorm) || targetNorm.includes(hNorm) ||
+                aNorm.includes(targetNorm) || targetNorm.includes(aNorm));
+        }
     }).slice(0, 30); // Max 30 match
 
     if (matchesSquadra.length === 0) return { rate: 0, total: 0, draws: 0 };
@@ -1099,6 +1196,7 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
 
 // Helper: Crea strategia UNDER 3.5 TRADING (Scalping)
 function createUnder35TradingStrategy(match, forcedConfidence = null) {
+    const under35Prob = match.magicStats?.under35 || match.probabilita || 70;
     return {
         ...match,
         _originalTip: match.tip || 'N/A',
@@ -1123,9 +1221,9 @@ function createUnder35TradingStrategy(match, forcedConfidence = null) {
                 timing: 'Dopo il 1° gol subito'
             }
         },
-        confidence: forcedConfidence || Math.min(95, match.probabilita || 70),
+        confidence: forcedConfidence || Math.min(95, under35Prob),
         reasoning: `Sistema difensivo solido rilevato. Scalping Under 3.5 con uscita programmata o stop loss a fine primo tempo.`,
-        internalBrief: `DETTAGLIO TECNICO UNDER SCALPING: Probabilità Under ${match.probabilita || 70}%. Match previsto a basso ritmo. Gestione rigorosa dello stop loss necessaria.`,
+        internalBrief: `DETTAGLIO TECNICO UNDER SCALPING: Probabilità Under ${under35Prob}%. Match previsto a basso ritmo. Gestione rigorosa dello stop loss necessaria.`,
         badge: {
             text: '🛡️ UNDER SCALPING',
             color: 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
@@ -1138,9 +1236,10 @@ function createUnder35TradingStrategy(match, forcedConfidence = null) {
 // @param {object} match - Match data including betfairOdds if available
 // @param {array} allMatches - Historical matches for stats calculation
 function transformToTradingStrategy(match, allMatches) {
-    const prob = match.probabilita || 0;
-    const htProb = extractHTProb(match.info_ht);
     const magicData = match.magicStats;
+    // 🔥 DATA LOOKUP FIX: Prioritize magicStats (Sandbox) over legacy keys
+    const prob = match.probabilita || (magicData?.winProb ?? magicData?.score ?? 0);
+    const htProb = extractHTProb(match.info_ht) || (magicData?.ht05 ?? 0);
     const score = magicData?.score || match.score || 0;
 
     // Extract Bookmaker odds from match (Bet365 via API-Football)
@@ -1171,9 +1270,9 @@ function transformToTradingStrategy(match, allMatches) {
     console.log(`[Trading 3.0 DEBUG] === ${match.partita} ===`);
     console.log(`  📊 score: ${score}, prob: ${prob}, htProb: ${htProb}`);
     console.log(`  🎲 magicData:`, magicData ? JSON.stringify({
-        over25Prob: magicData.over25Prob,
-        htGoalProb: magicData.htGoalProb,
-        drawProb: magicData.drawProb
+        over25: magicData.over25,
+        ht05: magicData.ht05,
+        draw: magicData.draw
     }) : 'NULL');
     console.log(`  💰 Bookmaker Odds (Bet365):`, JSON.stringify(bookmakerOdds));
 
@@ -1222,7 +1321,7 @@ function transformToTradingStrategy(match, allMatches) {
     }
 
     // ─── STRATEGIA 5: HT SNIPER (Elite Refined) ───
-    const htGoalProb = magicData?.htGoalProb || htProb;
+    const htGoalProb = magicData?.ht05 || magicData?.htGoalProb || htProb;
     // REQUISITI ELITE: Probabilità più alta (72%) OPPURE 65% + Motivazione
     const htSniperPasses = (htProb >= 72 || (htProb >= 65 && hasMotivation));
 
@@ -1739,15 +1838,15 @@ function dixonColesCorrection(hg, ag, rho, lambdaHome, lambdaAway) {
  * Runs a TRUE Monte Carlo simulation for a match
  * Returns raw data for density analysis
  */
-function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = "", entropy = 1.0) {
+function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = "", entropy = 1.0, lambdaHomeHT = null, lambdaAwayHT = null) {
     // Determine seed for reproducible results
     // If no seed provided, utilize Math.random via SeededRandom wrapper or just null to use fallback
     const rng = seedString ? new SeededRandom(seedString) : null;
     const results = {
         homeWins: 0, draws: 0, awayWins: 0,
         dc1X: 0, dcX2: 0, dc12: 0,
-        over15: 0, under35: 0,
-        ht05: 0, // 🔥 NEW: 1° Tempo (0.5 HT)
+        over15: 0, over25: 0, under35: 0, // 🔥 RESTORED: over25
+        ht05: 0, // 🔥 REAL: 0.5 HT via lambdas
         btts: 0, noGol: 0,
         scores: {}, // Exact score frequency
         homeCleanSheet: 0, awayCleanSheet: 0
@@ -1793,13 +1892,16 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
         if (ag >= hg) results.dcX2 += weight;
         if (hg !== ag) results.dc12 += weight;
 
-        // Goals (SOLO Over 1.5 e Under 3.5 - mercati più probabili)
+        // Goals
         if (totalGoals > 1.5) results.over15 += weight;
+        if (totalGoals > 2.5) results.over25 += weight;
         if (totalGoals < 3.5) results.under35 += weight;
 
-        // 🔥 NEW: 0.5 HT Simulation (approx 45% of lambda)
-        const hgHT = poissonRandom(currentLambdaHome * 0.45, rng);
-        const agHT = poissonRandom(currentLambdaAway * 0.45, rng);
+        // 🔥 REAL HT Simulation (using specific HT lambdas if provided)
+        const lHHT = lambdaHomeHT !== null ? lambdaHomeHT : currentLambdaHome * 0.45;
+        const lAHT = lambdaAwayHT !== null ? lambdaAwayHT : currentLambdaAway * 0.45;
+        const hgHT = poissonRandom(lHHT, rng);
+        const agHT = poissonRandom(lAHT, rng);
         if (hgHT + agHT > 0) results.ht05 += weight;
 
         // BTTS
@@ -2023,7 +2125,7 @@ function distributeStrategies(calculatedMatches, allMatchesHistory, selectedDate
     // ═══════════════════════════════════════════════════════════════════════
     const pool = new Map();
     (allMatchesHistory || []).forEach(m => {
-        if (m.data === selectedDate && m.magia === 'OK') {
+        if (m.data === selectedDate && (m.magia === 'OK' || m.magia === 'BM')) {
             const fId = m.fixtureId;
             if (fId) {
                 const key = String(fId);
@@ -2259,8 +2361,12 @@ function getMagiaStats(match, allMatchesHistory) {
     let eloRatingA = 1500;
 
     if (window.teamELORatings) {
-        eloRatingH = window.teamELORatings.get(teams.home) || 1500;
-        eloRatingA = window.teamELORatings.get(teams.away) || 1500;
+        // ID-FIRST ELO LOOKUP
+        const hId = match.teamIdHome ? String(match.teamIdHome) : normalizeTeamName(teams.home);
+        const aId = match.teamIdAway ? String(match.teamIdAway) : normalizeTeamName(teams.away);
+
+        eloRatingH = window.teamELORatings.get(hId) || window.teamELORatings.get(normalizeTeamName(teams.home)) || 1500;
+        eloRatingA = window.teamELORatings.get(aId) || window.teamELORatings.get(normalizeTeamName(teams.away)) || 1500;
         eloDiff = eloRatingH - eloRatingA;
 
         // ELO Factor: For every 150 ELO points difference, adjust lambda by ~10%
@@ -2274,7 +2380,13 @@ function getMagiaStats(match, allMatchesHistory) {
     const lambdaAway = ((awayStats.currForm.avgScored * 0.6 + awayStats.season.avgScored * 0.4 +
         homeStats.currForm.avgConceded * 0.6 + homeStats.season.avgConceded * 0.4) / 2) * goalFactor * motivationA * eloFactorAway;
 
-    const sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita, entropyFactor);
+    // 🔥 REAL HT LAMBDAS
+    const lambdaHomeHT = ((homeStats.currForm.avgScoredHT * 0.6 + homeStats.season.avgScoredHT * 0.4 +
+        awayStats.currForm.avgConcededHT * 0.6 + awayStats.season.avgConcededHT * 0.4) / 2) * goalFactor * motivationH * eloFactorHome;
+    const lambdaAwayHT = ((awayStats.currForm.avgScoredHT * 0.6 + awayStats.season.avgScoredHT * 0.4 +
+        homeStats.currForm.avgConcededHT * 0.6 + homeStats.season.avgConcededHT * 0.4) / 2) * goalFactor * motivationA * eloFactorAway;
+
+    const sim = simulateMatch(lambdaHome, lambdaAway, 10000, match.partita, entropyFactor, lambdaHomeHT, lambdaAwayHT);
     sim.motivationBadges = motivationBadges;
     sim.rankH = rankH;
     sim.rankA = rankA;

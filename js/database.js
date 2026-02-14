@@ -680,11 +680,16 @@ const LocalDB = {
         // Handle both formats: old array or new backup object
         const historyArray = Array.isArray(backupData) ? backupData : backupData.history;
         const leaguesArray = backupData.leagues || [];
+        const parlaysArray = backupData.parlays || [];
+        const tradingArray = backupData.trading || [];
 
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeStrategies, this.storeLeagues], "readwrite");
+            const stores = [this.storeStrategies, this.storeLeagues, this.storeParlays, this.storeTrading];
+            const transaction = this.db.transaction(stores, "readwrite");
             const strategyStore = transaction.objectStore(this.storeStrategies);
             const leagueStore = transaction.objectStore(this.storeLeagues);
+            const parlayStore = transaction.objectStore(this.storeParlays);
+            const tradingStore = transaction.objectStore(this.storeTrading);
 
             let strategyCount = 0;
             if (Array.isArray(historyArray)) {
@@ -704,9 +709,25 @@ const LocalDB = {
                 }
             });
 
+            let parlayCount = 0;
+            parlaysArray.forEach(parlay => {
+                if (parlay.date && parlay.parlays) {
+                    parlayStore.put(parlay);
+                    parlayCount++;
+                }
+            });
+
+            let tradingCount = 0;
+            tradingArray.forEach(trade => {
+                if (trade.date && trade.picks) {
+                    tradingStore.put(trade);
+                    tradingCount++;
+                }
+            });
+
             transaction.oncomplete = () => {
-                console.log(`[LocalDB] Imported ${strategyCount} days and ${leagueCount} leagues`);
-                resolve(strategyCount);
+                console.log(`[LocalDB] Import Complete: ${strategyCount} days, ${leagueCount} leagues, ${parlayCount} parlays, ${tradingCount} trading days.`);
+                resolve({ strategyCount, leagueCount, parlayCount, tradingCount });
             };
 
             transaction.onerror = (event) => {
@@ -723,24 +744,27 @@ const LocalDB = {
         if (!this.db) await this.init();
         const exportData = {
             type: 'strategies_backup',
-            version: '1.2',
+            version: '2.0', // Updated version for unified backup
             exportedAt: new Date().toISOString(),
             history: [],
-            leagues: []
+            leagues: [],
+            parlays: [],
+            trading: []
         };
 
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeStrategies, this.storeLeagues], "readonly");
-            const strategyStore = transaction.objectStore(this.storeStrategies);
-            const leagueStore = transaction.objectStore(this.storeLeagues);
+            const stores = [this.storeStrategies, this.storeLeagues, this.storeParlays, this.storeTrading];
+            const transaction = this.db.transaction(stores, "readonly");
 
-            const strategyRequest = strategyStore.getAll();
-            const leagueRequest = leagueStore.getAll();
+            const strategyRequest = transaction.objectStore(this.storeStrategies).getAll();
+            const leagueRequest = transaction.objectStore(this.storeLeagues).getAll();
+            const parlayRequest = transaction.objectStore(this.storeParlays).getAll();
+            const tradingRequest = transaction.objectStore(this.storeTrading).getAll();
 
             let completed = 0;
             const checkDone = () => {
                 completed++;
-                if (completed === 2) resolve(exportData);
+                if (completed === 4) resolve(exportData);
             };
 
             strategyRequest.onsuccess = () => {
@@ -750,6 +774,16 @@ const LocalDB = {
 
             leagueRequest.onsuccess = () => {
                 exportData.leagues = leagueRequest.result || [];
+                checkDone();
+            };
+
+            parlayRequest.onsuccess = () => {
+                exportData.parlays = parlayRequest.result || [];
+                checkDone();
+            };
+
+            tradingRequest.onsuccess = () => {
+                exportData.trading = tradingRequest.result || [];
                 checkDone();
             };
 
@@ -1074,8 +1108,109 @@ async function updateLeagueTrustHistory(db, matches) {
     }
 }
 
+// ==================== SANDBOX DB (Monte Carlo Persistence) ====================
+// Isolated DB for large simulation results to avoid bloating main TipsterDB
+const SandboxDB = {
+    dbName: 'TipsterSandboxDB',
+    storeName: 'montecarlo_results',
+    db: null,
+
+    async init() {
+        if (this.db) return;
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    db.createObjectStore(this.storeName, { keyPath: 'id' });
+                }
+            };
+            request.onsuccess = (event) => {
+                this.db = event.target.result;
+                console.log("[SandboxDB] Initialized");
+                resolve(this.db);
+            };
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async saveResults(date, results) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], "readwrite");
+            const store = transaction.objectStore(this.storeName);
+
+            // Structure: { id: date, results: [], lastUpdated: timestamp }
+            const record = {
+                id: date,
+                results: results,
+                lastUpdated: Date.now()
+            };
+
+            store.put(record);
+
+            transaction.oncomplete = () => {
+                console.log(`[SandboxDB] Saved results for ${date} (${results.length} matches)`);
+                resolve(true);
+            };
+            transaction.onerror = (event) => reject(event);
+        });
+    },
+
+    async loadResults(date) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], "readonly");
+            const store = transaction.objectStore(this.storeName);
+            const request = store.get(date);
+
+            request.onsuccess = () => {
+                resolve(request.result || null);
+            };
+            request.onerror = (event) => reject(event);
+        });
+    },
+
+    async deleteResult(date, matchId) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], "readwrite");
+            const store = transaction.objectStore(this.storeName);
+            const getRequest = store.get(date);
+
+            getRequest.onsuccess = () => {
+                const record = getRequest.result;
+                if (!record || !record.results) {
+                    resolve(false);
+                    return;
+                }
+
+                const initialLen = record.results.length;
+                record.results = record.results.filter(m => String(m.id) !== String(matchId));
+
+                if (record.results.length !== initialLen) {
+                    record.lastUpdated = Date.now();
+                    const putRequest = store.put(record);
+                    putRequest.onsuccess = () => resolve(true);
+                } else {
+                    resolve(false);
+                }
+            };
+            getRequest.onerror = (e) => reject(e);
+        });
+    },
+
+    async clear() {
+        if (!this.db) await this.init();
+        const transaction = this.db.transaction([this.storeName], "readwrite");
+        transaction.objectStore(this.storeName).clear();
+        console.log("[SandboxDB] Cleared");
+    }
+};
+
 // Export for global usage
 window.LocalDB = LocalDB;
+window.SandboxDB = SandboxDB; // 🔥 NEW
 window.databaseManager = {
     safeBatchCommit,
     uploadMatchesToFirebase,

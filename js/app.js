@@ -4547,8 +4547,17 @@ window.loadTipsHistory = async function () {
             }
 
             let parlaysHtml = Object.values(d.parlays).map(p => {
-                // Determine parlay outcome based on picks + LIVE HUB
-                const processedPicks = p.picks.map(m => {
+                // --- 🛡️ ZERO CHAOS: DEDUPLICATION ---
+                const seenFixtures = new Set();
+                const uniquePicks = p.picks.filter(m => {
+                    const fixtureId = m.id || m.fixtureId || m.partita;
+                    if (seenFixtures.has(fixtureId)) return false;
+                    seenFixtures.add(fixtureId);
+                    return true;
+                });
+
+                // Determine parlay outcome based on UNIQUE picks + LIVE HUB
+                const processedPicks = uniquePicks.map(m => {
                     const fixtureId = m.id || m.fixtureId;
                     const liveData = fixtureId ? window.liveScoresHub[fixtureId] : null;
 
@@ -4561,7 +4570,6 @@ window.loadTipsHistory = async function () {
                         currentStatus = liveData.status || currentStatus;
                         // Forziamo valutazione locale se live
                         currentEsito = (window.evaluateTipLocally ? window.evaluateTipLocally(m.tip, currentScore, (currentStatus === 'FT'), currentStatus) : '');
-                        console.log(`[Consigli-Live] 📡 Sync ID: ${fixtureId} | Match: ${m.partita} | Live: ${currentScore} (${currentStatus}) | Esito: ${currentEsito}`);
                     }
 
                     return { ...m, currentScore, currentStatus, currentEsito };
@@ -4572,60 +4580,71 @@ window.loadTipsHistory = async function () {
                 const isPerso = results.some(r => r === 'perso' || r === 'lose');
                 const pStatus = isVinto ? 'VINTO ✅' : (isPerso ? 'PERSO ❌' : 'IN CORSO ⏳');
                 const pColor = isVinto ? 'text-emerald-400' : (isPerso ? 'text-rose-400' : 'text-blue-400');
-                const pBorder = isVinto ? 'border-emerald-500/40 bg-emerald-500/10' : (isPerso ? 'border-rose-500/30 opacity-80' : 'border-white/20 bg-white/5');
+
+                // Color Code backgrounds for the whole parlay
+                const pBg = isVinto ? 'bg-emerald-500/20 border-emerald-500/40' : (isPerso ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-900/40 border-white/10');
 
                 return `
-                    <div class="p-4 rounded-2xl border ${pBorder} mb-4 shadow-md transition-all">
-                        <div class="flex justify-between items-center mb-3">
-                            <span class="text-[11px] font-black uppercase text-white/50 tracking-tighter bg-white/5 px-2 py-0.5 rounded-full">${p.label}</span>
-                            <span class="text-[12px] font-black ${pColor} italic animate-pulse-slow">${pStatus}</span>
+                    <div class="p-4 rounded-2xl border ${pBg} mb-4 shadow-xl overflow-hidden">
+                        <div class="flex justify-between items-center mb-4 pb-2 border-b border-white/5">
+                            <span class="text-[12px] font-black uppercase text-white/60 tracking-tight">${p.label}</span>
+                            <span class="text-[14px] font-black ${pColor} italic">${pStatus}</span>
                         </div>
-                        <div class="space-y-3">
+                        <div class="space-y-2">
                             ${processedPicks.map(m => {
-                    const esitoClass = (m.currentEsito || '').toLowerCase().includes('vinto') ? 'text-emerald-400' : ((m.currentEsito || '').toLowerCase().includes('perso') ? 'text-rose-400' : 'text-gray-400');
-                    const esitoIcon = (m.currentEsito || '').toLowerCase().includes('vinto') ? '✅' : ((m.currentEsito || '').toLowerCase().includes('perso') ? '❌' : '⏳');
+                    const esito = (m.currentEsito || '').toLowerCase();
+                    const isPickVinto = esito.includes('vinto') || esito.includes('win');
+                    const isPickPerso = esito.includes('perso') || esito.includes('lose');
+
+                    // Color logic for single rows
+                    const rowBg = isPickVinto ? 'bg-emerald-500/20' : (isPickPerso ? 'bg-rose-500/20' : 'bg-white/5');
+                    const esitoText = isPickVinto ? 'VINTO ✅' : (isPickPerso ? 'PERSO ❌' : 'LIVE ⏳');
+                    const esitoColor = isPickVinto ? 'text-emerald-300' : (isPickPerso ? 'text-rose-300' : 'text-gray-400');
 
                     return `
-                                <div class="flex justify-between items-center text-[13px] bg-white/5 p-2 rounded-lg border border-white/5">
-                                    <div class="max-w-[65%]">
-                                        <div class="text-white font-black leading-tight">${m.partita}</div>
-                                        <div class="text-[10px] text-white/40 uppercase font-bold mt-0.5">${m.lega || ''}</div>
+                                <div class="flex justify-between items-center text-[12px] ${rowBg} p-3 rounded-xl border border-white/5">
+                                    <div class="max-w-[60%]">
+                                        <div class="text-white font-black leading-tight truncate">${m.partita}</div>
+                                        <div class="text-[10px] text-white/40 uppercase font-black mt-0.5">${m.lega || ''}</div>
                                     </div>
-                                    <div class="text-right">
-                                        <div class="text-amber-300 font-black text-[14px]">${m.tip} <span class="text-[11px] text-white/40">@${m.quota}</span></div>
-                                        <div class="flex items-center justify-end gap-1.5 mt-0.5">
-                                            <span class="text-[11px] text-white font-black bg-black/30 px-2 py-0.5 rounded">${m.currentScore}</span>
-                                            <span class="text-[11px] font-black ${esitoClass}">${esitoIcon}</span>
+                                    <div class="text-right flex flex-col items-end">
+                                        <div class="flex items-center gap-1.5 mb-1">
+                                            <span class="text-amber-300 font-black text-[14px]">${m.tip}</span>
+                                            <span class="text-[10px] text-white/30 font-bold">@${m.quota}</span>
+                                        </div>
+                                        <div class="flex items-center gap-2 bg-black/40 px-2 py-0.5 rounded-lg border border-white/5">
+                                            <span class="text-[11px] text-white font-black">${m.currentScore}</span>
+                                            <span class="text-[10px] font-black ${esitoColor}">${esitoText}</span>
                                         </div>
                                     </div>
                                 </div>
                                 `;
                 }).join('')}
                         </div>
-                        <div class="mt-4 flex justify-between items-center border-t border-white/10 pt-3">
-                             <div class="text-[10px] text-white/40 font-bold">AI Conf: <span class="text-white/70">${p.avgConfidence}%</span></div>
-                             <div class="text-[12px] font-black text-white px-3 py-1 bg-white/10 rounded-lg">TOTAL: @${p.totalOdds.toFixed(2)}</div>
+                        <div class="mt-4 flex justify-between items-center pt-3 border-t border-white/5">
+                             <div class="text-[10px] text-white/30 font-black">AI CONF: ${p.avgConfidence}%</div>
+                             <div class="text-[14px] font-black text-white bg-slate-800/80 px-3 py-1 rounded-xl border border-white/10 shadow-lg">TOT: @${p.totalOdds.toFixed(2)}</div>
                         </div>
                     </div>
                 `;
             }).join('');
 
             return `
-                <div class="bg-gradient-to-br from-indigo-950/80 via-purple-950/80 to-slate-900/90 border border-white/10 rounded-3xl p-5 mb-4 shadow-2xl transition-all" 
+                <div class="bg-slate-950/60 border border-white/10 rounded-[2.5rem] p-6 mb-6 shadow-2xl backdrop-blur-md" 
                      onclick="this.querySelector('.details').classList.toggle('hidden')">
                     <div class="flex justify-between items-center">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500/30 to-amber-500/30 flex items-center justify-center border border-orange-500/20 shadow-inner">
-                                <i class="fa-solid fa-wand-magic-sparkles text-orange-400 text-lg"></i>
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-orange-600/30 flex items-center justify-center border border-white/10 shadow-lg">
+                                <i class="fa-solid fa-wand-magic-sparkles text-orange-400 text-xl"></i>
                             </div>
                             <div>
-                                <div class="font-black text-white text-base tracking-tight">${formatDateLong(d.date)}</div>
-                                <div class="text-[10px] text-white/40 font-black uppercase tracking-widest mt-0.5">${Object.keys(d.parlays).length} Combo Suggerite</div>
+                                <div class="font-black text-white text-lg tracking-tight">${formatDateLong(d.date)}</div>
+                                <div class="text-[11px] text-white/40 font-black uppercase tracking-widest mt-0.5">${Object.keys(d.parlays).length} Combo Disponibili</div>
                             </div>
                         </div>
-                        <i class="fa-solid fa-chevron-down text-white/30 text-sm"></i>
+                        <i class="fa-solid fa-chevron-down text-white/30 text-lg"></i>
                     </div>
-                    <div class="details hidden mt-6 space-y-4 animate-slide-down">
+                    <div class="details hidden mt-8 space-y-4 animate-slide-down">
                         ${parlaysHtml}
                     </div>
                 </div>`;
@@ -4710,15 +4729,15 @@ async function loadLiveHubMatches() {
         return tradingPicksNames.has(matchNameNorm) || tradingPicksIds.has(fixtureId);
     });
 
-    console.log(`[LiveHub] Total Live: ${liveGames.length}, Filtered by Trading: ${finalLiveGames.length}`);
+    console.log(`[LiveHub] Total Live: ${liveGames.length}, Filtered by Trading: ${finalLiveGames.length} `);
 
     if (finalLiveGames.length === 0) {
         container.innerHTML = `
-            <div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl">
+            < div class="col-span-full text-center py-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl" >
                 <i class="fa-solid fa-radar text-6xl mb-4 text-white/70 animate-pulse"></i>
                 <p class="font-black text-xl text-white">Nessun match attivo oggi</p>
                 <p class="text-sm text-white/60 mt-2 max-w-xs mx-auto">Il radar sta scansionando i campionati principali. Torna più tardi!</p>
-            </div>`;
+            </div > `;
         return;
     }
 
@@ -4780,9 +4799,9 @@ async function loadLiveHubMatches() {
     if (window._lastLiveHubHTML !== html) {
         container.innerHTML = html;
         window._lastLiveHubHTML = html;
-        console.log(`[LiveHub] UI Updated (${majorLeagueGames.length} cards)`);
+        console.log(`[LiveHub] UI Updated(${majorLeagueGames.length} cards)`);
     } else {
-        console.log(`[LiveHub] Skip update (No changes)`);
+        console.log(`[LiveHub] Skip update(No changes)`);
     }
 }
 
