@@ -2835,30 +2835,6 @@ async function loadUserProfile(uid) {
 async function loadData(dateToLoad = null) {
     let targetDate = dateToLoad || new Date().toISOString().split('T')[0];
 
-    // 🔥 NEW: Smart Midnight Transition (Socio's Request)
-    // Se è tra mezzanotte e mezzogiorno e non ci sono dati per oggi, carica ieri
-    if (!dateToLoad) {
-        const now = new Date();
-        const hour = now.getHours();
-        if (hour < 12) {
-            try {
-                // Check if today matches subcollection is empty
-                const parentDocToday = doc(db, "daily_strategies", targetDate);
-                const strategiesSubColToday = collection(parentDocToday, "strategies");
-                const snapToday = await getDocs(strategiesSubColToday);
-
-                if (snapToday.empty) {
-                    const yesterday = new Date(now);
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    targetDate = yesterday.toISOString().split('T')[0];
-                    console.log(`[SmartDate] 🌙 Midnight power rescue: Falling back to ${targetDate}`);
-                }
-            } catch (e) {
-                console.warn("[SmartDate] Check failed", e);
-            }
-        }
-    }
-
     window.currentAppDate = targetDate; // Set global date for filtering
 
     if (strategiesUnsubscribe) {
@@ -3457,7 +3433,7 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
     const isVirtualStrategy = ['italia', 'europa', 'mondo', 'africa'].includes(stratId);
 
     // If strat is missing, try to recover from global data (but skip for virtual strategies)
-    if (!data && !isVirtualStrategy) data = window.strategiesData[stratId] || window.strategiesData['all'];
+    if (!data && !isVirtualStrategy) data = window.strategiesData[stratId];
     if (!data && !isVirtualStrategy) return;
 
     // If switching strategy, reset sub-filter to 'all'
