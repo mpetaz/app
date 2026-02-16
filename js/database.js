@@ -678,7 +678,7 @@ const LocalDB = {
         if (!this.db) await this.init();
 
         // Handle both formats: old array or new backup object
-        const historyArray = Array.isArray(backupData) ? backupData : backupData.history;
+        const historyArray = Array.isArray(backupData) ? backupData : (backupData.history || []);
         const leaguesArray = backupData.leagues || [];
         const parlaysArray = backupData.parlays || [];
         const tradingArray = backupData.trading || [];
@@ -686,20 +686,25 @@ const LocalDB = {
         return new Promise((resolve, reject) => {
             const stores = [this.storeStrategies, this.storeLeagues, this.storeParlays, this.storeTrading];
             const transaction = this.db.transaction(stores, "readwrite");
+
             const strategyStore = transaction.objectStore(this.storeStrategies);
             const leagueStore = transaction.objectStore(this.storeLeagues);
             const parlayStore = transaction.objectStore(this.storeParlays);
             const tradingStore = transaction.objectStore(this.storeTrading);
 
             let strategyCount = 0;
-            if (Array.isArray(historyArray)) {
-                historyArray.forEach(item => {
-                    if (item.date && item.strategies) {
-                        strategyStore.put(item);
-                        strategyCount++;
-                    }
-                });
-            }
+            historyArray.forEach(item => {
+                if (item.date && (item.strategies || item.data)) {
+                    // Normalize to {date, strategies, lastUpdated}
+                    const record = {
+                        date: item.date,
+                        strategies: item.strategies || item.data,
+                        lastUpdated: item.lastUpdated || Date.now()
+                    };
+                    strategyStore.put(record);
+                    strategyCount++;
+                }
+            });
 
             let leagueCount = 0;
             leaguesArray.forEach(league => {
@@ -710,23 +715,35 @@ const LocalDB = {
             });
 
             let parlayCount = 0;
-            parlaysArray.forEach(parlay => {
-                if (parlay.date && parlay.parlays) {
-                    parlayStore.put(parlay);
+            parlaysArray.forEach(item => {
+                if (item.date && (item.parlays || item.data)) {
+                    // Normalize to {date, data, lastUpdated}
+                    const record = {
+                        date: item.date,
+                        data: item.data || item,
+                        lastUpdated: item.lastUpdated || Date.now()
+                    };
+                    parlayStore.put(record);
                     parlayCount++;
                 }
             });
 
             let tradingCount = 0;
-            tradingArray.forEach(trade => {
-                if (trade.date && trade.picks) {
-                    tradingStore.put(trade);
+            tradingArray.forEach(item => {
+                if (item.date && (item.picks || item.data)) {
+                    // Normalize to {date, data, lastUpdated}
+                    const record = {
+                        date: item.date,
+                        data: item.data || item,
+                        lastUpdated: item.lastUpdated || Date.now()
+                    };
+                    tradingStore.put(record);
                     tradingCount++;
                 }
             });
 
             transaction.oncomplete = () => {
-                console.log(`[LocalDB] Import Complete: ${strategyCount} days, ${leagueCount} leagues, ${parlayCount} parlays, ${tradingCount} trading days.`);
+                console.log(`[LocalDB] Import Complete: ${strategyCount} strategies, ${leagueCount} leagues, ${parlayCount} parlays, ${tradingCount} trading days.`);
                 resolve({ strategyCount, leagueCount, parlayCount, tradingCount });
             };
 
@@ -830,7 +847,7 @@ async function safeBatchCommit(db, operations, onProgress = null) {
 
         await batch.commit();
         processed += chunk.length;
-        console.log(`[SafeBatch] Committed ${processed}/${total} operations`);
+        L(`[SafeBatch] Committed ${processed}/${total} operations`);
 
         if (onProgress) {
             onProgress(processed, total);
@@ -850,7 +867,7 @@ async function safeBatchCommit(db, operations, onProgress = null) {
 async function uploadMatchesToFirebase(type, dataToUpload, existingMatches = [], db) {
     if (!dataToUpload || dataToUpload.length === 0) return 0;
 
-    console.log(`[Upload] ID-Pure System: Data saved only in local IndexedDB. Suppression active for ${dataToUpload.length} records.`);
+    L(`[Upload] ID-Pure System: Data saved only in local IndexedDB. Suppression active for ${dataToUpload.length} records.`);
 
     // Simulo completamento per non rompere la UI
     const btn = document.getElementById(`confirm-${type}-upload-btn`);
@@ -952,14 +969,14 @@ async function saveStrategyToHistory(db, targetDate, strategiesMap) {
             };
 
             await window.setDoc(stratDocRef, cleanData, { merge: true });
-            console.log(`[History] Saved strategy: ${stratId} (${cleanData.totalMatches} matches)`);
+            L(`[History] Saved strategy: ${stratId} (${cleanData.totalMatches} matches)`);
         }
 
-        console.log(`[History] Saved ${Object.keys(strategiesMap).length} strategies for ${targetDate} to Firebase`);
+        L(`[History] Saved ${Object.keys(strategiesMap).length} strategies for ${targetDate} to Firebase`);
 
         // 🔥 ORO DATABASE: Save permanently to Local IndexedDB
         await window.LocalDB.saveStrategyHistory(targetDate, strategiesMap);
-        console.log(`[History] Permanent Snapshot saved to Database Oro (Local)`);
+        L(`[History] Permanent Snapshot saved to Database Oro (Local)`);
     } catch (e) {
         console.error(`[History] Save Error:`, e);
         throw e;
@@ -991,7 +1008,7 @@ async function cleanupOldStrategies(db) {
         });
 
         if (operations.length > 0) {
-            console.log(`[Cleanup] Removing ${operations.length} old strategy docs`);
+            L(`[Cleanup] Removing ${operations.length} old strategy docs`);
             await safeBatchCommit(db, operations);
         }
     } catch (e) {
@@ -1012,7 +1029,7 @@ async function loadLeagueTrust(db) {
             trustMap[key] = docSnap.data();
         });
         window.LEAGUE_TRUST = trustMap;
-        console.log(`[Trust] Loaded ${Object.keys(trustMap).length} league trust scores`);
+        L(`[Trust] Loaded ${Object.keys(trustMap).length} league trust scores`);
         return trustMap;
     } catch (e) {
         console.error("[Trust] Load Error:", e);
@@ -1093,7 +1110,7 @@ async function updateLeagueTrustHistory(db, matches) {
         (async () => {
             try {
                 // Notifica aggiornamento trust (solo log, la persistenza avviene su Firebase)
-                console.log(`[TrustUpdate] ${leagueId}: Trust ${newTrust} Mode: ${currentMode}`);
+                L(`[TrustUpdate] ${leagueId}: Trust ${newTrust} Mode: ${currentMode}`);
             } catch (err) {
                 console.warn(`[LocalTrust] Sync error for ${leagueId}:`, err);
             }
@@ -1101,7 +1118,7 @@ async function updateLeagueTrustHistory(db, matches) {
     }
 
     if (operations.length > 0) {
-        console.log(`[Trust] Updating ${operations.length} leagues trust scores...`);
+        L(`[Trust] Updating ${operations.length} leagues trust scores...`);
         await safeBatchCommit(db, operations);
         // Refresh local memory
         await loadLeagueTrust(db);
@@ -1127,7 +1144,7 @@ const SandboxDB = {
             };
             request.onsuccess = (event) => {
                 this.db = event.target.result;
-                console.log("[SandboxDB] Initialized");
+                L("[SandboxDB] Initialized");
                 resolve(this.db);
             };
             request.onerror = (event) => reject(event);

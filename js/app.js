@@ -1553,8 +1553,8 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                 `;
     }
 
-    // euGENIO Insight
-    const why = match.why || match.spiegazione || match.insight || "";
+    // euGENIO Insight (Socio's Protocol: Priority to saved reasoning)
+    const why = match.reasoning || match.why || match.spiegazione || match.insight || match.logicRationale || match.logic_rationale || "";
     if (why) {
         insightsHTML += `
                 <div class="px-4 mb-3">
@@ -1564,41 +1564,6 @@ window.createUniversalCard = function (match, index, stratId, options = {}) {
                             <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
                         </div>
                         ${why}
-                    </div>
-            </div>
-                `;
-    }
-
-    // Warnings (Standard Only)
-    // isFinished is already defined at top of function
-    if (!isTrading && warningStats) {
-        const volatile = warningStats.volatileLeagues?.find(l => l.lega === match.lega);
-        if (volatile && !isFinished) {
-            insightsHTML += `
-                <div class="mx-4 mb-3 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
-                    <i class="fa-solid fa-triangle-exclamation text-red-500 text-xs"></i>
-                    <div class="text-xs text-red-700 font-bold">Lega volatile (${volatile.volatility}% vol)</div>
-                </div>
-                `;
-        }
-    }
-
-    // 05 HT Logic - REMOVED AS REQUESTED (Duplicato, usiamo quello del DB nel primarySignal)
-    const htHTML = '';
-
-    insightsHTML += htHTML;
-
-    // --- Rationale (If second source exists) ---
-    const alternativeRationale = match.logicRationale || match.logic_rationale || match.reasoning || "";
-    if (alternativeRationale && !why) {
-        insightsHTML += `
-                <div class="px-4 mb-3">
-                    <div class="eugenio-why-box border border-indigo-100 shadow-sm relative overflow-hidden bg-indigo-50/30">
-                        <div class="flex items-center gap-1.5 mb-1">
-                            <i class="fa-solid fa-brain text-xs text-indigo-400"></i>
-                            <span class="text-[11px] font-black text-indigo-400 uppercase tracking-widest">Il Perché di euGENIO</span>
-                        </div>
-                        ${alternativeRationale}
                     </div>
             </div>
                 `;
@@ -3183,9 +3148,8 @@ function initLiveHubListener() {
             135, 136, 39, 40, 41, 140, 78, 79, 61, 88, 94, 207, 235, 144, 203, 2, 3, 848, 137, 45, 143
         ];
 
-        // 🛡️ Filter by Trading Strategies (align with Radar Live)
+        // 🛡️ PROTOCOLLO ID-PURE 🇨🇭: Filter by Trading Strategies (fixtureId only)
         const tradingPicks = window.strategiesData?.['top_del_giorno']?.matches || [];
-        const tradingPicksNames = new Set(tradingPicks.map(p => (p.partita || '').toLowerCase().replace(/\s+/g, '')));
         const tradingPicksIds = new Set(tradingPicks.map(p => String(p.fixtureId || '')));
 
         const todayLiveMatches = allMatches.filter(m => {
@@ -3193,10 +3157,9 @@ function initLiveHubListener() {
             const isLive = ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes((m.status || '').toUpperCase());
             const isMajorLeague = !m.leagueId || MAJOR_LEAGUES.includes(m.leagueId);
 
-            // Match must also be a trading pick
-            const matchNameNorm = (m.matchName || '').toLowerCase().replace(/\s+/g, '');
+            // Match must also be a trading pick - 🇨🇭 ID-ONLY MATCHING
             const fid = String(m.fixtureId || '');
-            const isTradingMatch = tradingPicksNames.has(matchNameNorm) || tradingPicksIds.has(fid);
+            const isTradingMatch = tradingPicksIds.has(fid);
 
             return isToday && isLive && isMajorLeague && isTradingMatch;
         });
@@ -3254,7 +3217,7 @@ function renderStrategies() {
     const children = [];
 
     // 1. TOP LIVE (Emerald/Teal) -> TRADING
-    children.push(createBigBucketBox('top_live', '🚀 TRADING', countTopLive, 'bg-gradient-to-br from-emerald-500 to-teal-600', '📡', true));
+    children.push(createBigBucketBox('top_live', '🚀 TRADING', countTopLive, 'bg-gradient-to-br from-emerald-500 to-teal-600', '📡', true, topLiveStrat?.matches || []));
 
     // 2. ITALIA (Azzurro Premium)
     children.push(createBigBucketBox('italia', '🇮🇹 Italia', countItalia, 'bg-gradient-to-br from-blue-600 to-indigo-800', '🇮🇹'));
@@ -3281,7 +3244,7 @@ function renderStrategies() {
     });
 }
 
-function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false) {
+function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false, topMatches = []) {
     const div = document.createElement('div');
     // LONG RECTANGULAR LAYOUT: Reduced padding-y (p-4 instead of p-6) and changed border radius
     div.className = `${gradient} text-white rounded-2xl p-5 shadow-lg w-full text-left relative overflow-hidden transition-all active:scale-[0.98] cursor-pointer border border-white/20 mb-1 flex items-center justify-between group`;
@@ -3290,9 +3253,9 @@ function createBigBucketBox(id, title, count, gradient, icon, isTopLive = false)
     if (isTopLive) {
         const liveHubMap = window.liveScoresHub || {};
         const LIVE_STATUSES = ['1H', '2H', 'HT', 'LIVE', 'ET', 'P'];
-        const topMatches = window.strategiesData?.['top_del_giorno']?.matches || [];
         const hasLive = topMatches.some(am => {
-            const hubMatch = liveHubMap[am.id] || Object.values(liveHubMap).find(h => h.matchName === am.partita || h.fixtureId === am.fixtureId);
+            const fid = String(am.fixtureId || "");
+            const hubMatch = fid ? liveHubMap[fid] : null;
             return hubMatch && LIVE_STATUSES.includes((hubMatch.status || '').toUpperCase());
         });
 
@@ -3430,7 +3393,9 @@ function createTopDelGiornoBox() {
     const hubMatches = Object.values(liveHubMap);
     const LIVE_STATUSES = ['1H', '2H', 'HT', 'LIVE', 'ET', 'P'];
     const hasLive = adminMatches.some(am => {
-        const hubMatch = liveHubMap[am.id] || hubMatches.find(h => h.matchName === am.partita || h.fixtureId === am.fixtureId);
+        const fid = String(am.fixtureId || "");
+        if (!fid) return false;
+        const hubMatch = liveHubMap[fid];
         if (!hubMatch) return false;
         const status = (hubMatch.status || '').toUpperCase();
         return LIVE_STATUSES.includes(status);

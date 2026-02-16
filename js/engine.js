@@ -414,6 +414,13 @@ function analyzeLeaguePerformance(dbCompleto) {
 }
 
 function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
+    // 🔥 PERFORMANCE CACHE: Avoid recalculating stats for same team/tip combination
+    const cacheKey = `${teamName}|${tip}|${teamId || ''}`;
+    if (!window.TEAM_STATS_CACHE) window.TEAM_STATS_CACHE = new Map();
+    if (window.TEAM_STATS_CACHE.has(cacheKey)) {
+        return window.TEAM_STATS_CACHE.get(cacheKey);
+    }
+
     if (!dbCompleto || dbCompleto.length === 0) {
         return {
             color: 'black', stats: '', count: 0, total: 0, percentage: 0, penalty: 0, scoreValue: 0, details: '',
@@ -767,7 +774,7 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
     // Details string
     const details = detailsArray.length > 0 ? detailsArray.join(', ') : '';
 
-    return {
+    const finalStats = {
         color: color,
         stats: `(${successCount}/${relevantMatches.length})`,
         count: successCount,
@@ -777,6 +784,13 @@ function analyzeTeamStats(teamName, isHome, tip, dbCompleto, teamId = null) {
         scoreValue: scoreValue,
         details: details
     };
+
+    // Cache the result
+    if (window.TEAM_STATS_CACHE) {
+        window.TEAM_STATS_CACHE.set(cacheKey, finalStats);
+    }
+
+    return finalStats;
 }
 
 // Analizza tasso pareggi storico per una squadra
@@ -934,8 +948,8 @@ function createLayTheDrawStrategy(match, avgDrawRate, homeDrawRate, awayDrawRate
 
     return {
         ...match,
-        _originalTip: match.tip,
-        _originalQuota: match.quota,
+        _originalTip: match.originalDBTip || match.tip || 'Magia AI',
+        _originalQuota: match.originalDBQuota || match.quota || 1.25,
         strategy: 'LAY_THE_DRAW',
         tradingInstruction: {
             action: 'Lay The Draw',
@@ -1074,8 +1088,8 @@ function createBackOver25Strategy(match, htProb, allMatches, forcedConfidence = 
 
     return {
         ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
+        _originalTip: match.originalDBTip || match.tip || 'Magia AI',
+        _originalQuota: match.originalDBQuota || match.quota || 1.25,
         strategy: 'BACK_OVER_25',
         tradingInstruction: {
             action: 'Back Over 2.5',
@@ -1110,7 +1124,7 @@ function createBackOver25Strategy(match, htProb, allMatches, forcedConfidence = 
 function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
     const magicData = match.magicStats;
     const badges = magicData?.motivationBadges || [];
-    const isTitleRace = badges.includes('🏆 Corsa Titolo');
+    const isTitleRace = badges.some(b => (b.label || "").includes('🏆') || b.type === 'TITOLO');
 
     // Dimamizza Entry & Stop Loss
     let entryTiming = 'Minuto 15-20';
@@ -1121,8 +1135,8 @@ function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
 
     return {
         ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
+        _originalTip: match.originalDBTip || match.tip || 'Magia AI',
+        _originalQuota: match.originalDBQuota || match.quota || 1.25,
         strategy: 'HT_SNIPER',
         tradingInstruction: {
             action: 'Back Over 0.5 HT',
@@ -1155,7 +1169,7 @@ function createHTSniperStrategy(match, htProb, forcedConfidence = null) {
 function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = null) {
     const prob = match.magicStats?.prob || match.probabilita || 65;
     const badges = match.magicStats?.motivationBadges || [];
-    const isRelegation = badges.includes('🆘 Lotta Salvezza');
+    const isRelegation = badges.some(b => (b.label || "").includes('🆘') || b.type === 'SALVEZZA');
 
     // Dinamizza Entry
     let timing = 'Minuto 55-65';
@@ -1163,8 +1177,8 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
 
     return {
         ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
+        _originalTip: match.originalDBTip || match.tip || 'Magia AI',
+        _originalQuota: match.originalDBQuota || match.quota || 1.25,
         strategy: 'SECOND_HALF_SURGE',
         tradingInstruction: {
             action: 'Back Over 0.5 ST',
@@ -1184,7 +1198,7 @@ function createSecondHalfSurgeStrategy(match, allMatches, forcedConfidence = nul
         confidence: forcedConfidence || Math.min(95, prob),
         reasoning: `Match ad alta intensità statistica (${prob}%). ` +
             (isRelegation ? "Possibile sblocco tardivo dovuto alla tensione salvezza." : "Ottimo per sfruttare il calo delle quote tra il min 60 e 80."),
-        internalBrief: `DETTAGLIO TECNICO SECOND HALF SURGE: Probabilità ${prob}% | Badges: ${badges.join(', ')}. Focus su squadre con alta produzione nel finale di partita.`,
+        internalBrief: `DETTAGLIO TECNICO SECOND HALF SURGE: Confidenza AI ${forcedConfidence || Math.min(95, prob)}% | Badges: ${badges.map(b => b.label || b.type || JSON.stringify(b)).join(', ')}. Focus su squadre con alta produzione nel finale di partita.`,
         badge: {
             text: '🔥 SEC HALF SURGE',
             color: 'bg-orange-600 text-white border-orange-700 shadow-sm'
@@ -1199,8 +1213,8 @@ function createUnder35TradingStrategy(match, forcedConfidence = null) {
     const under35Prob = match.magicStats?.under35 || match.probabilita || 70;
     return {
         ...match,
-        _originalTip: match.tip || 'N/A',
-        _originalQuota: match.quota || 'N/A',
+        _originalTip: match.originalDBTip || match.tip || 'Magia AI',
+        _originalQuota: match.originalDBQuota || match.quota || 1.25,
         strategy: 'UNDER_35_SCALPING',
         tradingInstruction: {
             action: 'Under 3.5 Scalping',
@@ -1280,9 +1294,9 @@ function transformToTradingStrategy(match, allMatches) {
     const eloDiff = magicData?.eloDiff || 0;
     const badges = magicData?.motivationBadges || [];
     const hasMotivation = badges.length > 0;
-    const isDirectClash = badges.includes('⚔️ Scontro Diretto');
-    const isTitleRace = badges.includes('🏆 Corsa Titolo');
-    const isRelegationFight = badges.includes('🆘 Lotta Salvezza');
+    const isDirectClash = badges.some(b => (b.label || "").includes('⚔️') || b.type === 'SCONTRO');
+    const isTitleRace = badges.some(b => (b.label || "").includes('🏆') || b.type === 'TITOLO');
+    const isRelegationFight = badges.some(b => (b.label || "").includes('🆘') || b.type === 'SALVEZZA');
 
     const strategies = [];
 
@@ -1492,12 +1506,12 @@ function transformToTradingStrategy(match, allMatches) {
     const bestStrategy = strategies[0];
 
     // 🔍 DEBUG ELITE: Log finale per l'utente sui pesi del ranking
-    console.log(`[Elite Debug] Rank Finale per ${match.partita}:`);
+    L(`[Elite Debug] Rank Finale per ${match.partita}:`);
     strategies.forEach((s, idx) => {
         const isProf = ['BACK_OVER_25', 'LAY_THE_DRAW', 'ELITE_SURGE', 'SECOND_HALF_SURGE'].includes(s.type);
-        console.log(`  ${idx + 1}. ${s.type} | Conf: ${s.confidence}% | Professional: ${isProf}`);
+        L(`  ${idx + 1}. ${s.type} | Conf: ${s.confidence}% | Professional: ${isProf}`);
     });
-    console.log(`  🏆 Vincitore: ${bestStrategy.type} (${bestStrategy.confidence}%)`);
+    L(`  🏆 Vincitore: ${bestStrategy.type} (${bestStrategy.confidence}%)`);
 
     // Crea e ritorna la strategia vincente - PASSA LA CONFIDENCE PESATA
     const result = bestStrategy.create(bestStrategy.confidence);
@@ -1507,7 +1521,7 @@ function transformToTradingStrategy(match, allMatches) {
         const eloDiffValue = Math.round(eloDiff);
 
         // 1. Sintesi per la Card (Veloce, "Bodywork")
-        const badgeList = badges.map(b => typeof b === 'object' ? (b.text || JSON.stringify(b)) : b).join(', ');
+        const badgeList = badges.map(b => b.label || b.type || (typeof b === 'object' ? JSON.stringify(b) : b)).join(', ');
         result.expertNarrative = `${result.reasoning} ${badgeList.length > 0 ? `Contesto: ${badgeList}.` : ''}`;
 
         // 2. Briefing Tecnico per euGENIO (Il "Motore" profondo)
@@ -1559,7 +1573,7 @@ function calculateAllTradingStrategies(match, allMatches) {
 
     // Prep Briefing data
     const badgesRaw = magicData?.motivationBadges || [];
-    const badges = badgesRaw.map(b => typeof b === 'object' ? (b.text || JSON.stringify(b)) : b);
+    const badges = badgesRaw.map(b => b.label || b.type || JSON.stringify(b));
     const eloDiff = Math.round(magicData?.eloDiff || 0);
     const briefingBase = `\n- Autorevolezza Tecnica (Gap): ${eloDiff}\n- Segnali: ${badges.join(', ') || 'Nessuno'}\n- Probabilità HT: ${Math.round(htProb)}%`;
 
@@ -1580,8 +1594,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
                 expertNarrative: `${s.reasoning} ${badges.length > 0 ? 'Analisi motivazionale attiva.' : ''}`,
-                internalBrief: `BRIEFING TECNICO: Back Over 2.5. ${briefingBase}\nRazionale: ${s.reasoning}`,
-                tradingInstruction: s.tradingInstruction
+                internalBrief: `BRIEFING TECNICO: Back Over 2.5 (Confidenza ${conf}%). ${briefingBase}\nRazionale: ${s.reasoning || ''}`,
+                tradingInstruction: s.tradingInstruction || null
             });
         }
     }
@@ -1592,12 +1606,12 @@ function calculateAllTradingStrategies(match, allMatches) {
         const awayDrawRate = analyzeDrawRate(teams[1].trim(), allMatches, match.teamIdAway);
         const avgHistDraw = (homeDrawRate.rate + awayDrawRate.rate) / 2;
         const mcDrawProb = magicData?.drawProb || magicData?.draw || 30;
-        const isBiscottoRisk = (badges.includes('⚔️ Scontro Diretto') && mcDrawProb > 33);
+        const isBiscottoRisk = (badgesRaw.some(b => (b.label || "").includes('⚔️') || b.type === 'SCONTRO') && mcDrawProb > 33);
 
         if ((mcDrawProb < 35 || avgHistDraw < 35) && !isBiscottoRisk) {
             // v3.1: Normalized LTD confidence (reduced base bonus from +15 to +5 to allow competition)
             let conf = Math.round(100 - ((mcDrawProb * 0.7) + (avgHistDraw * 0.3))) + 5;
-            if (badges.includes('🆘 Lotta Salvezza')) conf += 5;
+            if (badgesRaw.some(b => (b.label || "").includes('🆘') || b.type === 'SALVEZZA')) conf += 5;
 
             const s = createLayTheDrawStrategy(match, avgHistDraw, homeDrawRate, awayDrawRate, mcDrawProb < 25 && avgHistDraw < 28, Math.min(95, conf));
             if (s) {
@@ -1609,8 +1623,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                     exitTarget: s.tradingInstruction?.exit || null,
                     reasoning: s.reasoning || null,
                     expertNarrative: `${s.reasoning} Analisi gap tecnico inclusa.`,
-                    internalBrief: `BRIEFING TECNICO: Lay The Draw. ${briefingBase}\n- Draw Prob (MC): ${Math.round(mcDrawProb)}%\n- Storico Pari: ${Math.round(avgHistDraw)}%\nRazionale: ${s.reasoning}`,
-                    tradingInstruction: s.tradingInstruction
+                    internalBrief: `BRIEFING TECNICO: Lay The Draw. ${briefingBase}\n- Draw Prob (MC): ${Math.round(mcDrawProb)}%\n- Storico Pari: ${Math.round(avgHistDraw)}%\nRazionale: ${s.reasoning || ''}`,
+                    tradingInstruction: s.tradingInstruction || null
                 });
             }
         }
@@ -1620,7 +1634,7 @@ function calculateAllTradingStrategies(match, allMatches) {
     // v3.0: Lowered threshold (score 50 instead of 55, prob 45 instead of 50) to allow more variety
     if (score >= 50 && prob >= 45) {
         let conf = Math.min(95, Math.round((score * 0.5) + (prob * 0.3) + 15) + 10);
-        if (badges.includes('🆘 Lotta Salvezza')) conf += 7;
+        if (badgesRaw.some(b => (b.label || "").includes('🆘') || b.type === 'SALVEZZA')) conf += 7;
 
         const s = createSecondHalfSurgeStrategy(match, allMatches, conf);
         if (s) {
@@ -1632,8 +1646,8 @@ function calculateAllTradingStrategies(match, allMatches) {
                 exitTarget: s.tradingInstruction?.exit || null,
                 reasoning: s.reasoning || null,
                 expertNarrative: `${s.reasoning} Attesa spinta offensiva.`,
-                internalBrief: `BRIEFING TECNICO: Second Half Surge. ${briefingBase}\n- Value Score: ${Math.round(score)}\n- Prob Totale: ${Math.round(prob)}%\nRazionale: ${s.reasoning}`,
-                tradingInstruction: s.tradingInstruction
+                internalBrief: `BRIEFING TECNICO: Second Half Surge. ${briefingBase}\n- Value Score: ${Math.round(score)}\n- Prob Totale: ${Math.round(prob)}%\nRazionale: ${s.reasoning || ''}`,
+                tradingInstruction: s.tradingInstruction || null
             });
         }
     }
@@ -1662,7 +1676,7 @@ function calculateAllTradingStrategies(match, allMatches) {
     const htGoalProb = magicData?.htGoalProb || htProb;
     // v3.0: Lowered threshold (htProb 60 instead of 65)
     if (htProb >= 60 || htGoalProb >= 60) {
-        let conf = Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (badges.includes('🏆 Corsa Titolo') ? 5 : 0));
+        let conf = Math.min(95, Math.round(Math.max(htProb, htGoalProb)) + (badgesRaw.some(b => (b.label || "").includes('🏆') || b.type === 'TITOLO') ? 5 : 0));
         // v3.0: Rimosso il -25 penalty per permettere a HT Sniper di competere con le professionali
         conf = Math.max(40, conf);
 
@@ -1938,6 +1952,7 @@ function simulateMatch(lambdaHome, lambdaAway, iterations = 10000, seedString = 
         dcX2: Math.round((results.dcX2 / sumWeights) * 100),
         dc12: Math.round((results.dc12 / sumWeights) * 100),
         over15: Math.round((results.over15 / sumWeights) * 100),
+        over25: Math.round((results.over25 / sumWeights) * 100), // 🔥 RIPRISTINATO
         under35: Math.round((results.under35 / sumWeights) * 100),
         ht05: Math.round((results.ht05 / sumWeights) * 100), // 🔥 NEW
         btts: Math.round((results.btts / sumWeights) * 100),
@@ -1990,7 +2005,7 @@ function generateMagiaAI(matches, allMatchesHistory) {
         // Ensure magicStats exists (it should from Step 1)
         if (!match.magicStats) {
             // 🔥 DEBUG: Log missing magicStats
-            console.log(`[Magia AI] Skip: ${match.partita} - NO magicStats (Step 1 non eseguito o non salvato)`);
+            L(`[Magia AI] Skip: ${match.partita} - NO magicStats (Step 1 non eseguito o non salvato)`);
             return;
         }
 
@@ -2015,7 +2030,7 @@ function generateMagiaAI(matches, allMatchesHistory) {
             parseFloat(match.quota2) > 1;
 
         if (!hasRealApiOdds) {
-            console.log(`[Magia AI] Note: ${match.partita} - Using estimated odds (No real API odds found)`);
+            L(`[Magia AI] Note: ${match.partita} - Using estimated odds (No real API odds found)`);
         }
 
         // MAP ALL SIGNALS
@@ -2527,11 +2542,11 @@ function getMagiaStats(match, allMatchesHistory) {
 
     if (candidates.length > 0) {
         bestPick = candidates[0];
-        console.log(`[Engine] 🔮 Magia Firba Selected: ${bestPick.label} (Prob: ${bestPick.prob}%, Odd: ${bestPick.odd})`);
+        L(`[Engine] 🔮 Magia Firba Selected: ${bestPick.label} (Prob: ${bestPick.prob}%, Odd: ${bestPick.odd})`);
     } else {
         // Absolute Fallback: lowest odd available among standard signals
         bestPick = [...allSignals].sort((a, b) => a.odd - b.odd)[0];
-        console.log(`[Engine] ⚠️ Fallback to Lowest Odd: ${bestPick.label}`);
+        L(`[Engine] ⚠️ Fallback to Lowest Odd: ${bestPick.label}`);
     }
 
     // 🔥 Add Trust & Mode Info to output (Already in return object)
@@ -2584,8 +2599,8 @@ function getMagiaStats(match, allMatchesHistory) {
         })(),
         confidence: bestPick.prob,
         probMagiaAI: bestPick.prob, // 🆕 NORMALIZZATO
-        score: bestPick.prob,
-        smartScore: bestPick.prob,   // 🆕 NORMALIZZATO
+        score: bestPick.prob,       // 🔥 OBBLIGATORIO PER STEP 3
+        smartScore: bestPick.prob,  // 🆕 NORMALIZZATO
 
         // Formato descrittivo per PWA
         pickDescription: `Magia AI rileva alta probabilità per mercato ${bestPick.type}: ${bestPick.label}`,
