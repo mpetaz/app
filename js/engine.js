@@ -1,4 +1,5 @@
 console.log('%c[Elite Engine 4.0] Logic Loaded | Professional First Active', 'color: #00ff00; font-weight: bold; background: #000; padding: 5px;');
+const L = console.log; // 🔥 FIX: Alias per logging rapido
 // ==================== CONFIGURATION & CONSTANTS ====================
 // Now using global STRATEGY_CONFIG from js/config.js
 

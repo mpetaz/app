@@ -1029,7 +1029,7 @@ async function loadLeagueTrust(db) {
             trustMap[key] = docSnap.data();
         });
         window.LEAGUE_TRUST = trustMap;
-        L(`[Trust] Loaded ${Object.keys(trustMap).length} league trust scores`);
+        console.log(`[Trust] Loaded ${Object.keys(trustMap).length} league trust scores`);
         return trustMap;
     } catch (e) {
         console.error("[Trust] Load Error:", e);

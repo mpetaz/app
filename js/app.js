@@ -3486,8 +3486,11 @@ window.showRanking = function (stratId, data, sortMode = 'confidence') {
         filtered = filtered.filter(m => (m.lega || '').toLowerCase().startsWith('eu-ita'));
     } else if (stratId === 'europa') {
         filtered = filtered.filter(m => {
-            const l = m.lega || '';
-            return l.toLowerCase().startsWith('eu-') && !l.toLowerCase().startsWith('eu-ita');
+            const l = (m.lega || '').toLowerCase();
+            const lid = parseInt(m.leagueId);
+            // 🏟️ SOCIO: Se è una coppa europea (ID 2, 3, 848), la mettiamo in Europa anche se è "INT-"
+            const isEuroCup = [2, 3, 848].includes(lid);
+            return (l.startsWith('eu-') && !l.startsWith('eu-ita')) || isEuroCup;
         });
     } else if (stratId === 'mondo') {
         filtered = filtered.filter(m => (m.lega || '') !== '' && !(m.lega || '').toLowerCase().startsWith('eu-') && !(m.lega || '').toLowerCase().startsWith('af-'));
@@ -3963,8 +3966,10 @@ Quando analizzi dati live(DA, SOG, xG), focalizzati su:
 1. Pressione offensiva(Goal Cooking).
 2. Valore della quota rispetto al tempo rimanente.
 3. Consigli operativi secchi(Entra, Resta, Cashout).
-4. **ELO & Motivazione**: Spiega i gap tecnici (ELO Diff) e la "fame di punti" (Badges Titolo/Salvezza).
-5. **Anti-Black Swan**: Sei nemico giurato delle quote "esca"(sotto 1.25). Portano rischio inutile.`;
+4. **Navigazione & Coppe**: Spiega al Socio che le grandi competizioni europee (Champions, Europa e Conference League) sono ora integrate stabilmente nel box Europa per rendere tutto più ordinato.
+5. **Privacy & Sicurezza**: Rassicura il Socio che i suoi dati storici sono trattati con la massima riservatezza e rimangono protetti nel suo spazio privato, sincronizzando solo le informazioni necessarie alla PWA.
+6. **ELO & Motivazione**: Spiega i gap tecnici e la "fame di punti" (Badges Titolo/Salvezza).
+7. **Anti-Black Swan**: Sei nemico giurato delle quote "esca"(sotto 1.25). Portano rischio inutile.`;
 
         let strategiesText = Object.entries(strategies)
             .map(([id, s]) => {
@@ -4890,7 +4895,19 @@ window.populateAccountPage = async function () {
                 id === 'notify-goal' ? 'notifyGoal' :
                     id === 'notify-result' ? 'notifyResult' : 'notifyLive';
             try {
+                // 1. Aggiorna Firestore
                 await setDoc(doc(db, "users", window.currentUser.uid), { [dbField]: e.target.checked }, { merge: true });
+
+                // 2. 🔥 Update local profile to ensure syncAllFavorites uses new values
+                if (window.currentUserProfile) {
+                    window.currentUserProfile[dbField] = e.target.checked;
+                }
+
+                // 3. 🛰️ Instant Sync: Update all already starred matches in match_subscribers collection
+                if (window.syncAllFavoritesToSubscribers) {
+                    await window.syncAllFavoritesToSubscribers();
+                    console.log(`[Telegram] Flag ${dbField} sync-all completed.`);
+                }
             } catch (err) { console.error(err); }
         });
     });
@@ -4923,9 +4940,11 @@ function applyInternalFiltering(matches, filter) {
 
     if (filter === 'coppe') {
         const coppeKeywords = ['Champions League', 'Europa League', 'Conference League', 'UCL', 'UEL', 'Conference'];
+        const coppeIds = [2, 3, 848]; // 🔥 SOCIO: Champions, Europa, Conference League
         return matches.filter(m => {
             const l = (m.lega || '').toLowerCase();
-            return coppeKeywords.some(kw => l.includes(kw.toLowerCase()));
+            const lid = parseInt(m.leagueId);
+            return coppeKeywords.some(kw => l.includes(kw.toLowerCase())) || coppeIds.includes(lid);
         });
     }
 
